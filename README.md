@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="_12b96d69-4028-4231-8a2c-71dfdb849d66.jpeg"  width="33%">
+  <img src=".media/logo.jpeg"  width="33%">
 </p>
 
 # OuroborosDB
