@@ -1,0 +1,3 @@
+server: localhost
+port: 4242
+servingPort: 4243
