@@ -18,7 +18,7 @@ import (
 
 type EventData struct {
 	Key  string
-	Type string // "md", "mp3", "webp", "json"
+	Type string
 	Data []byte
 }
 
