@@ -1,7 +1,12 @@
 package storageService
 
 import (
+	"OuroborosDB/pkg/buzhashChunker"
+	"OuroborosDB/pkg/keyValStore"
+	"bytes"
 	"crypto/sha512"
+	"encoding/gob"
+	"log"
 	"time"
 )
 
@@ -15,15 +20,15 @@ type EventChainItem struct {
 	Temporary         bool     // no non-Temporary event can have a Temporary event as Parent, Temporary events will be removed after some conditions are met, if one deletes a Temporary event all its children will be deleted too
 }
 
-func CreateNewEventChain(metaData [][64]byte, contentHashes [][64]byte) {
+func CreateNewEventChain(kv keyValStore.KeyValStore, eventChainTitle string, contentHashes [][64]byte) {
 	// Create a new EventChainItem
 	item := EventChainItem{
 		Level:             time.Now().UnixNano(),
 		ContentMetaHash:   [64]byte{},
 		ContentHashes:     contentHashes,
-		MetadataHashes:    metaData,
+		MetadataHashes:    StoreDataInChunkStore(kv, []byte(eventChainTitle)),
 		HashOfParentEvent: [64]byte{},
-		HashOfSourceEvent: sha512.Sum512([]byte("StartEventChain")),
+		HashOfSourceEvent: [64]byte{},
 		Temporary:         false,
 	}
 
@@ -31,7 +36,16 @@ func CreateNewEventChain(metaData [][64]byte, contentHashes [][64]byte) {
 
 	PrettyPrintEventChainItem(item)
 
-	// Add to Key-Value store
+	// Serialize the EventChainItem using gob
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	if err := enc.Encode(item); err != nil {
+		log.Fatalf("Error encoding item: %v", err)
+	}
+
+	// Write the EventChainItem to the keyValStore
+	key := append([]byte("EventChainItem:"), item.ContentMetaHash[:]...)
+	kv.Write(key, buf.Bytes())
 }
 
 func createContentMetaHash(item EventChainItem) [64]byte {
@@ -54,4 +68,20 @@ func createContentMetaHash(item EventChainItem) [64]byte {
 	}
 
 	return sha512.Sum512(buffer)
+}
+
+func StoreDataInChunkStore(kv keyValStore.KeyValStore, data []byte) [][64]byte {
+	chunks, err := buzhashChunker.ChunkBytes(data)
+	if err != nil {
+		log.Fatalf("Error chunking data: %v", err)
+		return nil
+	}
+
+	keys := make([][64]byte, 0)
+
+	for _, chunk := range chunks {
+		kv.Write(chunk.Hash[:], chunk.Chunk)
+	}
+
+	return keys
 }
