@@ -63,5 +63,6 @@ func PrettyPrintEventChainItem(item EventChainItem) {
 		fmt.Println("Error marshalling EventChainItem to JSON:", err)
 		return
 	}
-	fmt.Printf("%d\n", string(jsonBytes))
+
+	fmt.Println(string(jsonBytes))
 }

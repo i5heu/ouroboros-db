@@ -2,13 +2,12 @@ package storageService
 
 import (
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 )
 
 func (item EventChainItem) MarshalJSON() ([]byte, error) {
-	type Alias EventChainItem
-	return json.Marshal(&struct {
+	return json.MarshalIndent(&struct {
 		Level             int64    `json:"level"`
 		ContentMetaHash   string   `json:"contentMetaHash"`
 		ContentHashes     []string `json:"contentHashes"`
@@ -16,23 +15,21 @@ func (item EventChainItem) MarshalJSON() ([]byte, error) {
 		HashOfParentEvent string   `json:"hashOfParentEvent"`
 		HashOfSourceEvent string   `json:"hashOfSourceEvent"`
 		Temporary         bool     `json:"temporary"`
-		*Alias
 	}{
 		Level:             item.Level,
-		ContentMetaHash:   base64.StdEncoding.EncodeToString(item.ContentMetaHash[:]),
+		ContentMetaHash:   hex.EncodeToString(item.ContentMetaHash[:]),
 		ContentHashes:     convertHashArrayToStrings(item.ContentHashes),
 		MetadataHashes:    convertHashArrayToStrings(item.MetadataHashes),
-		HashOfParentEvent: base64.StdEncoding.EncodeToString(item.HashOfParentEvent[:]),
-		HashOfSourceEvent: base64.StdEncoding.EncodeToString(item.HashOfSourceEvent[:]),
+		HashOfParentEvent: hex.EncodeToString(item.HashOfParentEvent[:]),
+		HashOfSourceEvent: hex.EncodeToString(item.HashOfSourceEvent[:]),
 		Temporary:         item.Temporary,
-		Alias:             (*Alias)(&item),
-	})
+	}, "", "    ") // The "" can be any prefix, and "    " sets the indent to four spaces
 }
 
 func convertHashArrayToStrings(hashes [][64]byte) []string {
 	strs := make([]string, len(hashes))
 	for i, hash := range hashes {
-		strs[i] = base64.StdEncoding.EncodeToString(hash[:])
+		strs[i] = hex.EncodeToString(hash[:])
 	}
 	return strs
 }
