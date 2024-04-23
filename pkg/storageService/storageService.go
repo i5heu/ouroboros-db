@@ -2,7 +2,6 @@ package storageService
 
 import (
 	"crypto/sha512"
-	"fmt"
 	"time"
 )
 
@@ -55,14 +54,4 @@ func createContentMetaHash(item EventChainItem) [64]byte {
 	}
 
 	return sha512.Sum512(buffer)
-}
-
-func PrettyPrintEventChainItem(item EventChainItem) {
-	jsonBytes, err := item.MarshalJSON()
-	if err != nil {
-		fmt.Println("Error marshalling EventChainItem to JSON:", err)
-		return
-	}
-
-	fmt.Println(string(jsonBytes))
 }

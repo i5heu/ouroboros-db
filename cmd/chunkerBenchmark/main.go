@@ -63,7 +63,7 @@ func main() {
 
 	// repeat 10 times in a row
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 1; i++ {
 		cleanDB(db)
 	}
 

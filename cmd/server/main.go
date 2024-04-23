@@ -1,14 +1,21 @@
 package main
 
 import (
-	"OuroborosDB/internal/config"
-	"OuroborosDB/pkg/ouroborosMQ"
-	"fmt"
+	"OuroborosDB/pkg/keyValStore"
+	"path/filepath"
 )
 
 func main() {
-	conf := config.GetConfig()
-	fmt.Println("Starting Services...")
+	keyValStore := keyValStore.NewKeyValStore()
 
-	ouroborosMQ.StartServer(conf)
+	keyValStore.Start([]string{toAbsolutePath("./tmp"), toAbsolutePath("/mnt/volume-nbg1-1/tmp")}, 1)
+}
+
+func toAbsolutePath(relativePathOrAbsolute string) string {
+	absolutePath, err := filepath.Abs(relativePathOrAbsolute)
+	if err != nil {
+		// handle error
+		return ""
+	}
+	return absolutePath
 }

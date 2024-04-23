@@ -1,9 +1,9 @@
 package storageService
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 )
 
 func (item EventChainItem) MarshalJSON() ([]byte, error) {
@@ -34,19 +34,12 @@ func convertHashArrayToStrings(hashes [][64]byte) []string {
 	return strs
 }
 
-func generateRandomHash() [64]byte {
-	var hash [64]byte
-	_, err := rand.Read(hash[:])
+func PrettyPrintEventChainItem(item EventChainItem) {
+	jsonBytes, err := item.MarshalJSON()
 	if err != nil {
-		panic(err)
+		fmt.Println("Error marshalling EventChainItem to JSON:", err)
+		return
 	}
-	return hash
-}
 
-func generateRandomHashes(n int) [][64]byte {
-	hashes := make([][64]byte, n)
-	for i := range hashes {
-		hashes[i] = generateRandomHash()
-	}
-	return hashes
+	fmt.Println(string(jsonBytes))
 }
