@@ -6,8 +6,21 @@ import (
 	"fmt"
 )
 
+func (indexItem EventChains) MarshalJSON() ([]byte, error) {
+	return json.MarshalIndent(&struct {
+		Key   string `json:"key"`
+		Title string `json:"title"`
+		Level int64  `json:"level"`
+	}{
+		Key:   hex.EncodeToString(indexItem.Key),
+		Title: indexItem.Title,
+		Level: indexItem.Level,
+	}, "", "    ") // The "" can be any prefix, and "    " sets the indent to four spaces
+}
+
 func (item EventChainItem) MarshalJSON() ([]byte, error) {
 	return json.MarshalIndent(&struct {
+		Key               string   `json:"key"`
 		Level             int64    `json:"level"`
 		ContentMetaHash   string   `json:"contentMetaHash"`
 		ContentHashes     []string `json:"contentHashes"`
@@ -16,8 +29,9 @@ func (item EventChainItem) MarshalJSON() ([]byte, error) {
 		HashOfSourceEvent string   `json:"hashOfSourceEvent"`
 		Temporary         bool     `json:"temporary"`
 	}{
+		Key:               string(item.Key),
 		Level:             item.Level,
-		ContentMetaHash:   hex.EncodeToString(item.ContentMetaHash[:]),
+		ContentMetaHash:   hex.EncodeToString(item.DetailsMetaHash[:]),
 		ContentHashes:     convertHashArrayToStrings(item.ContentHashes),
 		MetadataHashes:    convertHashArrayToStrings(item.MetadataHashes),
 		HashOfParentEvent: hex.EncodeToString(item.HashOfParentEvent[:]),

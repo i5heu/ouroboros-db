@@ -56,7 +56,7 @@ func (k *KeyValStore) startKeyValStore() error {
 	return nil
 }
 
-func (k *KeyValStore) Write(key []byte, content []byte) {
+func (k *KeyValStore) Write(key []byte, content []byte) error {
 	err := k.badgerDB.Update(func(txn *badger.Txn) error {
 		err := txn.Set(key, content)
 		return err
@@ -64,6 +64,7 @@ func (k *KeyValStore) Write(key []byte, content []byte) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	return err
 }
 
 func (k *KeyValStore) Read(key []byte) ([]byte, error) {

@@ -7,18 +7,18 @@ import (
 	"log"
 )
 
-type IndexEvents struct {
+type EventChains struct {
 	Key   []byte
 	Title string
 	Level int64
 }
 
-func GetListOfIndexEvents(kv keyValStore.KeyValStore) []IndexEvents {
+func GetListOfIndexEvents(kv keyValStore.KeyValStore) []EventChains {
 
-	indexEvents := []IndexEvents{}
+	indexEvents := []EventChains{}
 
 	// Get all keys from the keyValStore
-	keys := kv.GetKeysWithPrefix([]byte("EventChainItem:"))
+	keys := kv.GetKeysWithPrefix([]byte("TopEventChainItem:"))
 
 	// Iterate over all keys and print the keys
 	for _, key := range keys {
@@ -47,7 +47,7 @@ func GetListOfIndexEvents(kv keyValStore.KeyValStore) []IndexEvents {
 			metadata += string(value)
 		}
 
-		indexEvents = append(indexEvents, IndexEvents{Key: key, Title: metadata, Level: item.Level})
+		indexEvents = append(indexEvents, EventChains{Key: key, Title: metadata, Level: item.Level})
 	}
 
 	return indexEvents

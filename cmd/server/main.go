@@ -18,7 +18,12 @@ func main() {
 
 	indexItems := storageService.GetListOfIndexEvents(*keyValStore)
 	for _, item := range indexItems {
-		fmt.Printf("Key: %v, Title: %v, Level: %v\n", item.Key, item.Title, item.Level)
+		jsonBytes, err := item.MarshalJSON()
+		if err != nil {
+			fmt.Println("Error marshalling IndexEvents to JSON:", err)
+			return
+		}
+		fmt.Println(string(jsonBytes))
 	}
 }
 
