@@ -162,7 +162,7 @@ func (ss *Service) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 		keys = append(keys, [64]byte{})
 	}
 
-	err = ss.kv.WriteBatchChunk(chunks)
+	err = ss.kv.BatchWriteNonExistingChunks(chunks)
 	if err != nil {
 		log.Fatalf("Error writing chunks: %v", err)
 		return nil, err
