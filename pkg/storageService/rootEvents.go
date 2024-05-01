@@ -1,7 +1,6 @@
 package storageService
 
 import (
-	"OuroborosDB/pkg/keyValStore"
 	"bytes"
 	"encoding/gob"
 	"fmt"
@@ -16,7 +15,7 @@ type RootEventsIndex struct {
 
 // Same as Event struct in storageService.go but without some unnecessary fields
 
-func CreateRootEvent(kv keyValStore.KeyValStore, title string) (Event, error) {
+func (ss *StorageService) CreateRootEvent(title string) (Event, error) {
 	// Create a new IndexEvent
 	item := Event{
 		Key:            []byte{},
@@ -27,7 +26,7 @@ func CreateRootEvent(kv keyValStore.KeyValStore, title string) (Event, error) {
 	}
 
 	// Check if RootEvent with the same title already exists
-	otherRootEvent, err := kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
+	otherRootEvent, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return Event{}, err
@@ -38,7 +37,7 @@ func CreateRootEvent(kv keyValStore.KeyValStore, title string) (Event, error) {
 		return Event{}, fmt.Errorf("Error creating new root event: RootEvent with the same title already exists")
 	}
 
-	item.MetadataHashes, err = storeDataInChunkStore(kv, []byte(title))
+	item.MetadataHashes, err = ss.storeDataInChunkStore([]byte(title))
 	if err != nil {
 		log.Fatalf("Error storing metadata: %v", err)
 		return Event{}, err
@@ -59,17 +58,17 @@ func CreateRootEvent(kv keyValStore.KeyValStore, title string) (Event, error) {
 	}
 
 	// Write the EventChainItem to the keyValStore
-	kv.Write(item.Key, buf.Bytes())
+	ss.kv.Write(item.Key, buf.Bytes())
 
 	// define the event as entry point for the EventChain
-	kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), item.Key)
+	ss.kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), item.Key)
 
 	return item, err
 }
 
-func GetAllRootEvents(kv keyValStore.KeyValStore) ([]Event, error) {
+func (ss *StorageService) GetAllRootEvents() ([]Event, error) {
 	// Get all keys from the keyValStore
-	rootIndex, err := GetRootIndex(kv)
+	rootIndex, err := ss.GetRootIndex()
 	if err != nil {
 		log.Fatalf("Error getting root index: %v", err)
 		return nil, err
@@ -82,7 +81,7 @@ func GetAllRootEvents(kv keyValStore.KeyValStore) ([]Event, error) {
 	rootEvents := []Event{}
 
 	for _, indexItem := range rootIndex {
-		rootEvent, error := GetEvent(kv, indexItem.KeyOfEvent)
+		rootEvent, error := GetEvent(ss.kv, indexItem.KeyOfEvent)
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error
@@ -94,9 +93,9 @@ func GetAllRootEvents(kv keyValStore.KeyValStore) ([]Event, error) {
 	return rootEvents, nil
 }
 
-func GetRootIndex(kv keyValStore.KeyValStore) ([]RootEventsIndex, error) {
+func (ss *StorageService) GetRootIndex() ([]RootEventsIndex, error) {
 	// Get all keys from the keyValStore
-	rootIndex, err := kv.GetKeysWithPrefix([]byte("RootEvent:"))
+	rootIndex, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err
@@ -114,8 +113,8 @@ func GetRootIndex(kv keyValStore.KeyValStore) ([]RootEventsIndex, error) {
 	return revi, nil
 }
 
-func GetRootEventsWithTitle(kv keyValStore.KeyValStore, title string) ([]Event, error) {
-	rootKeys, err := kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
+func (ss *StorageService) GetRootEventsWithTitle(title string) ([]Event, error) {
+	rootKeys, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err
@@ -127,7 +126,7 @@ func GetRootEventsWithTitle(kv keyValStore.KeyValStore, title string) ([]Event, 
 
 	rootEvents := []Event{}
 	for _, key := range rootKeys {
-		rootEvent, error := GetEvent(kv, key[1])
+		rootEvent, error := GetEvent(ss.kv, key[1])
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error

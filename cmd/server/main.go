@@ -13,8 +13,10 @@ func main() {
 	keyValStore.Start([]string{toAbsolutePath("./tmp"), toAbsolutePath("/mnt/volume-nbg1-1/tmp")}, 1)
 	defer keyValStore.Close()
 
+	ss := storageService.NewStorageService(*keyValStore)
+
 	//get all RootEvents with the title "Files", if there are none create one
-	rootEvents, err := storageService.GetRootEventsWithTitle(*keyValStore, "Files")
+	rootEvents, err := ss.GetRootEventsWithTitle("Files")
 	if err != nil {
 		fmt.Println("Error getting list of RootEvents:", err)
 		return
@@ -23,7 +25,7 @@ func main() {
 	var rootEvent storageService.Event
 
 	if len(rootEvents) == 0 {
-		rootEvent, err = storageService.CreateRootEvent(*keyValStore, "Files")
+		rootEvent, err = ss.CreateRootEvent("Files")
 		if err != nil {
 			fmt.Println("Error creating RootEvent:", err)
 			return
@@ -35,7 +37,7 @@ func main() {
 	rootEvent.PrettyPrint()
 
 	// store a file in the keyValStore as child of the rootEvent
-	eventOfFile, err := storageService.StoreFile(*keyValStore, storageService.StoreFileOptions{
+	eventOfFile, err := ss.StoreFile(storageService.StoreFileOptions{
 		EventToAppendTo: rootEvent,
 		Metadata:        []byte("This is a file"),
 		File:            []byte("This is a file"),
@@ -48,7 +50,7 @@ func main() {
 	}
 
 	// get the file from the keyValStore
-	file, err := storageService.GetFile(*keyValStore, eventOfFile)
+	file, err := ss.GetFile(eventOfFile)
 	if err != nil {
 		fmt.Println("Error getting file:", err)
 		return

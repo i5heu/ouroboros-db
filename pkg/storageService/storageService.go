@@ -7,6 +7,10 @@ import (
 	"log"
 )
 
+type StorageService struct {
+	kv keyValStore.KeyValStore
+}
+
 type StoreFileOptions struct {
 	EventToAppendTo Event
 	Metadata        []byte
@@ -15,27 +19,33 @@ type StoreFileOptions struct {
 	FullTextSearch  bool
 }
 
+func NewStorageService(kv keyValStore.KeyValStore) StorageService {
+	return StorageService{
+		kv: kv,
+	}
+}
+
 // will store the file in the chunkStore and create new Event as child of given event
-func StoreFile(kv keyValStore.KeyValStore, options StoreFileOptions) (Event, error) {
+func (ss *StorageService) StoreFile(options StoreFileOptions) (Event, error) {
 	err := options.ValidateOptions()
 	if err != nil {
 		log.Fatalf("Error validating options: %v", err)
 		return Event{}, err
 	}
 
-	fileChunkKeys, err := storeDataInChunkStore(kv, options.File)
+	fileChunkKeys, err := ss.storeDataInChunkStore(options.File)
 	if err != nil {
 		log.Fatalf("Error storing file: %v", err)
 		return Event{}, err
 	}
 
-	metadataChunkKeys, err := storeDataInChunkStore(kv, options.Metadata)
+	metadataChunkKeys, err := ss.storeDataInChunkStore(options.Metadata)
 	if err != nil {
 		log.Fatalf("Error storing metadata: %v", err)
 		return Event{}, err
 	}
 
-	newEvent, err := CreateNewEvent(kv, EventOptions{
+	newEvent, err := CreateNewEvent(ss.kv, EventOptions{
 		ContentHashes:     fileChunkKeys,
 		MetadataHashes:    metadataChunkKeys,
 		HashOfParentEvent: options.EventToAppendTo.EventHash,
@@ -67,11 +77,11 @@ func (options *StoreFileOptions) ValidateOptions() error {
 	return nil
 }
 
-func GetFile(kv keyValStore.KeyValStore, eventOfFile Event) ([]byte, error) {
+func (ss *StorageService) GetFile(eventOfFile Event) ([]byte, error) {
 	file := []byte{}
 
 	for _, key := range eventOfFile.ContentHashes {
-		chunk, err := kv.Read(key[:])
+		chunk, err := ss.kv.Read(key[:])
 		if err != nil {
 			log.Fatalf("Error reading chunk: %v", err)
 			return nil, err
@@ -83,11 +93,11 @@ func GetFile(kv keyValStore.KeyValStore, eventOfFile Event) ([]byte, error) {
 	return file, nil
 }
 
-func GetMetadata(kv keyValStore.KeyValStore, eventOfFile Event) ([]byte, error) {
+func (ss *StorageService) GetMetadata(eventOfFile Event) ([]byte, error) {
 	metadata := []byte{}
 
 	for _, key := range eventOfFile.MetadataHashes {
-		chunk, err := kv.Read(key[:])
+		chunk, err := ss.kv.Read(key[:])
 		if err != nil {
 			log.Fatalf("Error reading chunk: %v", err)
 			return nil, err
@@ -99,7 +109,7 @@ func GetMetadata(kv keyValStore.KeyValStore, eventOfFile Event) ([]byte, error) 
 	return metadata, nil
 }
 
-func storeDataInChunkStore(kv keyValStore.KeyValStore, data []byte) ([][64]byte, error) {
+func (ss *StorageService) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 	chunks, err := buzhashChunker.ChunkBytes(data)
 	if err != nil {
 		log.Fatalf("Error chunking data: %v", err)
@@ -110,7 +120,7 @@ func storeDataInChunkStore(kv keyValStore.KeyValStore, data []byte) ([][64]byte,
 
 	for _, chunk := range chunks {
 		keys = append(keys, chunk.Hash)
-		err := kv.Write(chunk.Hash[:], chunk.Chunk)
+		err := ss.kv.Write(chunk.Hash[:], chunk.Chunk)
 		if err != nil {
 			log.Fatalf("Error writing chunk: %v", err)
 			return nil, err
