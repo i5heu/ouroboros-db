@@ -7,7 +7,6 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log"
 	"time"
 )
@@ -22,32 +21,38 @@ type Event struct {
 	HashOfParentEvent [64]byte   // the event this item is the child of
 	HashOfRootEvent   [64]byte   // the first event that marks a now EventChain
 	Temporary         bool       // no non-Temporary event can have a Temporary event as Parent, Temporary events will be removed after some conditions are met, if one deletes a Temporary event all its children will be deleted too
+	FullTextSearch    bool       // if true the ContentHashes and MetadataHashes of the event will be used for full-text search, Important: this only applies to the event itself, not to its children
 }
 
-func CreateNewEvent(kv keyValStore.KeyValStore, hashOfParentEvent [64]byte, metadataHashes [][64]byte, contentHashes [][64]byte) (Event, error) {
+type EventOptions struct {
+	HashOfParentEvent [64]byte
+	ContentHashes     [][64]byte // optional
+	MetadataHashes    [][64]byte // optional
+	Temporary         bool       // optional
+	FullTextSearch    bool       // optional
+}
+
+func CreateNewEvent(kv keyValStore.KeyValStore, options EventOptions) (Event, error) {
 	// Create a new Event
 	item := Event{
 		Key:               []byte{},
 		EventHash:         [64]byte{},
 		Level:             time.Now().UnixNano(),
-		ContentHashes:     contentHashes,
-		MetadataHashes:    metadataHashes,
-		HashOfParentEvent: hashOfParentEvent,
+		ContentHashes:     options.ContentHashes,
+		MetadataHashes:    options.MetadataHashes,
+		HashOfParentEvent: options.HashOfParentEvent,
 		HashOfRootEvent:   [64]byte{},
 		Temporary:         false,
+		FullTextSearch:    false,
 	}
 
-	fmt.Println("HECK1", string(hashOfParentEvent[:]))
-
 	// check if the parent event exists
-	if hashOfParentEvent == [64]byte{} {
-		log.Fatalf("Error creating new event: Parent event does not exist")
-		return Event{}, errors.New("Error creating new event: Parent event does not exist")
+	if item.HashOfParentEvent == [64]byte{} {
+		log.Fatalf("Error creating new event: Parent event was not defined")
+		return Event{}, errors.New("Error creating new event: Parent event was not defined")
 	}
 
-	fmt.Println("HECK")
 	// check if the parent event exists
-
 	parentEvent, err := GetEvent(kv, item.GetParentEventKey())
 	if err != nil {
 		log.Fatalf("Error creating new event: Parent event does not exist")
@@ -57,8 +62,8 @@ func CreateNewEvent(kv keyValStore.KeyValStore, hashOfParentEvent [64]byte, meta
 	if !item.Temporary {
 		// check if the parent event is not Temporary
 		if parentEvent.Temporary {
-			log.Fatalf("Error creating new event: Parent event is Temporary")
-			return Event{}, errors.New("Error creating new event: Parent event is Temporary")
+			log.Fatalf("Error creating new event: Parent event is Temporary and can not have non-Temporary children")
+			return Event{}, errors.New("Error creating new event: Parent event is Temporary and can not have non-Temporary children")
 		}
 	}
 

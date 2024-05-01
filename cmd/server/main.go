@@ -35,7 +35,13 @@ func main() {
 	rootEvent.PrettyPrint()
 
 	// store a file in the keyValStore as child of the rootEvent
-	eventOfFile, err := storageService.StoreFile(*keyValStore, rootEvent, []byte("metadata"), []byte("file111"))
+	eventOfFile, err := storageService.StoreFile(*keyValStore, storageService.StoreFileOptions{
+		EventToAppendTo: rootEvent,
+		Metadata:        []byte("This is a file"),
+		File:            []byte("This is a file"),
+		Temporary:       false,
+		FullTextSearch:  false,
+	})
 	if err != nil {
 		fmt.Println("Error storing file:", err)
 		return

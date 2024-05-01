@@ -3,30 +3,68 @@ package storageService
 import (
 	"OuroborosDB/pkg/buzhashChunker"
 	"OuroborosDB/pkg/keyValStore"
+	"fmt"
 	"log"
 )
 
+type StoreFileOptions struct {
+	EventToAppendTo Event
+	Metadata        []byte
+	File            []byte
+	Temporary       bool
+	FullTextSearch  bool
+}
+
 // will store the file in the chunkStore and create new Event as child of given event
-func StoreFile(kv keyValStore.KeyValStore, eventToAppendTo Event, metadata []byte, file []byte) (Event, error) {
-	fileChunkKeys, err := storeDataInChunkStore(kv, file)
+func StoreFile(kv keyValStore.KeyValStore, options StoreFileOptions) (Event, error) {
+	err := options.ValidateOptions()
+	if err != nil {
+		log.Fatalf("Error validating options: %v", err)
+		return Event{}, err
+	}
+
+	fileChunkKeys, err := storeDataInChunkStore(kv, options.File)
 	if err != nil {
 		log.Fatalf("Error storing file: %v", err)
 		return Event{}, err
 	}
 
-	metadataChunkKeys, err := storeDataInChunkStore(kv, metadata)
+	metadataChunkKeys, err := storeDataInChunkStore(kv, options.Metadata)
 	if err != nil {
 		log.Fatalf("Error storing metadata: %v", err)
 		return Event{}, err
 	}
 
-	newEvent, err := CreateNewEvent(kv, eventToAppendTo.EventHash, metadataChunkKeys, fileChunkKeys)
+	newEvent, err := CreateNewEvent(kv, EventOptions{
+		ContentHashes:     fileChunkKeys,
+		MetadataHashes:    metadataChunkKeys,
+		HashOfParentEvent: options.EventToAppendTo.EventHash,
+		Temporary:         options.Temporary,
+		FullTextSearch:    options.FullTextSearch,
+	})
+
 	if err != nil {
 		log.Fatalf("Error creating new event: %v", err)
 		return Event{}, err
 	}
 
 	return newEvent, nil
+}
+
+func (options *StoreFileOptions) ValidateOptions() error {
+	if options.EventToAppendTo.EventHash == [64]byte{} {
+		return fmt.Errorf("Error storing file: Parent event was not defined")
+	}
+
+	if len(options.File) == 0 && len(options.Metadata) == 0 {
+		return fmt.Errorf("Error storing file: Both file and metadata are empty")
+	}
+
+	if !options.Temporary && options.EventToAppendTo.Temporary {
+		return fmt.Errorf("Error storing file: Parent event is Temporary and can not have non-Temporary children")
+	}
+
+	return nil
 }
 
 func GetFile(kv keyValStore.KeyValStore, eventOfFile Event) ([]byte, error) {
