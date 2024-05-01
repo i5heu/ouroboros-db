@@ -111,8 +111,8 @@ func processFile(db *badger.DB, filePath string) error {
 	// store the chunks in badgerDB
 	for _, chunk := range data {
 		err = db.Update(func(txn *badger.Txn) error {
-			err := txn.Set(chunk.Hash[:], chunk.Chunk)
-			fmt.Print(hex.EncodeToString(chunk.Hash[:]), " ", len(chunk.Chunk), "\n")
+			err := txn.Set(chunk.Hash[:], chunk.Data)
+			fmt.Print(hex.EncodeToString(chunk.Hash[:]), " ", len(chunk.Data), "\n")
 			if err != nil {
 				return fmt.Errorf("error storing chunk: %w", err)
 			}

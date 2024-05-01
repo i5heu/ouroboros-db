@@ -10,8 +10,8 @@ import (
 )
 
 type ChunkData struct {
-	Hash  [64]byte // SHA-512 hash
-	Chunk []byte   // The actual data chunk
+	Hash [64]byte // SHA-512 hash
+	Data []byte   // The actual data chunk
 }
 
 func ChunkBytes(data []byte) ([]ChunkData, error) {
@@ -40,8 +40,8 @@ func ChunkReader(reader io.Reader) ([]ChunkData, error) {
 
 		// Append the hash and the chunk data to the slice
 		chunks = append(chunks, ChunkData{
-			Hash:  hash,
-			Chunk: chunk,
+			Hash: hash,
+			Data: chunk,
 		})
 	}
 

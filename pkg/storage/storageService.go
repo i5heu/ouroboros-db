@@ -1,14 +1,15 @@
-package storageService
+package storage
 
 import (
 	"OuroborosDB/pkg/buzhashChunker"
 	"OuroborosDB/pkg/keyValStore"
 	"fmt"
 	"log"
+	"sync"
 )
 
-type StorageService struct {
-	kv keyValStore.KeyValStore
+type Service struct {
+	kv *keyValStore.KeyValStore
 }
 
 type StoreFileOptions struct {
@@ -19,40 +20,75 @@ type StoreFileOptions struct {
 	FullTextSearch  bool
 }
 
-func NewStorageService(kv keyValStore.KeyValStore) StorageService {
-	return StorageService{
+func NewStorageService(kv *keyValStore.KeyValStore) Service {
+	return Service{
 		kv: kv,
 	}
 }
 
 // will store the file in the chunkStore and create new Event as child of given event
-func (ss *StorageService) StoreFile(options StoreFileOptions) (Event, error) {
+func (ss *Service) StoreFile(options StoreFileOptions) (Event, error) {
+	// Validate options before proceeding
 	err := options.ValidateOptions()
 	if err != nil {
 		log.Fatalf("Error validating options: %v", err)
 		return Event{}, err
 	}
 
-	fileChunkKeys, err := ss.storeDataInChunkStore(options.File)
-	if err != nil {
-		log.Fatalf("Error storing file: %v", err)
+	// Create channels to handle asynchronous results and errors
+	fileChunkKeysChan := make(chan [][64]byte, 1)
+	metadataChunkKeysChan := make(chan [][64]byte, 1)
+	errorChan := make(chan error, 2) // buffer for two possible errors
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Store file data in chunk store asynchronously
+	go func() {
+		defer wg.Done()
+		keys, err := ss.storeDataInChunkStore(options.File)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		fileChunkKeysChan <- keys
+	}()
+
+	// Store metadata in chunk store asynchronously
+	go func() {
+		defer wg.Done()
+		keys, err := ss.storeDataInChunkStore(options.Metadata)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		metadataChunkKeysChan <- keys
+	}()
+
+	// Wait for both goroutines to complete
+	wg.Wait()
+	close(errorChan)
+	close(fileChunkKeysChan)
+	close(metadataChunkKeysChan)
+
+	// Check for errors
+	for err := range errorChan {
+		log.Printf("Error in storing data: %v", err)
 		return Event{}, err
 	}
 
-	metadataChunkKeys, err := ss.storeDataInChunkStore(options.Metadata)
-	if err != nil {
-		log.Fatalf("Error storing metadata: %v", err)
-		return Event{}, err
-	}
+	// Retrieve results from channels
+	fileChunkKeys := <-fileChunkKeysChan
+	metadataChunkKeys := <-metadataChunkKeysChan
 
-	newEvent, err := CreateNewEvent(ss.kv, EventOptions{
+	// Create a new event
+	newEvent, err := ss.CreateNewEvent(EventOptions{
 		ContentHashes:     fileChunkKeys,
 		MetadataHashes:    metadataChunkKeys,
 		HashOfParentEvent: options.EventToAppendTo.EventHash,
 		Temporary:         options.Temporary,
 		FullTextSearch:    options.FullTextSearch,
 	})
-
 	if err != nil {
 		log.Fatalf("Error creating new event: %v", err)
 		return Event{}, err
@@ -77,7 +113,7 @@ func (options *StoreFileOptions) ValidateOptions() error {
 	return nil
 }
 
-func (ss *StorageService) GetFile(eventOfFile Event) ([]byte, error) {
+func (ss *Service) GetFile(eventOfFile Event) ([]byte, error) {
 	file := []byte{}
 
 	for _, key := range eventOfFile.ContentHashes {
@@ -93,7 +129,7 @@ func (ss *StorageService) GetFile(eventOfFile Event) ([]byte, error) {
 	return file, nil
 }
 
-func (ss *StorageService) GetMetadata(eventOfFile Event) ([]byte, error) {
+func (ss *Service) GetMetadata(eventOfFile Event) ([]byte, error) {
 	metadata := []byte{}
 
 	for _, key := range eventOfFile.MetadataHashes {
@@ -109,22 +145,27 @@ func (ss *StorageService) GetMetadata(eventOfFile Event) ([]byte, error) {
 	return metadata, nil
 }
 
-func (ss *StorageService) storeDataInChunkStore(data []byte) ([][64]byte, error) {
+func (ss *Service) storeDataInChunkStore(data []byte) ([][64]byte, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("Error storing data: Data is empty")
+	}
+
 	chunks, err := buzhashChunker.ChunkBytes(data)
 	if err != nil {
 		log.Fatalf("Error chunking data: %v", err)
 		return nil, err
 	}
 
-	keys := make([][64]byte, 0)
+	var keys [][64]byte
 
-	for _, chunk := range chunks {
-		keys = append(keys, chunk.Hash)
-		err := ss.kv.Write(chunk.Hash[:], chunk.Chunk)
-		if err != nil {
-			log.Fatalf("Error writing chunk: %v", err)
-			return nil, err
-		}
+	for range chunks {
+		keys = append(keys, [64]byte{})
+	}
+
+	err = ss.kv.WriteBatchChunk(chunks)
+	if err != nil {
+		log.Fatalf("Error writing chunks: %v", err)
+		return nil, err
 	}
 
 	return keys, nil

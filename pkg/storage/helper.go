@@ -1,4 +1,4 @@
-package storageService
+package storage
 
 import "encoding/hex"
 

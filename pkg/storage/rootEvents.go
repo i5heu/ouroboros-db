@@ -1,4 +1,4 @@
-package storageService
+package storage
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ type RootEventsIndex struct {
 
 // Same as Event struct in storageService.go but without some unnecessary fields
 
-func (ss *StorageService) CreateRootEvent(title string) (Event, error) {
+func (ss *Service) CreateRootEvent(title string) (Event, error) {
 	// Create a new IndexEvent
 	item := Event{
 		Key:            []byte{},
@@ -46,9 +46,6 @@ func (ss *StorageService) CreateRootEvent(title string) (Event, error) {
 	item.EventHash = item.CreateDetailsMetaHash()
 	item.Key = GenerateKeyFromPrefixAndHash("Event:", item.EventHash)
 
-	//TODO REMOVE
-	item.PrettyPrint()
-
 	// Serialize the EventChainItem using gob
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -66,7 +63,7 @@ func (ss *StorageService) CreateRootEvent(title string) (Event, error) {
 	return item, err
 }
 
-func (ss *StorageService) GetAllRootEvents() ([]Event, error) {
+func (ss *Service) GetAllRootEvents() ([]Event, error) {
 	// Get all keys from the keyValStore
 	rootIndex, err := ss.GetRootIndex()
 	if err != nil {
@@ -81,7 +78,7 @@ func (ss *StorageService) GetAllRootEvents() ([]Event, error) {
 	rootEvents := []Event{}
 
 	for _, indexItem := range rootIndex {
-		rootEvent, error := GetEvent(ss.kv, indexItem.KeyOfEvent)
+		rootEvent, error := ss.GetEvent(indexItem.KeyOfEvent)
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error
@@ -93,7 +90,7 @@ func (ss *StorageService) GetAllRootEvents() ([]Event, error) {
 	return rootEvents, nil
 }
 
-func (ss *StorageService) GetRootIndex() ([]RootEventsIndex, error) {
+func (ss *Service) GetRootIndex() ([]RootEventsIndex, error) {
 	// Get all keys from the keyValStore
 	rootIndex, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:"))
 	if err != nil {
@@ -113,7 +110,7 @@ func (ss *StorageService) GetRootIndex() ([]RootEventsIndex, error) {
 	return revi, nil
 }
 
-func (ss *StorageService) GetRootEventsWithTitle(title string) ([]Event, error) {
+func (ss *Service) GetRootEventsWithTitle(title string) ([]Event, error) {
 	rootKeys, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
@@ -126,7 +123,7 @@ func (ss *StorageService) GetRootEventsWithTitle(title string) ([]Event, error) 
 
 	rootEvents := []Event{}
 	for _, key := range rootKeys {
-		rootEvent, error := GetEvent(ss.kv, key[1])
+		rootEvent, error := ss.GetEvent(key[1])
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error

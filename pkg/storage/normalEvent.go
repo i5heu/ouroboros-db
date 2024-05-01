@@ -1,7 +1,6 @@
-package storageService
+package storage
 
 import (
-	"OuroborosDB/pkg/keyValStore"
 	"bytes"
 	"crypto/sha512"
 	"encoding/gob"
@@ -32,7 +31,7 @@ type EventOptions struct {
 	FullTextSearch    bool       // optional
 }
 
-func CreateNewEvent(kv keyValStore.KeyValStore, options EventOptions) (Event, error) {
+func (ss *Service) CreateNewEvent(options EventOptions) (Event, error) {
 	// Create a new Event
 	item := Event{
 		Key:               []byte{},
@@ -53,7 +52,7 @@ func CreateNewEvent(kv keyValStore.KeyValStore, options EventOptions) (Event, er
 	}
 
 	// check if the parent event exists
-	parentEvent, err := GetEvent(kv, item.GetParentEventKey())
+	parentEvent, err := ss.GetEvent(item.GetParentEventKey())
 	if err != nil {
 		log.Fatalf("Error creating new event: Parent event does not exist")
 		return Event{}, errors.New("Error creating new event: Parent event does not exist")
@@ -70,8 +69,6 @@ func CreateNewEvent(kv keyValStore.KeyValStore, options EventOptions) (Event, er
 	item.EventHash = item.CreateDetailsMetaHash()
 	item.Key = GenerateKeyFromPrefixAndHash("Event:", item.EventHash)
 
-	item.PrettyPrint()
-
 	// Serialize the EventChainItem using gob
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -82,7 +79,7 @@ func CreateNewEvent(kv keyValStore.KeyValStore, options EventOptions) (Event, er
 
 	// Write the EventChainItem to the keyValStore
 
-	err = kv.Write(item.Key, buf.Bytes())
+	err = ss.kv.Write(item.Key, buf.Bytes())
 	if err != nil {
 		log.Fatalf("Error writing item: %v", err)
 		return Event{}, err
@@ -113,9 +110,9 @@ func (item *Event) CreateDetailsMetaHash() [64]byte {
 	return sha512.Sum512(buffer)
 }
 
-func GetEvent(kv keyValStore.KeyValStore, key []byte) (Event, error) {
+func (ss *Service) GetEvent(key []byte) (Event, error) {
 	// Read the EventChainItem from the keyValStore
-	value, err := kv.Read(key)
+	value, err := ss.kv.Read(key)
 	if err != nil {
 		log.Fatalf("Error reading key: %v", err)
 		return Event{}, err
