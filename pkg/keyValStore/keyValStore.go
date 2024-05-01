@@ -90,8 +90,8 @@ func (k *KeyValStore) Close() {
 	k.badgerDB.Close()
 }
 
-func (k *KeyValStore) GetKeysWithPrefix(prefix []byte) [][]byte {
-	var keys [][]byte
+func (k *KeyValStore) GetKeysWithPrefix(prefix []byte) ([][][]byte, error) {
+	var keysAndValues [][][]byte
 	err := k.badgerDB.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false
@@ -101,12 +101,18 @@ func (k *KeyValStore) GetKeysWithPrefix(prefix []byte) [][]byte {
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			k := item.KeyCopy(nil)
-			keys = append(keys, k)
+			v, err := item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+
+			keysAndValues = append(keysAndValues, [][]byte{k, v})
 		}
 		return nil
 	})
 	if err != nil {
 		log.Fatal(err)
+		return nil, err
 	}
-	return keys
+	return keysAndValues, nil
 }

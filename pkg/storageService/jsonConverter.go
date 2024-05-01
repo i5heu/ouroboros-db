@@ -6,23 +6,21 @@ import (
 	"fmt"
 )
 
-func (indexItem EventChains) MarshalJSON() ([]byte, error) {
+func (indexItem RootEventsIndex) MarshalJSON() ([]byte, error) {
 	return json.MarshalIndent(&struct {
-		Key   string `json:"key"`
-		Title string `json:"title"`
-		Level int64  `json:"level"`
+		Key        string `json:"key"`
+		KeyOfEvent string `json:"keyOfEvent"`
 	}{
-		Key:   hex.EncodeToString(indexItem.Key),
-		Title: indexItem.Title,
-		Level: indexItem.Level,
-	}, "", "    ") // The "" can be any prefix, and "    " sets the indent to four spaces
+		Key:        string(indexItem.Key),
+		KeyOfEvent: string(indexItem.KeyOfEvent),
+	}, "", "    ")
 }
 
-func (item EventChainItem) MarshalJSON() ([]byte, error) {
+func (item Event) MarshalJSON() ([]byte, error) {
 	return json.MarshalIndent(&struct {
 		Key               string   `json:"key"`
+		EventHash         string   `json:"eventHash"`
 		Level             int64    `json:"level"`
-		ContentMetaHash   string   `json:"contentMetaHash"`
 		ContentHashes     []string `json:"contentHashes"`
 		MetadataHashes    []string `json:"metadataHashes"`
 		HashOfParentEvent string   `json:"hashOfParentEvent"`
@@ -31,13 +29,13 @@ func (item EventChainItem) MarshalJSON() ([]byte, error) {
 	}{
 		Key:               string(item.Key),
 		Level:             item.Level,
-		ContentMetaHash:   hex.EncodeToString(item.DetailsMetaHash[:]),
+		EventHash:         hex.EncodeToString(item.EventHash[:]),
 		ContentHashes:     convertHashArrayToStrings(item.ContentHashes),
 		MetadataHashes:    convertHashArrayToStrings(item.MetadataHashes),
 		HashOfParentEvent: hex.EncodeToString(item.HashOfParentEvent[:]),
-		HashOfSourceEvent: hex.EncodeToString(item.HashOfSourceEvent[:]),
+		HashOfSourceEvent: hex.EncodeToString(item.HashOfRootEvent[:]),
 		Temporary:         item.Temporary,
-	}, "", "    ") // The "" can be any prefix, and "    " sets the indent to four spaces
+	}, "", "    ")
 }
 
 func convertHashArrayToStrings(hashes [][64]byte) []string {
@@ -48,7 +46,7 @@ func convertHashArrayToStrings(hashes [][64]byte) []string {
 	return strs
 }
 
-func PrettyPrintEventChainItem(item EventChainItem) {
+func (item *Event) PrettyPrint() {
 	jsonBytes, err := item.MarshalJSON()
 	if err != nil {
 		fmt.Println("Error marshalling EventChainItem to JSON:", err)

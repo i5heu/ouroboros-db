@@ -13,18 +13,42 @@ func main() {
 	keyValStore.Start([]string{toAbsolutePath("./tmp"), toAbsolutePath("/mnt/volume-nbg1-1/tmp")}, 1)
 	defer keyValStore.Close()
 
-	//Create Event and safe File into Event
-	storageService.CreateNewEventChain(*keyValStore, "IndexEvent", [][64]byte{})
+	//get all RootEvents with the title "Files", if there are none create one
+	rootEvents, err := storageService.GetRootEventsWithTitle(*keyValStore, "Files")
+	if err != nil {
+		fmt.Println("Error getting list of RootEvents:", err)
+		return
+	}
 
-	indexItems := storageService.GetListOfIndexEvents(*keyValStore)
-	for _, item := range indexItems {
-		jsonBytes, err := item.MarshalJSON()
+	var rootEvent storageService.Event
+
+	if len(rootEvents) == 0 {
+		rootEvent, err = storageService.CreateRootEvent(*keyValStore, "Files")
 		if err != nil {
-			fmt.Println("Error marshalling IndexEvents to JSON:", err)
+			fmt.Println("Error creating RootEvent:", err)
 			return
 		}
-		fmt.Println(string(jsonBytes))
+	} else {
+		rootEvent = rootEvents[0]
 	}
+
+	rootEvent.PrettyPrint()
+
+	// store a file in the keyValStore as child of the rootEvent
+	eventOfFile, err := storageService.StoreFile(*keyValStore, rootEvent, []byte("metadata"), []byte("file111"))
+	if err != nil {
+		fmt.Println("Error storing file:", err)
+		return
+	}
+
+	// get the file from the keyValStore
+	file, err := storageService.GetFile(*keyValStore, eventOfFile)
+	if err != nil {
+		fmt.Println("Error getting file:", err)
+		return
+	}
+
+	fmt.Println("File:", string(file))
 }
 
 func toAbsolutePath(relativePathOrAbsolute string) string {

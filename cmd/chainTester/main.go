@@ -1,16 +1,11 @@
 package main
 
 import (
-	storageservice "OuroborosDB/pkg/storageService"
 	"crypto/rand"
 )
 
 func main() {
 
-	storageservice.CreateNewEventChain(
-		generateRandomHashes(10),
-		generateRandomHashes(2),
-	)
 }
 
 func generateRandomHash() [64]byte {
