@@ -33,10 +33,12 @@ func ChunkReader(reader io.Reader) ([]ChunkData, error) {
 	hashChan := make(chan chunkInformation, numberOfWorkers+1)
 	workerLimit := make(chan struct{}, numberOfWorkers)
 	var wg sync.WaitGroup
+	var collectorWg sync.WaitGroup
 
 	// spawn collector
 	resultChan := make(chan []ChunkData, 1)
-	go collectChunkData(hashChan, resultChan)
+	collectorWg.Add(1)
+	go collectChunkData(&collectorWg, hashChan, resultChan)
 
 	// Read and process chunks
 	for chunkIndex := 0; ; chunkIndex++ { // Use a loop-scoped index
@@ -55,7 +57,15 @@ func ChunkReader(reader io.Reader) ([]ChunkData, error) {
 		go calculateSha512(&wg, hashChan, chunk, chunkIndex, workerLimit)
 	}
 
-	return <-resultChan, nil
+	collectorWg.Wait()
+	close(resultChan)
+
+	finalResult, ok := <-resultChan
+	if !ok {
+		return nil, fmt.Errorf("failed to read from result channel")
+	}
+
+	return finalResult, nil
 }
 
 type chunkInformation struct {
@@ -64,7 +74,8 @@ type chunkInformation struct {
 	data        []byte
 }
 
-func collectChunkData(chunkChan <-chan chunkInformation, resultChan chan<- []ChunkData) {
+func collectChunkData(collectorWg *sync.WaitGroup, chunkChan <-chan chunkInformation, resultChan chan<- []ChunkData) {
+	defer collectorWg.Done()
 
 	chunkMap := map[int]ChunkData{}
 
@@ -78,6 +89,7 @@ func collectChunkData(chunkChan <-chan chunkInformation, resultChan chan<- []Chu
 	// Convert map to slice
 	chunks := make([]ChunkData, len(chunkMap))
 	for i := 0; i < len(chunkMap); i++ {
+
 		chunks[i] = chunkMap[i]
 	}
 
@@ -92,6 +104,7 @@ func calculateSha512(wg *sync.WaitGroup, hashChan chan<- chunkInformation, data 
 	hashChan <- chunkInformation{
 		chunkNumber: chunkNumber,
 		hash:        hash,
+		data:        data,
 	}
 	<-workerLimit
 

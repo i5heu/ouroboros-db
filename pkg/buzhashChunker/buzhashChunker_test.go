@@ -27,6 +27,9 @@ func TestChunkBytes(t *testing.T) {
 	}
 
 	for i, chunk := range output {
+		if chunk.Hash != expectedOutput[i].Hash {
+			t.Errorf("ChunkBytes(%s)[%d].Hash = %x, expected %x", input, i, chunk.Hash, expectedOutput[i].Hash)
+		}
 		if string(chunk.Data) != string(expectedOutput[i].Data) {
 			t.Errorf("ChunkBytes(%s)[%d].Data = %s, expected %s", input, i, chunk.Data, expectedOutput[i].Data)
 		}

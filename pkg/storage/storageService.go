@@ -158,8 +158,8 @@ func (ss *Service) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 
 	var keys [][64]byte
 
-	for range chunks {
-		keys = append(keys, [64]byte{})
+	for _, chunk := range chunks {
+		keys = append(keys, chunk.Hash)
 	}
 
 	err = ss.kv.BatchWriteNonExistingChunks(chunks)
