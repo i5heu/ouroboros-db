@@ -117,10 +117,11 @@ func (k *KeyValStore) WriteBatch(batch [][2][]byte) error {
 func (k *KeyValStore) BatchWriteNonExistingChunks(chunks []buzhashChunker.ChunkData) error {
 	var keys [][]byte
 	for _, chunk := range chunks {
+		chunk := chunk
 		keys = append(keys, chunk.Hash[:])
 	}
 
-	chunkState, err := k.BatchCheckKeyExistence(keys)
+	existsMap, err := k.BatchCheckKeyExistence(keys)
 	if err != nil {
 		log.Fatal("Error checking key existence: ", err)
 		return err
@@ -128,7 +129,8 @@ func (k *KeyValStore) BatchWriteNonExistingChunks(chunks []buzhashChunker.ChunkD
 
 	var nonExistingChunks []buzhashChunker.ChunkData
 	for _, chunk := range chunks {
-		if !chunkState[string(chunk.Hash[:])] {
+		chunk := chunk
+		if !existsMap[string(chunk.Hash[:])] {
 			nonExistingChunks = append(nonExistingChunks, chunk)
 		}
 	}
@@ -147,16 +149,17 @@ func (k *KeyValStore) BatchCheckKeyExistence(keys [][]byte) (map[string]bool, er
 
 	err := k.badgerDB.View(func(txn *badger.Txn) error {
 		for _, key := range keys {
+			key := key
 			atomic.AddUint64(&k.readCounter, 1)
 			_, err := txn.Get(key)
 			if err != nil {
 				if err == badger.ErrKeyNotFound {
-					existsMap[string(key)] = false
+					existsMap[string(key[:])] = false
 				} else {
 					return err // return an error for issues other than "key not found"
 				}
 			} else {
-				existsMap[string(key)] = true
+				existsMap[string(key[:])] = true
 			}
 		}
 		return nil

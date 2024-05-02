@@ -4,6 +4,7 @@ import (
 	"OuroborosDB/pkg/keyValStore"
 	"OuroborosDB/pkg/storage"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -125,10 +126,8 @@ func processFile(ss *storage.Service, rootEvent storage.Event, filePath string) 
 
 	// compare the original file with the file from the keyValStore
 	if string(fileInput) != string(receivedBytes) {
-		fmt.Println("Error: The original file and the file from the keyValStore are not the same", len(fileInput), "-", len(receivedBytes))
+		log.Fatal("Error: The original file and the file from the keyValStore are not the same", len(fileInput), "-", len(receivedBytes))
 		return err
-	} else {
-		fmt.Println("The original file and the file from the keyValStore are the same")
 	}
 
 	return nil
