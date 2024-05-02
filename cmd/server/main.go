@@ -44,7 +44,7 @@ func main() {
 	var filesNumber int64
 
 	// Use a buffered channel to limit the number of goroutines to 8
-	semaphore := make(chan struct{}, 8)
+	semaphore := make(chan struct{}, 5)
 	var wg sync.WaitGroup
 
 	err = filepath.WalkDir(absoluteDataPath, func(path string, d os.DirEntry, err error) error {
@@ -78,12 +78,6 @@ func main() {
 
 	wg.Wait() // Wait for all goroutines to finish
 
-	// get the file from the keyValStore
-	// _, err = ss.GetFile(eventOfFile)
-	// if err != nil {
-	// 	fmt.Println("Error getting file:", err)
-	// 	return
-	// }
 	fmt.Printf("Processed %d files in %s\n", filesNumber, time.Since(performanceTimer))
 	// store in log
 	logg, err := os.OpenFile("log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -97,6 +91,8 @@ func main() {
 		fmt.Println("Error writing to log file:", err)
 		return
 	}
+
+	keyValStore.Clean()
 }
 
 func processFile(ss *storage.Service, rootEvent storage.Event, filePath string) error {
@@ -108,20 +104,35 @@ func processFile(ss *storage.Service, rootEvent storage.Event, filePath string) 
 	}
 
 	// store a file in the keyValStore as child of the rootEvent
-	_, err = ss.StoreFile(storage.StoreFileOptions{
+	event, err := ss.StoreFile(storage.StoreFileOptions{
 		EventToAppendTo: rootEvent,
 		Metadata:        []byte(filePath),
 		File:            fileInput,
 		Temporary:       false,
 		FullTextSearch:  false,
 	})
-
 	if err != nil {
 		fmt.Println("Error storing file:", err)
 		return err
 	}
 
+	// get the file from the keyValStore
+	receivedBytes, err := ss.GetFile(event)
+	if err != nil {
+		fmt.Println("Error getting file:", err)
+		return err
+	}
+
+	// compare the original file with the file from the keyValStore
+	if string(fileInput) != string(receivedBytes) {
+		fmt.Println("Error: The original file and the file from the keyValStore are not the same", len(fileInput), "-", len(receivedBytes))
+		return err
+	} else {
+		fmt.Println("The original file and the file from the keyValStore are the same")
+	}
+
 	return nil
+
 }
 
 func toAbsolutePath(relativePathOrAbsolute string) string {

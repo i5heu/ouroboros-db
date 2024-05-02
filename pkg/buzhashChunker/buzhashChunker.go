@@ -68,6 +68,36 @@ func ChunkReader(reader io.Reader) ([]ChunkData, error) {
 	return finalResult, nil
 }
 
+func ChunkByteSynchronously(data []byte) ([]ChunkData, error) {
+	reader := bytes.NewReader(data)
+
+	return ChunkReaderSynchronously(reader)
+}
+
+func ChunkReaderSynchronously(reader io.Reader) ([]ChunkData, error) {
+	bz := chunker.NewBuzhash(reader)
+
+	chunks := []ChunkData{}
+
+	for chunkIndex := 0; ; chunkIndex++ { // Use a loop-scoped index
+		chunk, err := bz.NextBytes()
+		if err == io.EOF {
+			break // End of data reached.
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading chunk: %w", err)
+		}
+
+		hash := sha512.Sum512(chunk)
+		chunks = append(chunks, ChunkData{
+			Hash: hash,
+			Data: chunk,
+		})
+	}
+
+	return chunks, nil
+}
+
 type chunkInformation struct {
 	chunkNumber int
 	hash        [64]byte

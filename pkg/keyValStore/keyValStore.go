@@ -69,8 +69,11 @@ func (k *KeyValStore) Start(paths []string, minimumFreeSpace int) {
 
 func (k *KeyValStore) startKeyValStore() error {
 	opts := badger.DefaultOptions(k.config.Paths[0])
-	opts.Logger = nil
-	opts.ValueLogFileSize = 1024 * 1024 * 10 // Set max size of each value log file to 10MB
+	//opts.Logger = nil
+	opts.ValueLogFileSize = 1024 * 1024 * 100 // Set max size of each value log file to 10MB
+	//opts.Compression = options.ZSTD
+	//opts.WithZSTDCompressionLevel(3)
+	opts.SyncWrites = false
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -137,7 +140,6 @@ func (k *KeyValStore) BatchWriteNonExistingChunks(chunks []buzhashChunker.ChunkD
 	}
 
 	return nil
-
 }
 
 func (k *KeyValStore) BatchCheckKeyExistence(keys [][]byte) (map[string]bool, error) {
@@ -169,6 +171,8 @@ func (k *KeyValStore) BatchWriteChunk(chunks []buzhashChunker.ChunkData) error {
 	defer wb.Cancel()
 
 	for _, chunk := range chunks {
+		chunk := chunk
+
 		atomic.AddUint64(&k.writeCounter, 1)
 		err := wb.Set(chunk.Hash[:], chunk.Data)
 		if err != nil {
@@ -178,6 +182,34 @@ func (k *KeyValStore) BatchWriteChunk(chunks []buzhashChunker.ChunkData) error {
 	}
 
 	return wb.Flush()
+}
+
+func (k *KeyValStore) verifyChunksExistence(chunks []buzhashChunker.ChunkData) error {
+	var keys [][]byte
+	for _, chunk := range chunks {
+		keys = append(keys, chunk.Hash[:])
+	}
+
+	chunkState, err := k.BatchCheckKeyExistence(keys)
+	if err != nil {
+		return fmt.Errorf("error checking key existence: %w", err)
+	}
+
+	var nonExistingChunks []buzhashChunker.ChunkData
+	for _, chunk := range chunks {
+		if !chunkState[string(chunk.Hash[:])] {
+			nonExistingChunks = append(nonExistingChunks, chunk)
+			fmt.Printf("Missing chunk: %x, chunk data length: %v\n", chunk.Hash, len(chunk.Data))
+		} else {
+			fmt.Printf("Chunk Found: %x, chunk data length: %v\n", chunk.Hash, len(chunk.Data))
+		}
+	}
+
+	if len(nonExistingChunks) > 0 {
+		return fmt.Errorf("error: non-existing chunks after write: %d", len(nonExistingChunks))
+	}
+
+	return nil
 }
 
 func (k *KeyValStore) Read(key []byte) ([]byte, error) {
@@ -192,7 +224,7 @@ func (k *KeyValStore) Read(key []byte) ([]byte, error) {
 		return err
 	})
 	if err != nil {
-		log.Fatal(err, " ", hex.EncodeToString(key))
+		return nil, fmt.Errorf("Error reading key %s: %v", hex.EncodeToString(key[:]), err)
 	}
 	return value, err
 }
@@ -203,7 +235,19 @@ func (k *KeyValStore) Close() {
 }
 
 func (k *KeyValStore) Clean() {
-	err := k.badgerDB.Flatten(2) // The parameter is the number of concurrent compactions
+	err := k.badgerDB.Sync()
+	if err != nil {
+		log.Fatal("Error syncing db: ", err)
+	}
+
+	bob := k.badgerDB.BlockCacheMetrics()
+	fmt.Printf("BlockCache: %+v\n", bob)
+
+	bob2 := k.badgerDB.IndexCacheMetrics().String()
+	fmt.Printf("IndexCache: %+v\n", bob2)
+
+	// flatten the db
+	err = k.badgerDB.Flatten(2) // The parameter is the number of concurrent compactions
 	if err != nil {
 		fmt.Println("Error during Flatten:", err)
 	} else {

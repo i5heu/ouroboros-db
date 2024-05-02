@@ -119,8 +119,7 @@ func (ss *Service) GetFile(eventOfFile Event) ([]byte, error) {
 	for _, key := range eventOfFile.ContentHashes {
 		chunk, err := ss.kv.Read(key[:])
 		if err != nil {
-			log.Fatalf("Error reading chunk: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("Error reading chunk from GetFile: %v", err)
 		}
 
 		file = append(file, chunk...)
@@ -135,8 +134,7 @@ func (ss *Service) GetMetadata(eventOfFile Event) ([]byte, error) {
 	for _, key := range eventOfFile.MetadataHashes {
 		chunk, err := ss.kv.Read(key[:])
 		if err != nil {
-			log.Fatalf("Error reading chunk: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("Error reading chunk from GetMetadata: %v", err)
 		}
 
 		metadata = append(metadata, chunk...)

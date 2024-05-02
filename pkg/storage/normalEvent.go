@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 )
@@ -114,8 +115,7 @@ func (ss *Service) GetEvent(key []byte) (Event, error) {
 	// Read the EventChainItem from the keyValStore
 	value, err := ss.kv.Read(key)
 	if err != nil {
-		log.Fatalf("Error reading key: %v", err)
-		return Event{}, err
+		return Event{}, fmt.Errorf("Error reading Event with Key: %x: %v", hex.EncodeToString(key), err)
 	}
 
 	// Deserialize the EventChainItem using gob
