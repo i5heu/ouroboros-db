@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-type Service struct {
+type Storage struct {
 	kv *keyValStore.KeyValStore
 }
 
@@ -20,18 +20,18 @@ type StoreFileOptions struct {
 	FullTextSearch  bool
 }
 
-func NewStorageService(kv *keyValStore.KeyValStore) Service {
-	return Service{
+func CreateStorage(kv *keyValStore.KeyValStore) Storage {
+	return Storage{
 		kv: kv,
 	}
 }
 
-func (ss *Service) Close() {
+func (ss *Storage) Close() {
 	ss.kv.Close()
 }
 
 // will store the file in the chunkStore and create new Event as child of given event
-func (ss *Service) StoreFile(options StoreFileOptions) (Event, error) {
+func (ss *Storage) StoreFile(options StoreFileOptions) (Event, error) {
 	// Validate options before proceeding
 	err := options.ValidateOptions()
 	if err != nil {
@@ -117,7 +117,7 @@ func (options *StoreFileOptions) ValidateOptions() error {
 	return nil
 }
 
-func (ss *Service) GetFile(eventOfFile Event) ([]byte, error) {
+func (ss *Storage) GetFile(eventOfFile Event) ([]byte, error) {
 	file := []byte{}
 
 	for _, key := range eventOfFile.ContentHashes {
@@ -132,7 +132,7 @@ func (ss *Service) GetFile(eventOfFile Event) ([]byte, error) {
 	return file, nil
 }
 
-func (ss *Service) GetMetadata(eventOfFile Event) ([]byte, error) {
+func (ss *Storage) GetMetadata(eventOfFile Event) ([]byte, error) {
 	metadata := []byte{}
 
 	for _, key := range eventOfFile.MetadataHashes {
@@ -147,7 +147,7 @@ func (ss *Service) GetMetadata(eventOfFile Event) ([]byte, error) {
 	return metadata, nil
 }
 
-func (ss *Service) storeDataInChunkStore(data []byte) ([][64]byte, error) {
+func (ss *Storage) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("Error storing data: Data is empty")
 	}
@@ -171,4 +171,8 @@ func (ss *Service) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 	}
 
 	return keys, nil
+}
+
+func (ss *Storage) GarbageCollection() error {
+	return ss.kv.Clean()
 }

@@ -13,12 +13,18 @@ import (
 )
 
 func main() {
-	keyValStore := keyValStore.NewKeyValStore()
-
-	keyValStore.Start([]string{toAbsolutePath("./tmp"), toAbsolutePath("/mnt/volume-nbg1-1/tmp")}, 1)
+	keyValStore, err := keyValStore.NewKeyValStore(
+		keyValStore.StoreConfig{
+			Paths:            []string{toAbsolutePath("./tmp"), toAbsolutePath("/mnt/volume-nbg1-1/tmp")},
+			MinimumFreeSpace: 1,
+		})
+	if err != nil {
+		fmt.Println("Error creating KeyValStore:", err)
+		return
+	}
 	defer keyValStore.Close()
 
-	ss := storage.NewStorageService(keyValStore)
+	ss := storage.CreateStorage(keyValStore)
 
 	//get all RootEvents with the title "Files", if there are none create one
 	rootEvents, err := ss.GetRootEventsWithTitle("Files")
@@ -96,7 +102,7 @@ func main() {
 	keyValStore.Clean()
 }
 
-func processFile(ss *storage.Service, rootEvent storage.Event, filePath string) error {
+func processFile(ss *storage.Storage, rootEvent storage.Event, filePath string) error {
 	// open file and read content
 	fileInput, err := os.ReadFile(filePath)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 
 type StoreConfig struct {
 	Paths            []string // absolute path at the moment only first path is supported
-	minimumFreeSpace int      // in GB
+	MinimumFreeSpace int      // in GB
 }
 
 type KeyValStore struct {
@@ -23,28 +24,34 @@ type KeyValStore struct {
 	writeCounter uint64
 }
 
-func NewKeyValStore() *KeyValStore {
-	return &KeyValStore{}
-}
-
-func (k *KeyValStore) Start(paths []string, minimumFreeSpace int) {
-	k.config = StoreConfig{
-		Paths:            paths,
-		minimumFreeSpace: minimumFreeSpace,
+func NewKeyValStore(config StoreConfig) (*KeyValStore, error) {
+	err := config.checkConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error checking config for KeyValStore: %w", err)
 	}
 
-	err := k.checkConfig()
+	opts := badger.DefaultOptions(config.Paths[0])
+	//opts.Logger = nil
+	opts.ValueLogFileSize = 1024 * 1024 * 100 // Set max size of each value log file to 100MB
+	opts.SyncWrites = false
+
+	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal(err)
+		return nil, err
 	}
 
-	// print the space left and allocated from the db
-	fmt.Println("####################")
-	displayDiskUsage(k.config.Paths)
-	fmt.Println("####################")
+	fmt.Printf("address: %p\n", &db)
 
-	// start the key value store
-	k.startKeyValStore()
+	displayDiskUsage(config.Paths)
+
+	return &KeyValStore{
+		config:   config,
+		badgerDB: db,
+	}, nil
+}
+
+func (k *KeyValStore) StartTransactionCounter(paths []string, minimumFreeSpace int) {
 
 	// Start the ticker to log operations per second
 	go func() {
@@ -57,30 +64,14 @@ func (k *KeyValStore) Start(paths []string, minimumFreeSpace int) {
 		}
 	}()
 
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			k.Clean()
-		}
-	}()
+	// go func() {
+	// 	ticker := time.NewTicker(1 * time.Minute)
+	// 	defer ticker.Stop()
+	// 	for range ticker.C {
+	// 		k.Clean()
+	// 	}
+	// }()
 
-}
-
-func (k *KeyValStore) startKeyValStore() error {
-	opts := badger.DefaultOptions(k.config.Paths[0])
-	//opts.Logger = nil
-	opts.ValueLogFileSize = 1024 * 1024 * 100 // Set max size of each value log file to 100MB
-	opts.SyncWrites = false
-
-	db, err := badger.Open(opts)
-	if err != nil {
-		log.Fatal(err)
-		return err
-	}
-
-	k.badgerDB = db
-	return nil
 }
 
 func (k *KeyValStore) Write(key []byte, content []byte) error {
@@ -235,22 +226,18 @@ func (k *KeyValStore) Close() {
 	k.badgerDB.Close()
 }
 
-func (k *KeyValStore) Clean() {
+func (k *KeyValStore) Clean() error {
+	fmt.Printf("address: %p\n", &k.badgerDB)
+
 	err := k.badgerDB.Sync()
 	if err != nil {
-		log.Fatal("Error syncing db: ", err)
+		return fmt.Errorf("error syncing db: %w", err)
 	}
 
-	bob := k.badgerDB.BlockCacheMetrics()
-	fmt.Printf("BlockCache: %+v\n", bob)
-
-	bob2 := k.badgerDB.IndexCacheMetrics().String()
-	fmt.Printf("IndexCache: %+v\n", bob2)
-
 	// flatten the db
-	err = k.badgerDB.Flatten(2) // The parameter is the number of concurrent compactions
+	err = k.badgerDB.Flatten(runtime.NumCPU()) // The parameter is the number of concurrent compactions
 	if err != nil {
-		fmt.Println("Error during Flatten:", err)
+		return fmt.Errorf("error flattening db: %w", err)
 	} else {
 		fmt.Println("Compaction completed successfully.")
 	}
@@ -259,9 +246,11 @@ func (k *KeyValStore) Clean() {
 	err = k.badgerDB.RunValueLogGC(0.1)
 	if err != nil {
 		if err != badger.ErrNoRewrite {
-			fmt.Printf("Failed to clean badgerDB: %s\n", err)
+			return fmt.Errorf("error cleaning db: %w", err)
 		}
 	}
+
+	return nil
 }
 
 func (k *KeyValStore) GetKeysWithPrefix(prefix []byte) ([][][]byte, error) {

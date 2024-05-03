@@ -32,7 +32,7 @@ type EventOptions struct {
 	FullTextSearch    bool       // optional
 }
 
-func (ss *Service) CreateNewEvent(options EventOptions) (Event, error) {
+func (ss *Storage) CreateNewEvent(options EventOptions) (Event, error) {
 	// Create a new Event
 	item := Event{
 		Key:               []byte{},
@@ -111,7 +111,7 @@ func (item *Event) CreateDetailsMetaHash() [64]byte {
 	return sha512.Sum512(buffer)
 }
 
-func (ss *Service) GetEvent(key []byte) (Event, error) {
+func (ss *Storage) GetEvent(key []byte) (Event, error) {
 	// Read the EventChainItem from the keyValStore
 	value, err := ss.kv.Read(key)
 	if err != nil {

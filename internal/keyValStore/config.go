@@ -6,12 +6,12 @@ import (
 	"syscall"
 )
 
-func (k *KeyValStore) checkConfig() error {
-	if len(k.config.Paths) == 0 {
+func (sc *StoreConfig) checkConfig() error {
+	if len(sc.Paths) == 0 {
 		return errors.New("no path provided in configuration")
 	}
 
-	path := k.config.Paths[0] // Currently only the first path is utilized
+	path := sc.Paths[0] // Currently only the first path is utilized
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return errors.New("path does not exist")
@@ -25,7 +25,7 @@ func (k *KeyValStore) checkConfig() error {
 
 	// Available blocks * size per block gives available space in bytes
 	availableSpaceInGB := (stat.Bavail * uint64(stat.Bsize)) / (1024 * 1024 * 1024)
-	if int(availableSpaceInGB) < k.config.minimumFreeSpace {
+	if int(availableSpaceInGB) < sc.MinimumFreeSpace {
 		return errors.New("not enough space available on disk")
 	}
 
