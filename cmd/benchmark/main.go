@@ -1,8 +1,8 @@
 package main
 
 import (
-	"OuroborosDB/pkg/keyValStore"
-	"OuroborosDB/pkg/storage"
+	"OuroborosDB/internal/keyValStore"
+	"OuroborosDB/internal/storage"
 	"fmt"
 	"log"
 	"os"

@@ -70,9 +70,7 @@ func (k *KeyValStore) Start(paths []string, minimumFreeSpace int) {
 func (k *KeyValStore) startKeyValStore() error {
 	opts := badger.DefaultOptions(k.config.Paths[0])
 	//opts.Logger = nil
-	opts.ValueLogFileSize = 1024 * 1024 * 100 // Set max size of each value log file to 10MB
-	//opts.Compression = options.ZSTD
-	//opts.WithZSTDCompressionLevel(3)
+	opts.ValueLogFileSize = 1024 * 1024 * 100 // Set max size of each value log file to 100MB
 	opts.SyncWrites = false
 
 	db, err := badger.Open(opts)

@@ -1,8 +1,8 @@
 package storage
 
 import (
+	"OuroborosDB/internal/keyValStore"
 	"OuroborosDB/pkg/buzhashChunker"
-	"OuroborosDB/pkg/keyValStore"
 	"fmt"
 	"log"
 	"sync"
@@ -24,6 +24,10 @@ func NewStorageService(kv *keyValStore.KeyValStore) Service {
 	return Service{
 		kv: kv,
 	}
+}
+
+func (ss *Service) Close() {
+	ss.kv.Close()
 }
 
 // will store the file in the chunkStore and create new Event as child of given event
