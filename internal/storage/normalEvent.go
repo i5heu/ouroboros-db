@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"crypto/sha512"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
@@ -79,7 +80,6 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (Event, error) {
 	}
 
 	// Write the EventChainItem to the keyValStore
-
 	err = ss.kv.Write(item.Key, buf.Bytes())
 	if err != nil {
 		log.Fatalf("Error writing item: %v", err)
@@ -89,26 +89,48 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (Event, error) {
 	return item, err
 }
 
+const (
+	TrueStr  = "true"
+	FalseStr = "false"
+)
+
 func (item *Event) CreateDetailsMetaHash() [64]byte {
-	// create a buffer, put all bytes into the buffer and hash it
-	buffer := make([]byte, 0)
+	// Pre-allocate a buffer to make the hashing process more efficient
+	var buffer bytes.Buffer
 
-	buffer = append(buffer, byte(item.Level))
+	// Append Level as an int64 using binary encoding
+	levelBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(levelBytes, uint64(item.Level))
+	buffer.Write(levelBytes)
+
+	// Append all content hashes
 	for _, hash := range item.ContentHashes {
-		buffer = append(buffer, hash[:]...)
-	}
-	for _, hash := range item.MetadataHashes {
-		buffer = append(buffer, hash[:]...)
-	}
-	buffer = append(buffer, item.HashOfParentEvent[:]...)
-	buffer = append(buffer, item.HashOfRootEvent[:]...)
-	if item.Temporary {
-		buffer = append(buffer, []byte("true")...)
-	} else {
-		buffer = append(buffer, []byte("false")...)
+		buffer.Write(hash[:])
 	}
 
-	return sha512.Sum512(buffer)
+	// Append all metadata hashes
+	for _, hash := range item.MetadataHashes {
+		buffer.Write(hash[:])
+	}
+
+	// Append parent event and root event hashes
+	buffer.Write(item.HashOfParentEvent[:])
+	buffer.Write(item.HashOfRootEvent[:])
+
+	// Append the boolean flags as "true"/"false" strings
+	if item.Temporary {
+		buffer.WriteString(TrueStr)
+	} else {
+		buffer.WriteString(FalseStr)
+	}
+
+	if item.FullTextSearch {
+		buffer.WriteString(TrueStr)
+	} else {
+		buffer.WriteString(FalseStr)
+	}
+
+	return sha512.Sum512(buffer.Bytes())
 }
 
 func (ss *Storage) GetEvent(key []byte) (Event, error) {

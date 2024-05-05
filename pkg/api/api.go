@@ -15,7 +15,7 @@ type DB interface {
 }
 
 type Index interface {
-	RebuildIndex() error
+	RebuildIndex() (uint64, error)
 	GetChildrenHashesOfEvent(event storage.Event) [][64]byte
 	GetChildrenOfEvent(event storage.Event) ([]storage.Event, error)
 }

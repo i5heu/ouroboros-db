@@ -22,11 +22,11 @@ func NewIndex(ss *storage.Storage) *Index {
 	return i
 }
 
-func (i *Index) RebuildIndex() error {
+func (i *Index) RebuildIndex() (uint64, error) {
 	// get every event
 	events, err := i.ss.GetAllEvents()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	i.evParentToChildLock.Lock()
@@ -40,7 +40,7 @@ func (i *Index) RebuildIndex() error {
 		i.evParentToChild[event.HashOfParentEvent] = append(i.evParentToChild[event.HashOfParentEvent], event.EventHash)
 	}
 
-	return nil
+	return uint64(len(events)), nil
 }
 
 func (i *Index) GetChildrenHashesOfEvent(event storage.Event) [][64]byte {

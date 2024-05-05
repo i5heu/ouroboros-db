@@ -4,9 +4,10 @@ import (
 	"OuroborosDB"
 	"OuroborosDB/internal/storage"
 	"testing"
+	"time"
 )
 
-func setupIndex(t testing.TB, rows int) *OuroborosDB.OuroborosDB {
+func setupIndex(t testing.TB, rowsIn1k int) *OuroborosDB.OuroborosDB {
 	ou, err := OuroborosDB.NewOuroborosDB(OuroborosDB.Config{
 		Paths:                     []string{t.TempDir()},
 		MinimumFreeGB:             1,
@@ -16,53 +17,50 @@ func setupIndex(t testing.TB, rows int) *OuroborosDB.OuroborosDB {
 		t.Errorf("NewOuroborosDB failed with error: %v", err)
 	}
 
-	rev, err := ou.DB.CreateRootEvent("root1")
-	if err != nil {
-		t.Errorf("CreateRootEvent failed with error: %v", err)
-	}
+	parents := rowsIn1k / 500
 
-	rev2, err := ou.DB.CreateRootEvent("root2")
-	if err != nil {
-		t.Errorf("CreateRootEvent failed with error: %v", err)
-	}
-
-	for i := 0; i < rows; i++ {
-		_, err := ou.DB.CreateNewEvent(storage.EventOptions{
-			HashOfParentEvent: rev.EventHash,
-		})
+	for i := 0; i < parents; i++ {
+		rootEv, err := ou.DB.CreateRootEvent(time.Now().String())
 		if err != nil {
-			t.Errorf("CreateNewEvent failed with error: %v", err)
+			t.Errorf("CreateRootEvent failed with error: %v", err)
+		}
+
+		for j := 0; j < 499; j++ {
+			_, err := ou.DB.CreateNewEvent(storage.EventOptions{
+				HashOfParentEvent: rootEv.EventHash,
+			})
+			if err != nil {
+				t.Errorf("CreateNewEvent failed with error: %v", err)
+			}
 		}
 	}
 
-	for i := 0; i < rows; i++ {
-		_, err := ou.DB.CreateNewEvent(storage.EventOptions{
-			HashOfParentEvent: rev2.EventHash,
-		})
-		if err != nil {
-			t.Errorf("CreateNewEvent failed with error: %v", err)
-		}
-	}
+	time.Sleep(1 * time.Second)
 
 	return ou
 }
 
 func TestIndex_RebuildIndex(t *testing.T) {
-	ou := setupIndex(t, 10)
+	testEvs := 1000
+	ou := setupIndex(t, testEvs)
 
 	// Rebuild the index
-	err := ou.Index.RebuildIndex()
+	indexedRows, err := ou.Index.RebuildIndex()
 	if err != nil {
 		t.Errorf("RebuildIndex failed with error: %v", err)
+	}
+
+	if indexedRows != uint64(testEvs) {
+		t.Errorf("RebuildIndex failed, expected %d, got %d", testEvs, indexedRows)
 	}
 }
 
 func BenchmarkRebuildingIndex10kRows(b *testing.B) {
-	ou := setupIndex(b, 5000)
+	ou := setupIndex(b, 10000)
 
 	b.Run("RebuildIndex", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			err := ou.Index.RebuildIndex()
+			_, err := ou.Index.RebuildIndex()
 			if err != nil {
 				b.Errorf("RebuildIndex failed with error: %v", err)
 			}
