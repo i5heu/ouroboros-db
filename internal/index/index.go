@@ -37,7 +37,7 @@ func (i *Index) RebuildIndex() error {
 
 	// create a map of parent to children
 	for _, event := range events {
-		i.evParentToChild[event.HashOfParentEvent] = append(i.evParentToChild[event.HashOfRootEvent], event.EventHash)
+		i.evParentToChild[event.HashOfParentEvent] = append(i.evParentToChild[event.HashOfParentEvent], event.EventHash)
 	}
 
 	return nil

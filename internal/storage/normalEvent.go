@@ -137,11 +137,10 @@ func (ss *Storage) GetAllEvents() ([]Event, error) {
 
 	var events []Event
 	for _, item := range items {
-
 		var ev Event
 		dec := gob.NewDecoder(bytes.NewReader(item[1]))
 		if err := dec.Decode(&ev); err != nil {
-			log.Fatalf("Error decoding Event with Key: %x, Value: %x: %v", hex.EncodeToString(item[0]), hex.EncodeToString(item[1]), err)
+			log.Fatalf("Error decoding Event with Key: %s, Value: %x: %v", string(item[0]), hex.EncodeToString(item[1]), err)
 			return nil, err
 		}
 

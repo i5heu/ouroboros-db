@@ -31,7 +31,7 @@ func NewKeyValStore(config StoreConfig) (*KeyValStore, error) {
 	}
 
 	opts := badger.DefaultOptions(config.Paths[0])
-	//opts.Logger = nil
+	opts.Logger = nil
 	opts.ValueLogFileSize = 1024 * 1024 * 100 // Set max size of each value log file to 100MB
 	opts.SyncWrites = false
 
@@ -279,3 +279,42 @@ func (k *KeyValStore) GetItemsWithPrefix(prefix []byte) ([][][]byte, error) {
 	}
 	return keysAndValues, nil
 }
+
+// func (k *KeyValStore) GetItemsWithPrefixStream(prefix []byte) ([][][]byte, error) {
+
+// 	var keysAndValues [][][]byte
+// 	var mu sync.Mutex
+// 	wg := sync.WaitGroup{}
+// 	atomic.AddUint64(&k.readCounter, 1)
+
+// 	stream := k.badgerDB.NewStream()
+// 	stream.NumGo = runtime.NumCPU()
+// 	stream.Prefix = prefix
+// 	stream.LogPrefix = "Badger.Streaming"
+
+// 	// Process each buffer of key-value pairs
+// 	stream.Send = func(buf *z.Buffer) error {
+// 		kvList, err := badger.BufferToKVList(buf)
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		for _, kv := range kvList.GetKv() {
+// 			mu.Lock()
+// 			keysAndValues = append(keysAndValues, [][]byte{kv.Value, kv.Value})
+// 			mu.Unlock()
+// 		}
+
+// 		return nil
+// 	}
+
+// 	err := stream.Orchestrate(context.Background())
+// 	if err != nil {
+// 		fmt.Println("Error streaming: ", err)
+// 		return nil, err
+// 	}
+
+// 	wg.Wait()
+
+// 	return keysAndValues, nil
+// }
