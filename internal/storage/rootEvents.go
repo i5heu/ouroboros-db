@@ -26,7 +26,7 @@ func (ss *Storage) CreateRootEvent(title string) (Event, error) {
 	}
 
 	// Check if RootEvent with the same title already exists
-	otherRootEvent, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
+	otherRootEvent, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return Event{}, err
@@ -92,7 +92,7 @@ func (ss *Storage) GetAllRootEvents() ([]Event, error) {
 
 func (ss *Storage) GetRootIndex() ([]RootEventsIndex, error) {
 	// Get all keys from the keyValStore
-	rootIndex, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:"))
+	rootIndex, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err
@@ -111,7 +111,7 @@ func (ss *Storage) GetRootIndex() ([]RootEventsIndex, error) {
 }
 
 func (ss *Storage) GetRootEventsWithTitle(title string) ([]Event, error) {
-	rootKeys, err := ss.kv.GetKeysWithPrefix([]byte("RootEvent:" + title + ":"))
+	rootKeys, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err

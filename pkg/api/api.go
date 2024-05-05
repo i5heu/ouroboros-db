@@ -13,3 +13,9 @@ type DB interface {
 	CreateRootEvent(title string) (storage.Event, error)
 	CreateNewEvent(options storage.EventOptions) (storage.Event, error)
 }
+
+type Index interface {
+	RebuildIndex() error
+	GetChildrenHashesOfEvent(event storage.Event) [][64]byte
+	GetChildrenOfEvent(event storage.Event) ([]storage.Event, error)
+}

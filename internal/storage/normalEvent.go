@@ -128,3 +128,25 @@ func (ss *Storage) GetEvent(key []byte) (Event, error) {
 
 	return item, nil
 }
+
+func (ss *Storage) GetAllEvents() ([]Event, error) {
+	items, err := ss.kv.GetItemsWithPrefix([]byte("Event:"))
+	if err != nil {
+		return nil, err
+	}
+
+	var events []Event
+	for _, item := range items {
+
+		var ev Event
+		dec := gob.NewDecoder(bytes.NewReader(item[1]))
+		if err := dec.Decode(&ev); err != nil {
+			log.Fatalf("Error decoding Event with Key: %x, Value: %x: %v", hex.EncodeToString(item[0]), hex.EncodeToString(item[1]), err)
+			return nil, err
+		}
+
+		events = append(events, ev)
+	}
+
+	return events, nil
+}

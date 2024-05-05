@@ -70,7 +70,7 @@ func main() {
 				wg.Done()
 			}()
 
-			if err := processFile(&ss, rootEvent, path); err != nil {
+			if err := processFile(ss, rootEvent, path); err != nil {
 				fmt.Printf("Error processing file %s: %v\n", path, err)
 			}
 			atomic.AddInt64(&filesNumber, 1)

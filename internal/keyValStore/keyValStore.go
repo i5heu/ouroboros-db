@@ -41,9 +41,11 @@ func NewKeyValStore(config StoreConfig) (*KeyValStore, error) {
 		return nil, err
 	}
 
-	fmt.Printf("address: %p\n", &db)
-
-	displayDiskUsage(config.Paths)
+	err = displayDiskUsage(config.Paths)
+	if err != nil {
+		log.Fatal(err)
+		return nil, err
+	}
 
 	return &KeyValStore{
 		config:   config,
@@ -227,8 +229,6 @@ func (k *KeyValStore) Close() {
 }
 
 func (k *KeyValStore) Clean() error {
-	fmt.Printf("address: %p\n", &k.badgerDB)
-
 	err := k.badgerDB.Sync()
 	if err != nil {
 		return fmt.Errorf("error syncing db: %w", err)
@@ -253,7 +253,7 @@ func (k *KeyValStore) Clean() error {
 	return nil
 }
 
-func (k *KeyValStore) GetKeysWithPrefix(prefix []byte) ([][][]byte, error) {
+func (k *KeyValStore) GetItemsWithPrefix(prefix []byte) ([][][]byte, error) {
 	var keysAndValues [][][]byte
 	atomic.AddUint64(&k.readCounter, 1)
 	err := k.badgerDB.View(func(txn *badger.Txn) error {

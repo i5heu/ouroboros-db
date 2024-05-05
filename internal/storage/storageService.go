@@ -20,8 +20,8 @@ type StoreFileOptions struct {
 	FullTextSearch  bool
 }
 
-func CreateStorage(kv *keyValStore.KeyValStore) Storage {
-	return Storage{
+func CreateStorage(kv *keyValStore.KeyValStore) *Storage {
+	return &Storage{
 		kv: kv,
 	}
 }
