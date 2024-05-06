@@ -4,17 +4,20 @@ import (
 	"OuroborosDB/pkg/buzhashChunker"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/sirupsen/logrus"
 )
+
+var log *logrus.Logger
 
 type StoreConfig struct {
 	Paths            []string // absolute path at the moment only first path is supported
 	MinimumFreeSpace int      // in GB
+	Logger           *logrus.Logger
 }
 
 type KeyValStore struct {
@@ -25,6 +28,12 @@ type KeyValStore struct {
 }
 
 func NewKeyValStore(config StoreConfig) (*KeyValStore, error) {
+	if config.Logger == nil {
+		config.Logger = logrus.New()
+	} else {
+		log = config.Logger
+	}
+
 	err := config.checkConfig()
 	if err != nil {
 		return nil, fmt.Errorf("error checking config for KeyValStore: %w", err)
@@ -255,6 +264,7 @@ func (k *KeyValStore) Clean() error {
 	return nil
 }
 
+// will return all keys and values with the given prefix
 func (k *KeyValStore) GetItemsWithPrefix(prefix []byte) ([][][]byte, error) {
 	var keysAndValues [][][]byte
 	atomic.AddUint64(&k.readCounter, 1)

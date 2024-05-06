@@ -43,20 +43,19 @@ func (i *Index) RebuildIndex() (uint64, error) {
 	return uint64(len(events)), nil
 }
 
-func (i *Index) GetChildrenHashesOfEvent(event storage.Event) [][64]byte {
+func (i *Index) GetChildrenHashesOfEvent(eventHash [64]byte) [][64]byte {
 	i.evParentToChildLock.RLock()
 	defer i.evParentToChildLock.RUnlock()
-	return i.evParentToChild[event.EventHash]
+	return i.evParentToChild[eventHash]
 }
 
-func (i *Index) GetChildrenOfEvent(event storage.Event) ([]storage.Event, error) {
-	childrenHashes := i.GetChildrenHashesOfEvent(event)
+func (i *Index) GetDirectChildrenOfEvent(eventHash [64]byte) ([]storage.Event, error) {
+	childrenHashes := i.GetChildrenHashesOfEvent(eventHash)
 	children := make([]storage.Event, 0)
 
 	for _, childHash := range childrenHashes {
 
-		key := storage.GenerateKeyFromPrefixAndHash("Event:", childHash)
-		child, err := i.ss.GetEvent(key)
+		child, err := i.ss.GetEvent(childHash)
 		if err != nil {
 			return nil, err
 		}

@@ -6,49 +6,55 @@ import (
 	"OuroborosDB/internal/storage"
 	"OuroborosDB/pkg/api"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/dgraph-io/badger/v4"
 )
+
+var log *logrus.Logger
 
 type OuroborosDB struct {
 	ss     *storage.Storage
 	DB     api.DB
 	Index  api.Index
 	config Config
-	log    *log.Logger
+	log    *logrus.Logger
 }
 
 type Config struct {
 	Paths                     []string
 	MinimumFreeGB             int
 	GarbageCollectionInterval time.Duration // in minutes
-	Logger                    *log.Logger
+	Logger                    *logrus.Logger
 }
 
-func initializeLogger() *log.Logger {
+func initializeLogger() *logrus.Logger {
+	var log = logrus.New()
+
 	logFile, err := os.OpenFile("log.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(fmt.Errorf("could not open log file: %v", err))
 	}
 	log.SetOutput(logFile)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	return log.New(logFile, "", log.LstdFlags)
+	return log
 }
 
 func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 	if conf.Logger == nil {
 		conf.Logger = initializeLogger()
+		log = conf.Logger
 	} else {
-		log.SetOutput(conf.Logger.Writer())
+		log = conf.Logger
 	}
 
 	kvStore, err := keyValStore.NewKeyValStore(
 		keyValStore.StoreConfig{
 			Paths:            conf.Paths,
 			MinimumFreeSpace: conf.MinimumFreeGB,
+			Logger:           conf.Logger,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("error creating KeyValStore: %w", err)

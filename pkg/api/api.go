@@ -5,7 +5,7 @@ import "OuroborosDB/internal/storage"
 type DB interface {
 	StoreFile(options storage.StoreFileOptions) (storage.Event, error)
 	GetFile(eventOfFile storage.Event) ([]byte, error)
-	GetEvent(key []byte) (storage.Event, error)
+	GetEvent(hashOfEvent [64]byte) (storage.Event, error)
 	GetMetadata(eventOfFile storage.Event) ([]byte, error)
 	GetAllRootEvents() ([]storage.Event, error)
 	GetRootIndex() ([]storage.RootEventsIndex, error)
@@ -16,6 +16,6 @@ type DB interface {
 
 type Index interface {
 	RebuildIndex() (uint64, error)
-	GetChildrenHashesOfEvent(event storage.Event) [][64]byte
-	GetChildrenOfEvent(event storage.Event) ([]storage.Event, error)
+	GetChildrenHashesOfEvent(eventHash [64]byte) [][64]byte
+	GetDirectChildrenOfEvent(eventHash [64]byte) ([]storage.Event, error)
 }

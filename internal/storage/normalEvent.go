@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+const (
+	EventPrefix = "Event:"
+)
+
 // Event represents an event in the EventChain, the absolute top of a EventChain is a RootEvent, look at rootEvents.go
 type Event struct {
 	Key               []byte     // type:title:[DetailsMetaHash] title is only used for RootEvents, DetailsMetaHash is the hash of all ContentHashes, MetadataHashes, Level, HashOfParentEvent and HashOfSourceEvent and Temporary ("true" or "false" string)
@@ -54,7 +58,7 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (Event, error) {
 	}
 
 	// check if the parent event exists
-	parentEvent, err := ss.GetEvent(item.GetParentEventKey())
+	parentEvent, err := ss.GetEvent(item.HashOfParentEvent)
 	if err != nil {
 		log.Fatalf("Error creating new event: Parent event does not exist")
 		return Event{}, errors.New("Error creating new event: Parent event does not exist")
@@ -66,6 +70,15 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (Event, error) {
 			log.Fatalf("Error creating new event: Parent event is Temporary and can not have non-Temporary children")
 			return Event{}, errors.New("Error creating new event: Parent event is Temporary and can not have non-Temporary children")
 		}
+	}
+
+	// check if root event is valid
+	if item.HashOfRootEvent == [64]byte{} {
+		item.HashOfRootEvent = parentEvent.HashOfRootEvent
+	}
+	if item.HashOfRootEvent != parentEvent.HashOfRootEvent {
+		log.Fatalf("Error creating new event: Parent event is not part of the same EventChain")
+		return Event{}, errors.New("Error creating new event: Parent event is not part of the same EventChain")
 	}
 
 	item.EventHash = item.CreateDetailsMetaHash()
@@ -133,18 +146,18 @@ func (item *Event) CreateDetailsMetaHash() [64]byte {
 	return sha512.Sum512(buffer.Bytes())
 }
 
-func (ss *Storage) GetEvent(key []byte) (Event, error) {
+func (ss *Storage) GetEvent(hashOfEvent [64]byte) (Event, error) {
 	// Read the EventChainItem from the keyValStore
-	value, err := ss.kv.Read(key)
+	value, err := ss.kv.Read(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent))
 	if err != nil {
-		return Event{}, fmt.Errorf("Error reading Event with Key: %x: %v", hex.EncodeToString(key), err)
+		return Event{}, fmt.Errorf("Error reading Event with Key: %x: %v", string(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent)), err)
 	}
 
 	// Deserialize the EventChainItem using gob
 	item := Event{}
 	dec := gob.NewDecoder(bytes.NewReader(value))
 	if err := dec.Decode(&item); err != nil {
-		log.Fatalf("Error decoding RootEvent with Key: %x, Value: %x: %v", hex.EncodeToString(key), hex.EncodeToString(value), err)
+		log.Fatalf("Error decoding RootEvent with Key: %x, Value: %x: %v", string(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent)), hex.EncodeToString(value), err)
 		return Event{}, err
 	}
 
@@ -170,4 +183,16 @@ func (ss *Storage) GetAllEvents() ([]Event, error) {
 	}
 
 	return events, nil
+}
+
+func GetEventHashFromKey(key []byte) [64]byte {
+	hash, err := hex.DecodeString(string(key[len(EventPrefix):]))
+	if err != nil {
+		log.Fatalf("Error decoding Event hash from Key: %x: %v", key, err)
+		return [64]byte{}
+	}
+
+	var eventHash [64]byte
+	copy(eventHash[:], hash)
+	return eventHash
 }

@@ -8,9 +8,19 @@ import (
 	"time"
 )
 
+const (
+	RootEventPrefix = "RootEvent:"
+)
+
+var RootEventParentEventHash [64]byte
+
+func init() {
+	RootEventParentEventHash = [64]byte{'R', 'o', 'o', 't', 'E', 'v', 'e', 'n', 't'}
+}
+
 type RootEventsIndex struct {
-	Key        []byte
-	KeyOfEvent []byte
+	Title []byte
+	Hash  [64]byte
 }
 
 // Same as Event struct in storageService.go but without some unnecessary fields
@@ -43,6 +53,8 @@ func (ss *Storage) CreateRootEvent(title string) (Event, error) {
 		return Event{}, err
 	}
 
+	item.HashOfParentEvent = [64]byte{'R', 'o', 'o', 't', 'E', 'v', 'e', 'n', 't'}
+	item.HashOfRootEvent = [64]byte{'R', 'o', 'o', 't', 'E', 'v', 'e', 'n', 't'}
 	item.EventHash = item.CreateDetailsMetaHash()
 	item.Key = GenerateKeyFromPrefixAndHash("Event:", item.EventHash)
 
@@ -78,7 +90,7 @@ func (ss *Storage) GetAllRootEvents() ([]Event, error) {
 	rootEvents := []Event{}
 
 	for _, indexItem := range rootIndex {
-		rootEvent, error := ss.GetEvent(indexItem.KeyOfEvent)
+		rootEvent, error := ss.GetEvent(indexItem.Hash)
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error
@@ -103,27 +115,27 @@ func (ss *Storage) GetRootIndex() ([]RootEventsIndex, error) {
 	}
 
 	revi := []RootEventsIndex{}
-	for _, ev := range rootIndex {
-		revi = append(revi, RootEventsIndex{Key: ev[0], KeyOfEvent: ev[1]})
+	for _, item := range rootIndex {
+		revi = append(revi, RootEventsIndex{Title: item[0], Hash: GetEventHashFromKey(item[1])})
 	}
 
 	return revi, nil
 }
 
 func (ss *Storage) GetRootEventsWithTitle(title string) ([]Event, error) {
-	rootKeys, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
+	rootIndex, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err
 	}
 
-	if len(rootKeys) == 0 {
+	if len(rootIndex) == 0 {
 		return nil, nil
 	}
 
 	rootEvents := []Event{}
-	for _, key := range rootKeys {
-		rootEvent, error := ss.GetEvent(key[1])
+	for _, item := range rootIndex {
+		rootEvent, error := ss.GetEvent(GetEventHashFromKey(item[1]))
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error

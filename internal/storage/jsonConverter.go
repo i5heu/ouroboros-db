@@ -11,8 +11,8 @@ func (indexItem RootEventsIndex) MarshalJSON() ([]byte, error) {
 		Key        string `json:"key"`
 		KeyOfEvent string `json:"keyOfEvent"`
 	}{
-		Key:        string(indexItem.Key),
-		KeyOfEvent: string(indexItem.KeyOfEvent),
+		Key:        string(indexItem.Title),
+		KeyOfEvent: hex.EncodeToString(indexItem.Hash[:]),
 	}, "", "    ")
 }
 

@@ -120,8 +120,8 @@ func (options *StoreFileOptions) ValidateOptions() error {
 func (ss *Storage) GetFile(eventOfFile Event) ([]byte, error) {
 	file := []byte{}
 
-	for _, key := range eventOfFile.ContentHashes {
-		chunk, err := ss.kv.Read(key[:])
+	for _, hash := range eventOfFile.ContentHashes {
+		chunk, err := ss.kv.Read(hash[:])
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetFile: %v", err)
 		}
@@ -135,8 +135,8 @@ func (ss *Storage) GetFile(eventOfFile Event) ([]byte, error) {
 func (ss *Storage) GetMetadata(eventOfFile Event) ([]byte, error) {
 	metadata := []byte{}
 
-	for _, key := range eventOfFile.MetadataHashes {
-		chunk, err := ss.kv.Read(key[:])
+	for _, hash := range eventOfFile.MetadataHashes {
+		chunk, err := ss.kv.Read(hash[:])
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetMetadata: %v", err)
 		}
