@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"crypto/sha512"
 	"encoding/binary"
-	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -84,16 +85,16 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (Event, error) {
 	item.EventHash = item.CreateDetailsMetaHash()
 	item.Key = GenerateKeyFromPrefixAndHash("Event:", item.EventHash)
 
-	// Serialize the EventChainItem using gob
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(item); err != nil {
+	// Serialize the EventChainItem using
+	pbEvent := convertToProtoEvent(item)
+	data, err := proto.Marshal(pbEvent)
+	if err != nil {
 		log.Fatalf("Error encoding item: %v", err)
 		return Event{}, err
 	}
 
 	// Write the EventChainItem to the keyValStore
-	err = ss.kv.Write(item.Key, buf.Bytes())
+	err = ss.kv.Write(item.Key, data)
 	if err != nil {
 		log.Fatalf("Error writing item: %v", err)
 		return Event{}, err
@@ -153,13 +154,12 @@ func (ss *Storage) GetEvent(hashOfEvent [64]byte) (Event, error) {
 		return Event{}, fmt.Errorf("Error reading Event with Key: %x: %v", string(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent)), err)
 	}
 
-	// Deserialize the EventChainItem using gob
-	item := Event{}
-	dec := gob.NewDecoder(bytes.NewReader(value))
-	if err := dec.Decode(&item); err != nil {
-		log.Fatalf("Error decoding RootEvent with Key: %x, Value: %x: %v", string(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent)), hex.EncodeToString(value), err)
-		return Event{}, err
+	// Deserialize the EventProto using Protocol Buffers
+	pbEvent := &EventProto{}
+	if err := proto.Unmarshal(value, pbEvent); err != nil {
+		return Event{}, fmt.Errorf("Error decoding Event with Key: %x: %v", hashOfEvent, err)
 	}
+	item := convertFromProtoEvent(pbEvent)
 
 	return item, nil
 }
@@ -172,14 +172,13 @@ func (ss *Storage) GetAllEvents() ([]Event, error) {
 
 	var events []Event
 	for _, item := range items {
-		var ev Event
-		dec := gob.NewDecoder(bytes.NewReader(item[1]))
-		if err := dec.Decode(&ev); err != nil {
-			log.Fatalf("Error decoding Event with Key: %s, Value: %x: %v", string(item[0]), hex.EncodeToString(item[1]), err)
+		pbEvent := EventProto{}
+		if err := proto.Unmarshal(item[1], &pbEvent); err != nil {
+			log.Fatalf("Error decoding Event with Key: %x: %v", item[0], err)
 			return nil, err
 		}
 
-		events = append(events, ev)
+		events = append(events, convertFromProtoEvent(&pbEvent))
 	}
 
 	return events, nil

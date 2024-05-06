@@ -1,11 +1,11 @@
 package storage
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"log"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -59,15 +59,15 @@ func (ss *Storage) CreateRootEvent(title string) (Event, error) {
 	item.Key = GenerateKeyFromPrefixAndHash("Event:", item.EventHash)
 
 	// Serialize the EventChainItem using gob
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(item); err != nil {
+	pbEvent := convertToProtoEvent(item)
+	data, err := proto.Marshal(pbEvent)
+	if err != nil {
 		log.Fatalf("Error encoding item: %v", err)
 		return Event{}, err
 	}
 
 	// Write the EventChainItem to the keyValStore
-	ss.kv.Write(item.Key, buf.Bytes())
+	ss.kv.Write(item.Key, data)
 
 	// define the event as entry point for the EventChain
 	ss.kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), item.Key)

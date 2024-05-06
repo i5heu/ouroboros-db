@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package storage;
+
+message EventProto {
+  bytes key = 1;
+  bytes event_hash = 2;
+  int64 level = 3;
+  repeated bytes content_hashes = 4;
+  repeated bytes metadata_hashes = 5;
+  bytes hash_of_parent_event = 6;
+  bytes hash_of_root_event = 7;
+  bool temporary = 8;
+  bool full_text_search = 9;
+}

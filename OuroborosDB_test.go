@@ -125,7 +125,7 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *OuroborosDB.Ouroboro
 
 	// Build index
 	if !conf.notBuildIndex {
-		_, err = ou.Index.RebuildIndex()
+		_, err := ou.Index.RebuildIndex()
 		if err != nil {
 			t.Errorf("RebuildIndex failed with error: %v", err)
 		}
@@ -135,8 +135,11 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *OuroborosDB.Ouroboro
 }
 
 func Test_Index_RebuildIndex(t *testing.T) {
-	testEvs := 1000
-	ou, _ := setupDBWithData(t, setupDBConfig{})
+	testRows := 10000
+	ou, _ := setupDBWithData(t, setupDBConfig{
+		totalEvents:   testRows,
+		notBuildIndex: true,
+	})
 
 	// Rebuild the index
 	indexedRows, err := ou.Index.RebuildIndex()
@@ -144,14 +147,15 @@ func Test_Index_RebuildIndex(t *testing.T) {
 		t.Errorf("RebuildIndex failed with error: %v", err)
 	}
 
-	if indexedRows != uint64(testEvs) {
-		t.Errorf("RebuildIndex failed, expected %d, got %d", testEvs, indexedRows)
+	if indexedRows != uint64(testRows) {
+		t.Errorf("RebuildIndex failed, expected %d, got %d", testRows, indexedRows)
 	}
 }
 
 func Benchmark_Index_RebuildingIndex(b *testing.B) {
 	ou, _ := setupDBWithData(b, setupDBConfig{
-		totalEvents: 10000,
+		totalEvents:   10000,
+		notBuildIndex: true,
 	})
 
 	b.Run("RebuildIndex", func(b *testing.B) {
@@ -201,8 +205,9 @@ func Benchmark_Index_GetDirectChildrenOfEvent(b *testing.B) {
 
 func Test_Index_GetChildrenHashesOfEvent(t *testing.T) {
 	ou, evs := setupDBWithData(t, setupDBConfig{
-		totalEvents:        100,
-		returnRandomEvents: 10,
+		totalEvents:        1000,
+		returnRandomEvents: 100,
+		eventLevels:        5,
 	})
 
 	var childrenCount int // todo this is not a good test
