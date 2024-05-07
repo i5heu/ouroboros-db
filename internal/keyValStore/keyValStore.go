@@ -1,9 +1,9 @@
 package keyValStore
 
 import (
-	"OuroborosDB/pkg/buzhashChunker"
 	"encoding/hex"
 	"fmt"
+	"ouroboros-db/pkg/buzhashChunker"
 	"runtime"
 	"sync/atomic"
 	"time"

@@ -1,12 +1,12 @@
-package OuroborosDB
+package ouroboros
 
 import (
-	"OuroborosDB/internal/index"
-	"OuroborosDB/internal/keyValStore"
-	"OuroborosDB/internal/storage"
-	"OuroborosDB/pkg/api"
 	"fmt"
 	"os"
+	"ouroboros-db/internal/index"
+	"ouroboros-db/internal/keyValStore"
+	"ouroboros-db/internal/storage"
+	"ouroboros-db/pkg/api"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -42,7 +42,7 @@ func initializeLogger() *logrus.Logger {
 	return log
 }
 
-func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
+func Newouroboros(conf Config) (*OuroborosDB, error) {
 	if conf.Logger == nil {
 		conf.Logger = initializeLogger()
 		log = conf.Logger

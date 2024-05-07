@@ -1,11 +1,11 @@
 package main
 
 import (
-	"OuroborosDB/internal/keyValStore"
-	"OuroborosDB/internal/storage"
 	"fmt"
 	"log"
 	"os"
+	"ouroboros-db/internal/keyValStore"
+	"ouroboros-db/internal/storage"
 	"path/filepath"
 	"sync"
 	"sync/atomic"

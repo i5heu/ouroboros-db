@@ -1,9 +1,9 @@
-package OuroborosDB_test
+package ouroboros_test
 
 import (
-	"OuroborosDB/internal/storage"
 	"fmt"
 	"math/rand"
+	"ouroboros-db/internal/storage"
 	"testing"
 	"time"
 )

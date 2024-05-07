@@ -1,10 +1,10 @@
-package OuroborosDB_test
+package ouroboros_test
 
 import (
-	"OuroborosDB"
-	"OuroborosDB/internal/storage"
 	"fmt"
 	"math/rand"
+	"ouroboros-db"
+	"ouroboros-db/internal/storage"
 	"testing"
 	"time"
 )
@@ -28,7 +28,7 @@ func randomString(n int) string {
 	return string(b)
 }
 
-func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *OuroborosDB.OuroborosDB, backEventHashes [][64]byte) {
+func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosDB, backEventHashes [][64]byte) {
 	if conf.totalEvents == 0 {
 		conf.totalEvents = 1000
 	}
@@ -36,13 +36,13 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *OuroborosDB.Ouroboro
 		conf.eventLevels = 3
 	}
 
-	ou, err := OuroborosDB.NewOuroborosDB(OuroborosDB.Config{
+	ou, err := ouroboros.Newouroboros(ouroboros.Config{
 		Paths:                     []string{t.TempDir(), t.TempDir()},
 		MinimumFreeGB:             1,
 		GarbageCollectionInterval: 10,
 	})
 	if err != nil {
-		t.Errorf("NewOuroborosDB failed with error: %v", err)
+		t.Errorf("Newouroboros failed with error: %v", err)
 	}
 
 	if conf.totalEvents == 1 {

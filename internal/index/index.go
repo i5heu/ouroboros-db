@@ -1,7 +1,7 @@
 package index
 
 import (
-	"OuroborosDB/internal/storage"
+	"ouroboros-db/internal/storage"
 	"sync"
 )
 

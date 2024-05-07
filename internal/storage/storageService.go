@@ -1,10 +1,10 @@
 package storage
 
 import (
-	"OuroborosDB/internal/keyValStore"
-	"OuroborosDB/pkg/buzhashChunker"
 	"fmt"
 	"log"
+	"ouroboros-db/internal/keyValStore"
+	"ouroboros-db/pkg/buzhashChunker"
 	"sync"
 )
 
