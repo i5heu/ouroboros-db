@@ -3,3 +3,8 @@ data/*
 benchmarks/*
 *.txt
 *.log
+*.out
+*.err
+*.csv
+*.html
+*.prof
