@@ -35,4 +35,4 @@ jobs:
           threshold-package: 50
           threshold-total: 50
           git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
-          git-branch: badges 
+          git-branch: gh-pages 
