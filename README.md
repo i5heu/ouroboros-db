@@ -1,3 +1,5 @@
+![](https://github.com/i5heu/OuroborosDB/blob/badges/.badges/main/coverage.svg)
+
 <p align="center">
   <img src=".media/logo.jpeg"  width="300">
 </p>
