@@ -1,4 +1,4 @@
-![](https://github.com/i5heu/OuroborosDB/blob/badges/.badges/main/coverage.svg)
+![](https://github.com/i5heu/OuroborosDB/blob/gh-pages/.badges/main/coverage.svg)
 
 <p align="center">
   <img src=".media/logo.jpeg"  width="300">
