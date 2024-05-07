@@ -24,7 +24,7 @@ func (item Event) MarshalJSON() ([]byte, error) {
 		ContentHashes     []string `json:"contentHashes"`
 		MetadataHashes    []string `json:"metadataHashes"`
 		HashOfParentEvent string   `json:"hashOfParentEvent"`
-		HashOfSourceEvent string   `json:"hashOfSourceEvent"`
+		HashOfRootEvent   string   `json:"hashOfRootEvent"`
 		Temporary         bool     `json:"temporary"`
 	}{
 		Key:               string(item.Key),
@@ -33,7 +33,7 @@ func (item Event) MarshalJSON() ([]byte, error) {
 		ContentHashes:     convertHashArrayToStrings(item.ContentHashes),
 		MetadataHashes:    convertHashArrayToStrings(item.MetadataHashes),
 		HashOfParentEvent: hex.EncodeToString(item.HashOfParentEvent[:]),
-		HashOfSourceEvent: hex.EncodeToString(item.HashOfRootEvent[:]),
+		HashOfRootEvent:   hex.EncodeToString(item.HashOfRootEvent[:]),
 		Temporary:         item.Temporary,
 	}, "", "    ")
 }
