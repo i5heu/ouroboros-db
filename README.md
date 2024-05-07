@@ -1,5 +1,5 @@
-![](https://github.com/i5heu/OuroborosDB/blob/gh-pages/.badges/main/coverage.svg)
-
+ [![Tests](https://github.com/i5heu/OuroborosDB/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/i5heu/OuroborosDB/actions/workflows/go.yml) ![](https://github.com/i5heu/OuroborosDB/blob/gh-pages/.badges/main/coverage.svg)
+ 
 <p align="center">
   <img src=".media/logo.jpeg"  width="300">
 </p>
