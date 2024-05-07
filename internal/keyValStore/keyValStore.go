@@ -30,9 +30,9 @@ type KeyValStore struct {
 func NewKeyValStore(config StoreConfig) (*KeyValStore, error) {
 	if config.Logger == nil {
 		config.Logger = logrus.New()
-	} else {
-		log = config.Logger
 	}
+
+	log = config.Logger
 
 	err := config.checkConfig()
 	if err != nil {

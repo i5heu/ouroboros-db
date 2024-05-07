@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/google/fscrypt/filesystem"
+	"github.com/shirou/gopsutil/disk"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,20 +30,28 @@ func calculateDirectorySize(path string) (size int64, err error) {
 	return
 }
 
-func getDeviceAndMountPoint(path string) (device, mountPoint string, err error) {
-	// Finding the mount information for the given path
-
-	mnt, err := filesystem.FindMount(path)
+func getDeviceAndMountPoint(path string) (string, string, error) {
+	partitions, err := disk.Partitions(true)
 	if err != nil {
-		return "", "", fmt.Errorf("unable to find mount for path %s: %v", path, err)
+		return "", "", err
 	}
 
-	return mnt.Device, mnt.Path, nil
+	for _, partition := range partitions {
+		if contains(path, partition.Mountpoint) {
+			return partition.Mountpoint, partition.Device, nil
+		}
+	}
+
+	return "", "", fmt.Errorf("mount point not found for path: %s", path)
+}
+
+// contains checks if a path is within the mount point.
+func contains(path, mountpoint string) bool {
+	return len(path) >= len(mountpoint) && path[:len(mountpoint)] == mountpoint
 }
 
 // displayDiskUsage displays the disk usage information using structured logging
 func displayDiskUsage(paths []string) error {
-	log.Info("Displaying disk usage information for paths")
 
 	for _, path := range paths {
 		disk, err := getDiskUsageStats(path)
@@ -54,7 +62,7 @@ func displayDiskUsage(paths []string) error {
 			return err
 		}
 
-		device, mountPoint, err := getDeviceAndMountPoint(path)
+		mountPoint, device, err := getDeviceAndMountPoint(path)
 		if err != nil {
 			log.WithFields(logrus.Fields{
 				"path": path,
@@ -83,7 +91,7 @@ func displayDiskUsage(paths []string) error {
 			"Used (GB)":   fmt.Sprintf("%.2f", usedSpace),
 			"Free (GB)":   fmt.Sprintf("%.2f", freeSpace),
 			"Usage by DB": fmt.Sprintf("%.2f", pathUsage),
-		}).Info("Disk Usage")
+		}).Info("Disk Usage information for path")
 	}
 
 	return nil

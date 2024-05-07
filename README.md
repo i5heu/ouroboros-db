@@ -11,7 +11,7 @@ A embedded database built around the concept of event trees, emphasizing data de
 - Scalable Concurrent Processing: Optimized for concurrent processing to handle large-scale data.
 - Log Management and Indexing: Provides efficient logging and indexing for performance monitoring.
 - Non-Deletable Events: Once stored, events cannot be deleted or altered, ensuring the immutability and auditability of the data.
-- Temporary Events: Allows the creation of temporary events that can be marked as temporary and safely cleaned up later for short-term data storage needs.
+- (To be implemented) Temporary Events: Allows the creation of temporary events that can be marked as temporary and safely cleaned up later for short-term data storage needs.
 
 
 ## Table of Contents
@@ -214,6 +214,6 @@ geomean                                                             144.0µ     
 The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of modern data challenges.
 
 ## License
-GoChunkyGo (c) 2023 Mia Heidenstedt and contributors  
+OuroborosDB (c) 2024 Mia Heidenstedt and contributors  
    
 SPDX-License-Identifier: AGPL-3.0
