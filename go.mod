@@ -1,10 +1,10 @@
-module ouroboros-db
+module github.com/i5heu/ouroboros-db
 
 go 1.21.5
 
 require (
-	github.com/google/fscrypt v0.3.5
 	github.com/ipfs/boxo v0.19.0
+	github.com/shirou/gopsutil v3.21.11+incompatible
 	google.golang.org/protobuf v1.34.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -23,7 +23,6 @@ require (
 	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/net v0.25.0 // indirect

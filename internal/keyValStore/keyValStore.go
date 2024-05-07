@@ -3,10 +3,11 @@ package keyValStore
 import (
 	"encoding/hex"
 	"fmt"
-	"ouroboros-db/pkg/buzhashChunker"
 	"runtime"
 	"sync/atomic"
 	"time"
+
+	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/sirupsen/logrus"

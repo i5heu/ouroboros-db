@@ -1,7 +1,7 @@
 package outypes
 
 import (
-	"ouroboros-db/internal/storage"
+	"github.com/i5heu/ouroboros-db/internal/storage"
 )
 
 // Event represents an event in the EventChain, the absolute top of a EventChain is a RootEvent, look at rootEvents.go

@@ -1,8 +1,9 @@
 package index
 
 import (
-	"ouroboros-db/internal/storage"
 	"sync"
+
+	"github.com/i5heu/ouroboros-db/internal/storage"
 )
 
 type Index struct {

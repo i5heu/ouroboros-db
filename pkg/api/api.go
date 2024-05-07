@@ -1,6 +1,6 @@
 package api
 
-import "ouroboros-db/internal/storage"
+import "github.com/i5heu/ouroboros-db/internal/storage"
 
 type DB interface {
 	StoreFile(options storage.StoreFileOptions) (storage.Event, error)

@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"ouroboros-db/internal/keyValStore"
-	"ouroboros-db/internal/storage"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/i5heu/ouroboros-db/internal/keyValStore"
+	"github.com/i5heu/ouroboros-db/internal/storage"
 )
 
 func main() {

@@ -3,10 +3,11 @@ package ouroboros_test
 import (
 	"fmt"
 	"math/rand"
-	"ouroboros-db"
-	"ouroboros-db/internal/storage"
 	"testing"
 	"time"
+
+	"github.com/i5heu/ouroboros-db"
+	"github.com/i5heu/ouroboros-db/internal/storage"
 )
 
 type setupDBConfig struct {

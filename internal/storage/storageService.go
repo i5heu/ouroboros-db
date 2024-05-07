@@ -3,9 +3,10 @@ package storage
 import (
 	"fmt"
 	"log"
-	"ouroboros-db/internal/keyValStore"
-	"ouroboros-db/pkg/buzhashChunker"
 	"sync"
+
+	"github.com/i5heu/ouroboros-db/internal/keyValStore"
+	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
 )
 
 type Storage struct {

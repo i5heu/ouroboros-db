@@ -3,9 +3,10 @@ package ouroboros_test
 import (
 	"fmt"
 	"math/rand"
-	"ouroboros-db/internal/storage"
 	"testing"
 	"time"
+
+	"github.com/i5heu/ouroboros-db/internal/storage"
 )
 
 func Benchmark_setupDBWithData(b *testing.B) {

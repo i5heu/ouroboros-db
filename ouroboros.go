@@ -3,11 +3,12 @@ package ouroboros
 import (
 	"fmt"
 	"os"
-	"ouroboros-db/internal/index"
-	"ouroboros-db/internal/keyValStore"
-	"ouroboros-db/internal/storage"
-	"ouroboros-db/pkg/api"
 	"time"
+
+	"github.com/i5heu/ouroboros-db/internal/index"
+	"github.com/i5heu/ouroboros-db/internal/keyValStore"
+	"github.com/i5heu/ouroboros-db/internal/storage"
+	"github.com/i5heu/ouroboros-db/pkg/api"
 
 	"github.com/sirupsen/logrus"
 
