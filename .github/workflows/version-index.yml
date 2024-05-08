@@ -26,25 +26,6 @@ jobs:
         with:
           go-version: 1.21.5
 
-      - name: Determine Package Version
-        id: package_version
+      - name: Get Newest Tag
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            echo "PACKAGE_VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-          else
-            if [ -n "${{ github.event.inputs.package_version }}" ]; then
-              echo "PACKAGE_VERSION=${{ github.event.inputs.package_version }}" >> $GITHUB_ENV
-            else
-              LATEST_TAG=$(git describe --tags --abbrev=0)
-              echo "PACKAGE_VERSION=${LATEST_TAG}" >> $GITHUB_ENV
-            fi
-          fi
-        shell: bash
-
-      - name: Install Package
-        run: |
-          if [ -z "${{ env.PACKAGE_VERSION }}" ]; then
-            echo "No version provided."
-            exit 1
-          fi
-          GOPROXY=https://proxy.golang.org GO111MODULE=on go get github.com/i5heu/ouroboros-db@${{ env.PACKAGE_VERSION }}
+          GOPROXY=https://proxy.golang.org GO111MODULE=on go list -m github.com/i5heu/ouroboros-db@`echo $(git describe --tags --abbrev=0)`
