@@ -1,9 +1,9 @@
 name: Version Index
 
 on:
-  push:
-    tags:
-      - '*'
+  release:
+    types: [published]
+    
   workflow_dispatch:
 
 jobs:
@@ -26,4 +26,4 @@ jobs:
       - name: Send Another HTTP Request
         uses: fjogeleit/http-request-action@v1.15.5
         with:
-          url: "https://proxy.golang.org/github.com/i5heu/ouroboros-db/@v/v${{ steps.get_version.outputs.version }}.info"
+          url: "https://proxy.golang.org/github.com/i5heu/ouroboros-db/@v/${{ steps.get_version.outputs.version }}.info"
