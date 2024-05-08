@@ -1,20 +1,21 @@
+# .github/workflows/version-index.yml
 name: Version Index
 
 on:
+  push:
+    tags:
+      - '*'
+
   workflow_dispatch:
     inputs:
       package_version:
         description: "Version of the package to fetch"
-        required: true
+        required: false
         default: ""
-
-  release:
-    types:
-      - published
 
 jobs:
   go-get:
-    name: Install Go Package with Specified Version
+    name: Install Go Package with Released Version
     runs-on: ubuntu-latest
 
     steps:
@@ -24,17 +25,26 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.19  # Adjust based on your requirement
+          go-version: 1.21.5
 
       - name: Determine Package Version
         id: package_version
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "PACKAGE_VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            echo "PACKAGE_VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
           else
-            echo "PACKAGE_VERSION=${{ github.event.inputs.package_version }}" >> $GITHUB_ENV
-        shell: /usr/bin/bash -e
+            if [ -n "${{ github.event.inputs.package_version }}" ]; then
+              echo "PACKAGE_VERSION=${{ github.event.inputs.package_version }}" >> $GITHUB_ENV
+            else
+              LATEST_TAG=$(git describe --tags --abbrev=0)
+              echo "PACKAGE_VERSION=${LATEST_TAG}" >> $GITHUB_ENV
+            fi
+        shell: bash
 
       - name: Install Package
         run: |
+          if [ -z "${{ env.PACKAGE_VERSION }}" ]; then
+            echo "No version provided."
+            exit 1
+          fi
           GOPROXY=https://proxy.golang.org GO111MODULE=on go get github.com/i5heu/ouroboros-db@${{ env.PACKAGE_VERSION }}
