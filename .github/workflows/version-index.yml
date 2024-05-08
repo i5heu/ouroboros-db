@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - '*'
-
   workflow_dispatch:
 
 jobs:
@@ -12,15 +11,19 @@ jobs:
     name: Install Go Package with Released Version
     runs-on: ubuntu-latest
     steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
       - name: Get Version
+        id: get_version
         uses: battila7/get-version-action@v2.2.1
 
       - name: Fetch Go Package Info
         uses: fjogeleit/http-request-action@v1.15.5
         with:
-          url: "https://proxy.golang.org/github.com/i5heu/ouroborosdb/@latest"
+          url: "https://proxy.golang.org/github.com/i5heu/ouroboros-db/@latest"
 
       - name: Send Another HTTP Request
         uses: fjogeleit/http-request-action@v1.15.5
         with:
-          url: "https://proxy.golang.org/github.com/i5heu/ouroboros-db/@v/v{{ steps.get-version.outputs.version }}.info"
+          url: "https://proxy.golang.org/github.com/i5heu/ouroboros-db/@v/v${{ steps.get_version.outputs.version }}.info"
