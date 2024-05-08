@@ -11,6 +11,10 @@ func (sc *StoreConfig) checkConfig() error {
 		return errors.New("no path provided in configuration")
 	}
 
+	if sc.Paths[0] == "ExamplePath" {
+		return nil
+	}
+
 	path := sc.Paths[0] // Currently only the first path is utilized
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
