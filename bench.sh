@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Declare an array of version tags
-declare -a versions=("v0.0.2" "v0.0.3")  # Add your arbitrary versions here
+declare -a versions=("v0.0.2" "v0.0.3", "v0.0.8")  # Add your arbitrary versions here
 
 # Create a directory to hold the benchmark results
 mkdir -p benchmarks
