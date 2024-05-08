@@ -6,26 +6,21 @@ on:
       - '*'
 
   workflow_dispatch:
-    inputs:
-      package_version:
-        description: "Version of the package to fetch"
-        required: false
-        default: ""
 
 jobs:
   go-get:
     name: Install Go Package with Released Version
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
+      - name: Get Version
+        uses: battila7/get-version-action@v2.2.1
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - name: Fetch Go Package Info
+        uses: fjogeleit/http-request-action@v1.15.5
         with:
-          go-version: 1.21.5
+          url: "https://proxy.golang.org/github.com/i5heu/ouroborosdb/@latest"
 
-      - name: Get Newest Tag
-        run: |
-          GOPROXY=https://proxy.golang.org GO111MODULE=on go list -m github.com/i5heu/ouroboros-db@`echo $(git describe --tags --abbrev=0)`
+      - name: Send Another HTTP Request
+        uses: fjogeleit/http-request-action@v1.15.5
+        with:
+          url: "https://proxy.golang.org/github.com/i5heu/ouroboros-db/@v/v{{ steps.get-version.outputs.version }}.info"
