@@ -1,0 +1,35 @@
+# .github/workflows/go-get-ourobos-db.yml
+name: Version Index
+
+on:
+  workflow_dispatch:
+
+  release:
+    types:
+      - published
+
+jobs:
+  go-get:
+    name: Install Go Package with Released Version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.19  # Adjust based on your requirement
+
+      - name: Determine Package Version
+        id: package_version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "PACKAGE_VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          else
+            echo "PACKAGE_VERSION=${{ github.event.inputs.package_version }}" >> $GITHUB_ENV
+
+      - name: Install Package
+        run: |
+          GOPROXY=https://proxy.golang.org GO111MODULE=on go get github.com/i5heu/ouroboros-db@${{ env.PACKAGE_VERSION }}
