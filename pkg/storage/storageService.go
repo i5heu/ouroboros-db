@@ -7,6 +7,7 @@ import (
 
 	"github.com/i5heu/ouroboros-db/internal/keyValStore"
 	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
+	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
 type Storage struct {
@@ -14,7 +15,7 @@ type Storage struct {
 }
 
 type StoreFileOptions struct {
-	EventToAppendTo Event
+	EventToAppendTo types.Event
 	Metadata        []byte
 	File            []byte
 	Temporary       bool
@@ -32,12 +33,12 @@ func (ss *Storage) Close() {
 }
 
 // will store the file in the chunkStore and create new Event as child of given event
-func (ss *Storage) StoreFile(options StoreFileOptions) (Event, error) {
+func (ss *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 	// Validate options before proceeding
 	err := options.ValidateOptions()
 	if err != nil {
 		log.Fatalf("Error validating options: %v", err)
-		return Event{}, err
+		return types.Event{}, err
 	}
 
 	// Create channels to handle asynchronous results and errors
@@ -79,7 +80,7 @@ func (ss *Storage) StoreFile(options StoreFileOptions) (Event, error) {
 	// Check for errors
 	for err := range errorChan {
 		log.Printf("Error in storing data: %v", err)
-		return Event{}, err
+		return types.Event{}, err
 	}
 
 	// Retrieve results from channels
@@ -96,7 +97,7 @@ func (ss *Storage) StoreFile(options StoreFileOptions) (Event, error) {
 	})
 	if err != nil {
 		log.Fatalf("Error creating new event: %v", err)
-		return Event{}, err
+		return types.Event{}, err
 	}
 
 	return newEvent, nil
@@ -118,7 +119,7 @@ func (options *StoreFileOptions) ValidateOptions() error {
 	return nil
 }
 
-func (ss *Storage) GetFile(eventOfFile Event) ([]byte, error) {
+func (ss *Storage) GetFile(eventOfFile types.Event) ([]byte, error) {
 	file := []byte{}
 
 	for _, hash := range eventOfFile.ContentHashes {
@@ -133,7 +134,7 @@ func (ss *Storage) GetFile(eventOfFile Event) ([]byte, error) {
 	return file, nil
 }
 
-func (ss *Storage) GetMetadata(eventOfFile Event) ([]byte, error) {
+func (ss *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
 	metadata := []byte{}
 
 	for _, hash := range eventOfFile.MetadataHashes {

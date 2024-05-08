@@ -3,7 +3,8 @@ package index
 import (
 	"sync"
 
-	"github.com/i5heu/ouroboros-db/internal/storage"
+	"github.com/i5heu/ouroboros-db/pkg/storage"
+	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
 type Index struct {
@@ -50,9 +51,9 @@ func (i *Index) GetChildrenHashesOfEvent(eventHash [64]byte) [][64]byte {
 	return i.evParentToChild[eventHash]
 }
 
-func (i *Index) GetDirectChildrenOfEvent(eventHash [64]byte) ([]storage.Event, error) {
+func (i *Index) GetDirectChildrenOfEvent(eventHash [64]byte) ([]types.Event, error) {
 	childrenHashes := i.GetChildrenHashesOfEvent(eventHash)
-	children := make([]storage.Event, 0)
+	children := make([]types.Event, 0)
 
 	for _, childHash := range childrenHashes {
 

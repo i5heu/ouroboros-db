@@ -1,5 +1,5 @@
 // storage_test.go
-package storage
+package types
 
 import (
 	"crypto/sha512"

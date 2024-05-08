@@ -5,10 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/i5heu/ouroboros-db/internal/index"
 	"github.com/i5heu/ouroboros-db/internal/keyValStore"
-	"github.com/i5heu/ouroboros-db/internal/storage"
-	"github.com/i5heu/ouroboros-db/pkg/api"
+	"github.com/i5heu/ouroboros-db/pkg/index"
+	"github.com/i5heu/ouroboros-db/pkg/storage"
 
 	"github.com/sirupsen/logrus"
 
@@ -18,9 +17,8 @@ import (
 var log *logrus.Logger
 
 type OuroborosDB struct {
-	ss     *storage.Storage
-	DB     api.DB
-	Index  api.Index
+	DB     *storage.Storage
+	Index  *index.Index
 	config Config
 	log    *logrus.Logger
 }
@@ -65,7 +63,6 @@ func Newouroboros(conf Config) (*OuroborosDB, error) {
 	index := index.NewIndex(ss)
 
 	ou := &OuroborosDB{
-		ss:     ss,
 		DB:     ss,
 		Index:  index,
 		config: conf,
@@ -78,13 +75,13 @@ func Newouroboros(conf Config) (*OuroborosDB, error) {
 }
 
 func (ou *OuroborosDB) Close() {
-	ou.ss.Close()
+	ou.DB.Close()
 }
 
 func (ou *OuroborosDB) createGarbageCollection() {
 	ticker := time.NewTicker(ou.config.GarbageCollectionInterval * time.Minute)
 	for range ticker.C {
-		err := ou.ss.GarbageCollection()
+		err := ou.DB.GarbageCollection()
 		fmt.Println("Garbage Collection", badger.ErrNoRewrite)
 		if err != nil {
 			log.Fatal("Error during garbage collection: ", err) // maybe we have to rework this here a bit

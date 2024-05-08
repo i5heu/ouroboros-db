@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-db"
-	"github.com/i5heu/ouroboros-db/internal/storage"
+	"github.com/i5heu/ouroboros-db/pkg/storage"
+	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
 type setupDBConfig struct {
@@ -56,7 +57,7 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 	}
 
 	// Create root events
-	roots := make([]storage.Event, 0)
+	roots := make([]types.Event, 0)
 	numRoots := conf.totalEvents / (1 << (conf.eventLevels - 1))
 	for i := 0; i < numRoots; i++ {
 		rootEv, err := ou.DB.CreateRootEvent(time.Now().String())
@@ -67,9 +68,9 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 	}
 
 	// Create event tree
-	events := append([]storage.Event{}, roots...)
+	events := append([]types.Event{}, roots...)
 	for level := 1; level < conf.eventLevels; level++ {
-		levelEvents := make([]storage.Event, 0)
+		levelEvents := make([]types.Event, 0)
 		for _, parent := range events {
 			for j := 0; j < 2; j++ {
 				if len(events)+len(levelEvents) >= conf.totalEvents {
@@ -199,7 +200,7 @@ func Test_DB_StoreFile(t *testing.T) {
 
 	for _, evHash := range evs {
 		_, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: storage.Event{EventHash: evHash},
+			EventToAppendTo: types.Event{EventHash: evHash},
 			Metadata:        []byte(randomString(100)),
 			File:            []byte(randomString(100)),
 		})
@@ -228,7 +229,7 @@ func Test_DB_GetFile(t *testing.T) {
 	}
 
 	type storageEvent struct {
-		ev       storage.Event
+		ev       types.Event
 		metadata []byte
 		file     []byte
 	}
@@ -237,7 +238,7 @@ func Test_DB_GetFile(t *testing.T) {
 
 	for _, data := range testData {
 		sev, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: storage.Event{EventHash: rootEv},
+			EventToAppendTo: types.Event{EventHash: rootEv},
 			Metadata:        data.metadata,
 			File:            data.file,
 		})
@@ -307,7 +308,7 @@ func Test_DB_GetMetadata(t *testing.T) {
 	}
 
 	type storageEvent struct {
-		ev       storage.Event
+		ev       types.Event
 		metadata []byte
 		file     []byte
 	}
@@ -316,7 +317,7 @@ func Test_DB_GetMetadata(t *testing.T) {
 
 	for _, data := range testData {
 		sev, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: storage.Event{EventHash: rootEv},
+			EventToAppendTo: types.Event{EventHash: rootEv},
 			Metadata:        data.metadata,
 			File:            data.file,
 		})

@@ -1,6 +1,8 @@
 syntax = "proto3";
 
-package storage;
+package binaryCoder;
+option go_package = "github.com/i5heu/ouroboros-db/internal/binaryCoder";
+
 
 message EventProto {
   bytes key = 1;
@@ -13,3 +15,4 @@ message EventProto {
   bool temporary = 8;
   bool full_text_search = 9;
 }
+

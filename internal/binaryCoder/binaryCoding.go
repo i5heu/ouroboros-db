@@ -1,7 +1,11 @@
-package storage
+package binaryCoder
+
+import (
+	"github.com/i5heu/ouroboros-db/pkg/types"
+)
 
 // Convert an Event to an EventProto
-func convertToProtoEvent(ev Event) *EventProto {
+func convertToProtoEvent(ev types.Event) *EventProto {
 	return &EventProto{
 		Key:               ev.Key,
 		EventHash:         ev.EventHash[:],
@@ -16,8 +20,8 @@ func convertToProtoEvent(ev Event) *EventProto {
 }
 
 // Convert an EventProto to an Event
-func convertFromProtoEvent(pbEvent *EventProto) Event {
-	return Event{
+func convertFromProtoEvent(pbEvent *EventProto) types.Event {
+	return types.Event{
 		Key:               pbEvent.GetKey(),
 		EventHash:         bytesToHash(pbEvent.GetEventHash()),
 		Level:             pbEvent.GetLevel(),

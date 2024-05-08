@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/i5heu/ouroboros-db/internal/storage"
+	"github.com/i5heu/ouroboros-db/pkg/storage"
+	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
 func Benchmark_setupDBWithData(b *testing.B) {
@@ -72,7 +73,7 @@ func Benchmark_DB_StoreFile(b *testing.B) {
 		returnRandomEvents: 1000,
 	})
 
-	ev := make([]storage.Event, len(evsHashes))
+	ev := make([]types.Event, len(evsHashes))
 	for i, evHash := range evsHashes {
 		ev[i], _ = ou.DB.GetEvent(evHash)
 	}
@@ -97,11 +98,11 @@ func Benchmark_DB_GetFile(b *testing.B) {
 		returnAllEvents: true,
 	})
 
-	storeEvs := make([]storage.Event, 0)
+	storeEvs := make([]types.Event, 0)
 
 	for ev := range evs {
 		storeEv, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: storage.Event{EventHash: evs[ev]},
+			EventToAppendTo: types.Event{EventHash: evs[ev]},
 			Metadata:        []byte(randomString(100)),
 			File:            []byte(randomString(100)),
 		})
@@ -145,7 +146,7 @@ func Benchmark_DB_GetMetadata(b *testing.B) {
 		generateWithMetaData: true,
 	})
 
-	storeEvs := make([]storage.Event, 0)
+	storeEvs := make([]types.Event, 0)
 
 	for _, ev := range evs {
 		storeEv, err := ou.DB.GetEvent(ev)
