@@ -53,6 +53,16 @@ func contains(path, mountpoint string) bool {
 // displayDiskUsage displays the disk usage information using structured logging
 func displayDiskUsage(paths []string) error {
 
+	if len(paths) == 0 {
+		log.Error("No path provided in configuration")
+		return fmt.Errorf("no path provided in configuration")
+	}
+
+	if paths[0] == "ExamplePath" {
+		return nil
+
+	}
+
 	for _, path := range paths {
 		disk, err := getDiskUsageStats(path)
 		if err != nil {

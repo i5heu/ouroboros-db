@@ -1,6 +1,7 @@
 tmp/*
 data/*
 benchmarks/*
+ExamplePath/*
 *.txt
 *.log
 *.out

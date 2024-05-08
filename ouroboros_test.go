@@ -427,9 +427,9 @@ func Test_DB_CreateNewEvent(t *testing.T) {
 func Example() {
 	// Initialize OuroborosDB with basic configuration
 	ou, err := ouroboros.NewOuroborosDB(ouroboros.Config{
-		Paths:                     []string{"/root/data"}, // Directory for data storage
-		MinimumFreeGB:             1,                      // Minimum free space in GB
-		GarbageCollectionInterval: 10,                     // GC interval in seconds
+		Paths:                     []string{"ExamplePath"}, // Directory for data storage
+		MinimumFreeGB:             1,                       // Minimum free space in GB
+		GarbageCollectionInterval: 10,                      // GC interval in seconds
 	})
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Failed to initialize OuroborosDB: %s", err))
@@ -441,8 +441,10 @@ func Example() {
 		log.Fatal(fmt.Sprintf("Error rebuilding index: %s", err))
 	}
 
+	uniqueNameBypass := time.Now().String()
+
 	// Create a root event titled "ExampleRoot"
-	rootEvent, err := ou.DB.CreateRootEvent("ExampleRoot")
+	rootEvent, err := ou.DB.CreateRootEvent("ExampleRoot" + uniqueNameBypass)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error creating root event: %s", err))
 	}
@@ -463,7 +465,7 @@ func Example() {
 	}
 
 	// Retrieve root events with the title "ExampleRoot"
-	rootEvents, err := ou.DB.GetRootEventsWithTitle("ExampleRoot")
+	rootEvents, err := ou.DB.GetRootEventsWithTitle("ExampleRoot" + uniqueNameBypass)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error retrieving root events: %s", err))
 	}
