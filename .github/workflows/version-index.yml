@@ -1,8 +1,12 @@
-# .github/workflows/go-get-ourobos-db.yml
 name: Version Index
 
 on:
   workflow_dispatch:
+    inputs:
+      package_version:
+        description: "Version of the package to fetch"
+        required: true
+        default: ""
 
   release:
     types:
@@ -10,7 +14,7 @@ on:
 
 jobs:
   go-get:
-    name: Install Go Package with Released Version
+    name: Install Go Package with Specified Version
     runs-on: ubuntu-latest
 
     steps:
@@ -29,6 +33,7 @@ jobs:
             echo "PACKAGE_VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
           else
             echo "PACKAGE_VERSION=${{ github.event.inputs.package_version }}" >> $GITHUB_ENV
+        shell: /usr/bin/bash -e
 
       - name: Install Package
         run: |
