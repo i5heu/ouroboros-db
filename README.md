@@ -4,6 +4,8 @@
   <img src=".media/logo.jpeg"  width="300">
 </p>
 
+⚠️ This Project is still in development and not ready for production use. ⚠️
+
 # OuroborosDB
 A embedded database built around the concept of event trees, emphasizing data deduplication and data integrity checks. By structuring data into event trees, OuroborosDB ensures efficient and intuitive data management. Key features include:
 
@@ -36,6 +38,7 @@ A embedded database built around the concept of event trees, emphasizing data de
     - [Benchmark Versions](#benchmark-versions)
   - [OuroborosDB Performance Version Differences](#ouroborosdb-performance-version-differences)
   - [OuroborosDB Performance Changelog](#ouroborosdb-performance-changelog)
+  - [Current Problems and things to research:](#current-problems-and-things-to-research)
   - [Name and Logo](#name-and-logo)
   - [License](#license)
 
@@ -211,9 +214,31 @@ geomean                                                             144.0µ     
 - **v0.0.2** - Create tests and benchmarks
 
 
+## Current Problems and things to research:
+- [ ] Garbage Collection would delete Chunks that in the process of being used in a new event
+- [ ] Deletion of Temporary Events is not yet discovered
+- [ ] Is the deletion of not Temporary Events a good idea?
+  - Maybe if only some superUser can delete them with a key or something. 
+- [ ] It would be nice to have pipelines that can run custom JS or webassembly to do arbitrary things.   
+  - With http routing we could build a webserver that can run inside a "pipeline" in the database. sksksk
+  - They should be usable as scraper or time or event based notificators.
+  - Like if this event gets a child recursively, upload this tree to a server.
+    - this would need a virtual folder structure that is represented in an event.    
+    - with this we could also build a webdav server that can be used to access parts of the database. 
+- [ ] We have EventChilds that are used as either
+  - A Item in the "category" of the Event
+  - New Information that replaces it's Parent
+  - Changes to the Parent (think patches)     
+  We need to reflect this in the Event Structure to lower chunk lookups  
+  If we implement a potential DeltaEvent, we need to provide tooling for it.
+    - is it like git where we have a diff of the file?
+    - is it a new file that replaces the old one?
+    - we already have the chunk system in place. But this seams to not be suitable for text files - so we would need a text based delta event?
+
+
 ## Name and Logo
 
-The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of modern data challenges.
+The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of change.
 
 ## License
 OuroborosDB (c) 2024 Mia Heidenstedt and contributors  
