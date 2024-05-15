@@ -38,6 +38,8 @@ A embedded database built around the concept of event trees, emphasizing data de
     - [Benchmark Versions](#benchmark-versions)
   - [OuroborosDB Performance Version Differences](#ouroborosdb-performance-version-differences)
   - [OuroborosDB Performance Changelog](#ouroborosdb-performance-changelog)
+  - [Current Features](#current-features)
+  - [Future Features](#future-features)
   - [Current Problems and things to research:](#current-problems-and-things-to-research)
   - [Name and Logo](#name-and-logo)
   - [License](#license)
@@ -214,9 +216,14 @@ geomean                                                             144.0µ     
 - **v0.0.2** - Create tests and benchmarks
 
 
-## Current Problems and things to research:
-- [ ] Garbage Collection would delete Chunks that in the process of being used in a new event
-- [ ] Deletion of Temporary Events is not yet discovered
+## Current Features
+- [x] Data Deduplication
+- [x] Basic Data Store and Retrieval
+- [ ] Data Integrity Checks
+- [x] Child to Parent Index
+
+## Future Features
+- [ ] Full Text Search
 - [ ] Is the deletion of not Temporary Events a good idea?
   - Maybe if only some superUser can delete them with a key or something. 
 - [ ] It would be nice to have pipelines that can run custom JS or webassembly to do arbitrary things.   
@@ -225,6 +232,10 @@ geomean                                                             144.0µ     
   - Like if this event gets a child recursively, upload this tree to a server.
     - this would need a virtual folder structure that is represented in an event.    
     - with this we could also build a webdav server that can be used to access parts of the database. 
+
+## Current Problems and things to research:
+- [ ] Garbage Collection would delete Chunks that in the process of being used in a new event
+- [ ] Deletion of Temporary Events is not yet discovered
 - [ ] We have EventChilds that are used as either
   - A Item in the "category" of the Event
   - New Information that replaces it's Parent
