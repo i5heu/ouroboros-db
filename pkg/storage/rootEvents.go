@@ -13,14 +13,6 @@ const (
 	RootEventPrefix = "RootEvent:"
 )
 
-var RootEventParentEventHash [64]byte
-
-func init() {
-	RootEventParentEventHash = [64]byte{'R', 'o', 'o', 't', 'E', 'v', 'e', 'n', 't'}
-}
-
-// Same as Event struct in storageService.go but without some unnecessary fields
-
 func (ss *Storage) CreateRootEvent(title string) (types.Event, error) {
 	// Create a new IndexEvent
 	item := types.Event{
