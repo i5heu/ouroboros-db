@@ -13,7 +13,7 @@ const (
 	RootEventPrefix = "RootEvent:"
 )
 
-func (ss *Storage) CreateRootEvent(title string) (types.Event, error) {
+func (s *Storage) CreateRootEvent(title string) (types.Event, error) {
 	// Create a new IndexEvent
 	item := types.Event{
 		Key:            []byte{},
@@ -24,7 +24,7 @@ func (ss *Storage) CreateRootEvent(title string) (types.Event, error) {
 	}
 
 	// Check if RootEvent with the same title already exists
-	otherRootEvent, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
+	otherRootEvent, err := s.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return types.Event{}, err
@@ -35,7 +35,7 @@ func (ss *Storage) CreateRootEvent(title string) (types.Event, error) {
 		return types.Event{}, fmt.Errorf("Error creating new root event: RootEvent with the same title already exists")
 	}
 
-	item.MetadataHashes, err = ss.storeDataInChunkStore([]byte(title))
+	item.MetadataHashes, err = s.storeDataInChunkStore([]byte(title))
 	if err != nil {
 		log.Fatalf("Error storing metadata: %v", err)
 		return types.Event{}, err
@@ -54,17 +54,17 @@ func (ss *Storage) CreateRootEvent(title string) (types.Event, error) {
 	}
 
 	// Write the EventChainItem to the keyValStore
-	ss.kv.Write(item.Key, data)
+	s.kv.Write(item.Key, data)
 
 	// define the event as entry point for the EventChain
-	ss.kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), item.Key)
+	s.kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), item.Key)
 
 	return item, err
 }
 
-func (ss *Storage) GetAllRootEvents() ([]types.Event, error) {
+func (s *Storage) GetAllRootEvents() ([]types.Event, error) {
 	// Get all keys from the keyValStore
-	rootIndex, err := ss.GetRootIndex()
+	rootIndex, err := s.GetRootIndex()
 	if err != nil {
 		log.Fatalf("Error getting root index: %v", err)
 		return nil, err
@@ -77,7 +77,7 @@ func (ss *Storage) GetAllRootEvents() ([]types.Event, error) {
 	rootEvents := []types.Event{}
 
 	for _, indexItem := range rootIndex {
-		rootEvent, error := ss.GetEvent(indexItem.Hash)
+		rootEvent, error := s.GetEvent(indexItem.Hash)
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error
@@ -89,9 +89,9 @@ func (ss *Storage) GetAllRootEvents() ([]types.Event, error) {
 	return rootEvents, nil
 }
 
-func (ss *Storage) GetRootIndex() ([]types.RootEventsIndex, error) {
+func (s *Storage) GetRootIndex() ([]types.RootEventsIndex, error) {
 	// Get all keys from the keyValStore
-	rootIndex, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:"))
+	rootIndex, err := s.kv.GetItemsWithPrefix([]byte("RootEvent:"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err
@@ -109,8 +109,8 @@ func (ss *Storage) GetRootIndex() ([]types.RootEventsIndex, error) {
 	return revi, nil
 }
 
-func (ss *Storage) GetRootEventsWithTitle(title string) ([]types.Event, error) {
-	rootIndex, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
+func (s *Storage) GetRootEventsWithTitle(title string) ([]types.Event, error) {
+	rootIndex, err := s.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
 		return nil, err
@@ -122,7 +122,7 @@ func (ss *Storage) GetRootEventsWithTitle(title string) ([]types.Event, error) {
 
 	rootEvents := []types.Event{}
 	for _, item := range rootIndex {
-		rootEvent, error := ss.GetEvent(GetEventHashFromKey(item[1]))
+		rootEvent, error := s.GetEvent(GetEventHashFromKey(item[1]))
 		if error != nil {
 			log.Fatalf("Error getting root event: %v", error)
 			return nil, error

@@ -23,7 +23,7 @@ type EventOptions struct {
 	FullTextSearch    bool       // optional
 }
 
-func (ss *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
+func (s *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
 	// Create a new Event
 	item := types.Event{
 		Key:               []byte{},
@@ -44,7 +44,7 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
 	}
 
 	// check if the parent event exists
-	parentEvent, err := ss.GetEvent(item.HashOfParentEvent)
+	parentEvent, err := s.GetEvent(item.HashOfParentEvent)
 	if err != nil {
 		log.Fatalf("Error creating new event: Parent event does not exist")
 		return types.Event{}, errors.New("Error creating new event: Parent event does not exist")
@@ -78,7 +78,7 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
 	}
 
 	// Write the EventChainItem to the keyValStore
-	err = ss.kv.Write(item.Key, data)
+	err = s.kv.Write(item.Key, data)
 	if err != nil {
 		log.Fatalf("Error writing item: %v", err)
 		return types.Event{}, err
@@ -87,9 +87,9 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
 	return item, err
 }
 
-func (ss *Storage) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
+func (s *Storage) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
 	// Read the EventChainItem from the keyValStore
-	value, err := ss.kv.Read(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent))
+	value, err := s.kv.Read(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent))
 	if err != nil {
 		return types.Event{}, fmt.Errorf("Error reading Event with Key: %x: %v", string(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent)), err)
 	}
@@ -99,8 +99,8 @@ func (ss *Storage) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
 	return binaryCoder.ByteToEvent(value)
 }
 
-func (ss *Storage) GetAllEvents() ([]types.Event, error) {
-	items, err := ss.kv.GetItemsWithPrefix([]byte("Event:"))
+func (s *Storage) GetAllEvents() ([]types.Event, error) {
+	items, err := s.kv.GetItemsWithPrefix([]byte("Event:"))
 	if err != nil {
 		return nil, err
 	}

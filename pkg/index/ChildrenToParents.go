@@ -30,7 +30,7 @@ func (i *Index) GetDirectParentOfEvent(eventHash [64]byte) (*types.Event, error)
 		return nil, nil // No parent found
 	}
 
-	parentEvent, err := i.ss.GetEvent(parentHash)
+	parentEvent, err := i.s.GetEvent(parentHash)
 	if err != nil {
 		return nil, err
 	}

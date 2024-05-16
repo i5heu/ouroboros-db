@@ -7,7 +7,7 @@ import (
 )
 
 type Index struct {
-	ss                  storage.StorageService
+	s                   storage.StorageService
 	evParentToChild     map[[64]byte][][64]byte
 	evParentToChildLock sync.RWMutex
 	evChildToParent     map[[64]byte][64]byte
@@ -17,7 +17,7 @@ type Index struct {
 func NewIndex(ss storage.StorageService) *Index {
 
 	i := &Index{
-		ss:                  ss,
+		s:                   ss,
 		evParentToChildLock: sync.RWMutex{},
 		evParentToChild:     make(map[[64]byte][][64]byte),
 		evChildToParentLock: sync.RWMutex{},
@@ -30,7 +30,7 @@ func NewIndex(ss storage.StorageService) *Index {
 func (i *Index) RebuildIndex() (uint64, error) {
 	// get every event
 	// TODO we might need to optimize memory usage here
-	events, err := i.ss.GetAllEvents()
+	events, err := i.s.GetAllEvents()
 	if err != nil {
 		return 0, err
 	}

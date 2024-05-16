@@ -13,7 +13,7 @@ A embedded database built around the concept of event trees, emphasizing data de
 
 There are in the moment two main components in the database
   - [storage]: The storage component, which is responsible for storing the data on the disk.
-  - [index]: The index component, which is responsible for creating indexes in RAM for faster access.
+  - [index]: The index component, which is responsible for creating indexes in RAM for faster acces.
 */
 package ouroboros
 

@@ -27,7 +27,7 @@ func (i *Index) GetDirectChildrenOfEvent(eventHash [64]byte) ([]types.Event, err
 
 	for _, childHash := range childrenHashes {
 
-		child, err := i.ss.GetEvent(childHash)
+		child, err := i.s.GetEvent(childHash)
 		if err != nil {
 			return nil, err
 		}
