@@ -34,7 +34,7 @@ import (
 var log *logrus.Logger
 
 type OuroborosDB struct {
-	DB     *storage.Storage
+	DB     storage.StorageService
 	Index  *index.Index
 	config Config
 	log    *logrus.Logger
@@ -81,7 +81,7 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		return nil, fmt.Errorf("error creating KeyValStore: %w", err)
 	}
 
-	ss := storage.CreateStorage(kvStore)
+	ss := storage.NewStorage(kvStore)
 	index := index.NewIndex(ss)
 
 	ou := &OuroborosDB{

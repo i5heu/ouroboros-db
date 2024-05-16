@@ -4,21 +4,24 @@ import (
 	"sync"
 
 	"github.com/i5heu/ouroboros-db/pkg/storage"
-	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
 type Index struct {
-	ss                  *storage.Storage
+	ss                  storage.StorageService
 	evParentToChild     map[[64]byte][][64]byte
 	evParentToChildLock sync.RWMutex
+	evChildToParent     map[[64]byte][64]byte
+	evChildToParentLock sync.RWMutex
 }
 
-func NewIndex(ss *storage.Storage) *Index {
+func NewIndex(ss storage.StorageService) *Index {
 
 	i := &Index{
 		ss:                  ss,
 		evParentToChildLock: sync.RWMutex{},
 		evParentToChild:     make(map[[64]byte][][64]byte),
+		evChildToParentLock: sync.RWMutex{},
+		evChildToParent:     make(map[[64]byte][64]byte),
 	}
 
 	return i
@@ -26,44 +29,14 @@ func NewIndex(ss *storage.Storage) *Index {
 
 func (i *Index) RebuildIndex() (uint64, error) {
 	// get every event
+	// TODO we might need to optimize memory usage here
 	events, err := i.ss.GetAllEvents()
 	if err != nil {
 		return 0, err
 	}
 
-	i.evParentToChildLock.Lock()
-	defer i.evParentToChildLock.Unlock()
-
-	// clear the map
-	clear(i.evParentToChild)
-
-	// create a map of parent to children
-	for _, event := range events {
-		i.evParentToChild[event.HashOfParentEvent] = append(i.evParentToChild[event.HashOfParentEvent], event.EventHash)
-	}
+	i.RebuildParentsToChildren(events)
+	i.RebuildChildrenToParents(events)
 
 	return uint64(len(events)), nil
-}
-
-func (i *Index) GetChildrenHashesOfEvent(eventHash [64]byte) [][64]byte {
-	i.evParentToChildLock.RLock()
-	defer i.evParentToChildLock.RUnlock()
-	return i.evParentToChild[eventHash]
-}
-
-func (i *Index) GetDirectChildrenOfEvent(eventHash [64]byte) ([]types.Event, error) {
-	childrenHashes := i.GetChildrenHashesOfEvent(eventHash)
-	children := make([]types.Event, 0)
-
-	for _, childHash := range childrenHashes {
-
-		child, err := i.ss.GetEvent(childHash)
-		if err != nil {
-			return nil, err
-		}
-
-		children = append(children, child)
-	}
-
-	return children, nil
 }

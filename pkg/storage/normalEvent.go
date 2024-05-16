@@ -23,7 +23,7 @@ type EventOptions struct {
 	FullTextSearch    bool       // optional
 }
 
-func (ss *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
+func (ss *storage) CreateNewEvent(options EventOptions) (types.Event, error) {
 	// Create a new Event
 	item := types.Event{
 		Key:               []byte{},
@@ -87,7 +87,7 @@ func (ss *Storage) CreateNewEvent(options EventOptions) (types.Event, error) {
 	return item, err
 }
 
-func (ss *Storage) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
+func (ss *storage) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
 	// Read the EventChainItem from the keyValStore
 	value, err := ss.kv.Read(GenerateKeyFromPrefixAndHash("Event:", hashOfEvent))
 	if err != nil {
@@ -99,7 +99,7 @@ func (ss *Storage) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
 	return binaryCoder.ByteToEvent(value)
 }
 
-func (ss *Storage) GetAllEvents() ([]types.Event, error) {
+func (ss *storage) GetAllEvents() ([]types.Event, error) {
 	items, err := ss.kv.GetItemsWithPrefix([]byte("Event:"))
 	if err != nil {
 		return nil, err
