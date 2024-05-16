@@ -29,10 +29,6 @@ jobs:
       - name: check test coverage
         uses: vladopajic/go-test-coverage@v2
         with:
-          profile: cover.out
-          local-prefix: github.com/i5heu/OuroborosDB
-          threshold-file: 50
-          threshold-package: 50
-          threshold-total: 50
+          config: .github/.testcoverage.yml
           git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
           git-branch: gh-pages 
