@@ -15,4 +15,3 @@ message EventProto {
   bool temporary = 8;
   bool full_text_search = 9;
 }
-

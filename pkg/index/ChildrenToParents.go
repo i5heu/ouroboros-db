@@ -11,7 +11,7 @@ func (i *Index) RebuildChildrenToParents(allEvents []types.Event) error {
 
 	// Rebuild the mapping
 	for _, event := range allEvents {
-		i.evChildToParent[event.EventHash] = event.HashOfParentEvent
+		i.evChildToParent[event.EventHash] = event.ParentEvent
 	}
 
 	return nil

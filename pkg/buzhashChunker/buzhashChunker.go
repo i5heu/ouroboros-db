@@ -12,12 +12,6 @@ import (
 	chunker "github.com/ipfs/boxo/chunker"
 )
 
-type ChunkData struct {
-	Hash       [64]byte // SHA-512 hash
-	Data       []byte   // The actual data chunk
-	DataLength uint32   // The length of the data chunk
-}
-
 func ChunkBytes(data []byte) ([]ChunkData, error) {
 	reader := bytes.NewReader(data)
 

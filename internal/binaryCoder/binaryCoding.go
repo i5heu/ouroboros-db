@@ -7,13 +7,13 @@ import (
 // Convert an Event to an EventProto
 func convertToProtoEvent(ev types.Event) *EventProto {
 	return &EventProto{
-		Key:               ev.Key,
+		Key:               ev.Title,
 		EventHash:         ev.EventHash[:],
 		Level:             ev.Level,
-		ContentHashes:     hashesToBytes(ev.ContentHashes),
-		MetadataHashes:    hashesToBytes(ev.MetadataHashes),
-		HashOfParentEvent: ev.HashOfParentEvent[:],
-		HashOfRootEvent:   ev.HashOfRootEvent[:],
+		ContentHashes:     hashesToBytes(ev.Content),
+		MetadataHashes:    hashesToBytes(ev.Metadata),
+		HashOfParentEvent: ev.ParentEvent[:],
+		HashOfRootEvent:   ev.RootEvent[:],
 		Temporary:         ev.Temporary,
 		FullTextSearch:    ev.FullTextSearch,
 	}
@@ -22,15 +22,15 @@ func convertToProtoEvent(ev types.Event) *EventProto {
 // Convert an EventProto to an Event
 func convertFromProtoEvent(pbEvent *EventProto) types.Event {
 	return types.Event{
-		Key:               pbEvent.GetKey(),
-		EventHash:         bytesToHash(pbEvent.GetEventHash()),
-		Level:             pbEvent.GetLevel(),
-		ContentHashes:     bytesToHashes(pbEvent.GetContentHashes()),
-		MetadataHashes:    bytesToHashes(pbEvent.GetMetadataHashes()),
-		HashOfParentEvent: bytesToHash(pbEvent.GetHashOfParentEvent()),
-		HashOfRootEvent:   bytesToHash(pbEvent.GetHashOfRootEvent()),
-		Temporary:         pbEvent.GetTemporary(),
-		FullTextSearch:    pbEvent.GetFullTextSearch(),
+		Title:          pbEvent.GetKey(),
+		EventHash:      bytesToHash(pbEvent.GetEventHash()),
+		Level:          pbEvent.GetLevel(),
+		Content:        bytesToHashes(pbEvent.GetContentHashes()),
+		Metadata:       bytesToHashes(pbEvent.GetMetadataHashes()),
+		ParentEvent:    bytesToHash(pbEvent.GetHashOfParentEvent()),
+		RootEvent:      bytesToHash(pbEvent.GetHashOfRootEvent()),
+		Temporary:      pbEvent.GetTemporary(),
+		FullTextSearch: pbEvent.GetFullTextSearch(),
 	}
 }
 

@@ -247,7 +247,7 @@ func Test_DB_GetFile(t *testing.T) {
 			t.Errorf("StoreFile failed with error: %v", err)
 		}
 
-		if sev.ContentHashes == nil || len(sev.ContentHashes) == 0 {
+		if sev.Content == nil || len(sev.Content) == 0 {
 			t.Errorf("StoreFile failed, expected non-nil, got nil")
 		}
 
@@ -326,7 +326,7 @@ func Test_DB_GetMetadata(t *testing.T) {
 			t.Errorf("StoreFile failed with error: %v", err)
 		}
 
-		if sev.MetadataHashes == nil || len(sev.MetadataHashes) == 0 {
+		if sev.Metadata == nil || len(sev.Metadata) == 0 {
 			t.Errorf("StoreFile failed, expected non-nil, got nil")
 		}
 

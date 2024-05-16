@@ -12,8 +12,8 @@ func TestIndex_RebuildIndex(t *testing.T) {
 	mockStorageService := new(mocks.StorageService)
 
 	events := []types.Event{
-		{EventHash: [64]byte{1}, HashOfParentEvent: [64]byte{0}},
-		{EventHash: [64]byte{2}, HashOfParentEvent: [64]byte{1}},
+		{EventHash: [64]byte{1}, ParentEvent: [64]byte{0}},
+		{EventHash: [64]byte{2}, ParentEvent: [64]byte{1}},
 	}
 
 	mockStorageService.On("GetAllEvents").Return(events, nil)
@@ -36,8 +36,8 @@ func TestIndex_RebuildParentsToChildren(t *testing.T) {
 	childHash2 := [64]byte{3}
 
 	events := []types.Event{
-		{EventHash: childHash1, HashOfParentEvent: parentHash},
-		{EventHash: childHash2, HashOfParentEvent: parentHash},
+		{EventHash: childHash1, ParentEvent: parentHash},
+		{EventHash: childHash2, ParentEvent: parentHash},
 	}
 
 	err := index.RebuildParentsToChildren(events)
@@ -88,8 +88,8 @@ func TestIndex_RebuildChildrenToParents(t *testing.T) {
 	childHash2 := [64]byte{3}
 
 	events := []types.Event{
-		{EventHash: childHash1, HashOfParentEvent: parentHash},
-		{EventHash: childHash2, HashOfParentEvent: parentHash},
+		{EventHash: childHash1, ParentEvent: parentHash},
+		{EventHash: childHash2, ParentEvent: parentHash},
 	}
 
 	err := index.RebuildChildrenToParents(events)

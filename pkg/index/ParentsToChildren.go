@@ -9,7 +9,7 @@ func (i *Index) RebuildParentsToChildren(allEvents []types.Event) error {
 	clear(i.evParentToChild)
 
 	for _, event := range allEvents {
-		i.evParentToChild[event.HashOfParentEvent] = append(i.evParentToChild[event.HashOfParentEvent], event.EventHash)
+		i.evParentToChild[event.ParentEvent] = append(i.evParentToChild[event.ParentEvent], event.EventHash)
 	}
 
 	return nil

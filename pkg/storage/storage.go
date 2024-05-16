@@ -18,8 +18,8 @@ type StoreFileOptions struct {
 	EventToAppendTo types.Event
 	Metadata        []byte
 	File            []byte
-	Temporary       bool
-	FullTextSearch  bool
+	Temporary       types.Binary
+	FullTextSearch  types.Binary
 }
 
 func NewStorage(kv *keyValStore.KeyValStore) StorageService {
@@ -122,8 +122,8 @@ func (options *StoreFileOptions) ValidateOptions() error {
 func (s *Storage) GetFile(eventOfFile types.Event) ([]byte, error) {
 	file := []byte{}
 
-	for _, hash := range eventOfFile.ContentHashes {
-		chunk, err := s.kv.Read(hash[:])
+	for _, chunk := range eventOfFile.Content {
+		chunk, err := s.kv.Read(chunk.Hash.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetFile: %v", err)
 		}
@@ -137,8 +137,8 @@ func (s *Storage) GetFile(eventOfFile types.Event) ([]byte, error) {
 func (s *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
 	metadata := []byte{}
 
-	for _, hash := range eventOfFile.MetadataHashes {
-		chunk, err := s.kv.Read(hash[:])
+	for _, chunk := range eventOfFile.Metadata {
+		chunk, err := s.kv.Read(chunk.Hash.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetMetadata: %v", err)
 		}

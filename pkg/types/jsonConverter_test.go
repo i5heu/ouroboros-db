@@ -1,15 +1,17 @@
-// storage_test.go
-package types
+package types_test
 
 import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"testing"
+
+	"github.com/i5heu/ouroboros-db/pkg/types"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRootEventsIndex_MarshalJSON(t *testing.T) {
-	indexItem := RootEventsIndex{
+	indexItem := types.RootEventsIndex{
 		Title: []byte("hello world 12345678"),
 		Hash:  sha512.Sum512([]byte("hello world")),
 	}
@@ -20,141 +22,109 @@ func TestRootEventsIndex_MarshalJSON(t *testing.T) {
 }`
 
 	jsonBytes, err := indexItem.MarshalJSON()
-	if err != nil {
-		t.Fatalf("Expected no error but got %v", err)
-	}
+	assert.NoError(t, err)
 
 	var jsonObject map[string]interface{}
 	err = json.Unmarshal(jsonBytes, &jsonObject)
-	if err != nil {
-		t.Fatalf("Expected valid JSON but got error %v", err)
-	}
+	assert.NoError(t, err)
 
-	if string(jsonBytes) != expectedJSON {
-		t.Errorf("Expected %s but got %s", expectedJSON, string(jsonBytes))
-	}
+	assert.JSONEq(t, expectedJSON, string(jsonBytes))
 }
 
 func TestEvent_MarshalJSON(t *testing.T) {
-	event := Event{
-		Key:               []byte("hello world 12345678"),
-		EventHash:         sha512.Sum512([]byte("hello world 2")),
-		Level:             42,
-		ContentHashes:     [][64]byte{sha512.Sum512([]byte("hello world 3")), sha512.Sum512([]byte("hello world 4"))},
-		MetadataHashes:    [][64]byte{sha512.Sum512([]byte("hello world 5")), sha512.Sum512([]byte("hello world 6"))},
-		HashOfParentEvent: sha512.Sum512([]byte("hello world 7")),
-		HashOfRootEvent:   sha512.Sum512([]byte("hello world 8")),
-		Temporary:         true,
+	event := types.Event{
+		EventIdentifier: types.EventIdentifier{
+			EventHash: sha512.Sum512([]byte("hello world 2")),
+			EventType: types.Normal,
+			FastMeta:  types.FastMeta{[]byte("fast meta")},
+		},
+		Level:          42,
+		Content:        types.ChunkMetaCollection{{Hash: sha512.Sum512([]byte("hello world 3")), DataLength: 10}, {Hash: sha512.Sum512([]byte("hello world 4")), DataLength: 10}},
+		Metadata:       types.ChunkMetaCollection{{Hash: sha512.Sum512([]byte("hello world 5")), DataLength: 10}, {Hash: sha512.Sum512([]byte("hello world 6")), DataLength: 10}},
+		ParentEvent:    sha512.Sum512([]byte("hello world 7")),
+		RootEvent:      sha512.Sum512([]byte("hello world 8")),
+		Temporary:      types.Binary(true),
+		FullTextSearch: types.Binary(true),
 	}
 
 	jsonBytes, err := event.MarshalJSON()
-	if err != nil {
-		t.Fatalf("Expected no error but got %v", err)
-	}
+	assert.NoError(t, err)
 
 	var jsonObject map[string]interface{}
 	err = json.Unmarshal(jsonBytes, &jsonObject)
-	if err != nil {
-		t.Fatalf("Expected valid JSON but got error %v", err)
-	}
+	assert.NoError(t, err)
 
-	expectedKey := "hello world 12345678"
-	eventHash := sha512.Sum512([]byte("hello world 2"))
-	expectedEventHash := hex.EncodeToString(eventHash[:])
+	expectedEventHash := hex.EncodeToString(event.EventHash[:])
+	expectedFastMetaHash := hex.EncodeToString(event.FastMeta.Hash().Bytes())
 
-	contentHash3 := sha512.Sum512([]byte("hello world 3"))
-	contentHash4 := sha512.Sum512([]byte("hello world 4"))
 	expectedContentHashes := []string{
-		hex.EncodeToString(contentHash3[:]),
-		hex.EncodeToString(contentHash4[:]),
+		hex.EncodeToString(event.Content[0].Hash[:]),
+		hex.EncodeToString(event.Content[1].Hash[:]),
 	}
 
-	metadataHash5 := sha512.Sum512([]byte("hello world 5"))
-	metadataHash6 := sha512.Sum512([]byte("hello world 6"))
 	expectedMetadataHashes := []string{
-		hex.EncodeToString(metadataHash5[:]),
-		hex.EncodeToString(metadataHash6[:]),
+		hex.EncodeToString(event.Metadata[0].Hash[:]),
+		hex.EncodeToString(event.Metadata[1].Hash[:]),
 	}
 
-	parentHash := sha512.Sum512([]byte("hello world 7"))
-	expectedParentHash := hex.EncodeToString(parentHash[:])
-	rootHash := sha512.Sum512([]byte("hello world 8"))
-	expectedRootHash := hex.EncodeToString(rootHash[:])
+	expectedParentHash := hex.EncodeToString(event.ParentEvent[:])
+	expectedRootHash := hex.EncodeToString(event.RootEvent[:])
 
-	if jsonObject["key"] != expectedKey {
-		t.Errorf("Expected key '%v' but got '%v'", expectedKey, jsonObject["key"])
-	}
-	if jsonObject["eventHash"] != expectedEventHash {
-		t.Errorf("Expected eventHash '%v' but got '%v'", expectedEventHash, jsonObject["eventHash"])
-	}
-	if jsonObject["level"] != float64(42) {
-		t.Errorf("Expected level 42 but got %v", jsonObject["level"])
-	}
-	if !equalStringSlices(jsonObject["contentHashes"].([]interface{}), expectedContentHashes) {
-		t.Errorf("Expected contentHashes %v but got %v", expectedContentHashes, jsonObject["contentHashes"])
-	}
-	if !equalStringSlices(jsonObject["metadataHashes"].([]interface{}), expectedMetadataHashes) {
-		t.Errorf("Expected metadataHashes %v but got %v", expectedMetadataHashes, jsonObject["metadataHashes"])
-	}
-	if jsonObject["hashOfParentEvent"] != expectedParentHash {
-		t.Errorf("Expected hashOfParentEvent '%v' but got '%v'", expectedParentHash, jsonObject["hashOfParentEvent"])
-	}
-	if jsonObject["hashOfRootEvent"] != expectedRootHash {
-		t.Errorf("Expected hashOfRootEvent '%v' but got '%v'", expectedRootHash, jsonObject["hashOfRootEvent"])
-	}
-	if jsonObject["temporary"] != true {
-		t.Errorf("Expected temporary true but got %v", jsonObject["temporary"])
-	}
-
+	assert.Equal(t, expectedEventHash, jsonObject["eventHash"])
+	assert.Equal(t, "Normal", jsonObject["eventType"])
+	assert.Equal(t, float64(42), jsonObject["level"])
+	assert.Equal(t, expectedFastMetaHash, jsonObject["fastMetaHash"])
+	assert.ElementsMatch(t, expectedContentHashes, convertInterfaceToStringSlice(jsonObject["contentHashes"].([]interface{})))
+	assert.ElementsMatch(t, expectedMetadataHashes, convertInterfaceToStringSlice(jsonObject["metadataHashes"].([]interface{})))
+	assert.Equal(t, expectedParentHash, jsonObject["hashOfParentEvent"])
+	assert.Equal(t, expectedRootHash, jsonObject["hashOfRootEvent"])
+	assert.Equal(t, true, jsonObject["temporary"])
+	assert.Equal(t, true, jsonObject["fullTextSearch"])
 }
 
-func equalStringSlices(a []interface{}, b []string) bool {
-	if len(a) != len(b) {
-		return false
+func convertInterfaceToStringSlice(interfaces []interface{}) []string {
+	strings := make([]string, len(interfaces))
+	for i, v := range interfaces {
+		strings[i] = v.(string)
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func TestConvertHashArrayToStrings(t *testing.T) {
-	hashes := [][64]byte{
-		sha512.Sum512([]byte("hello world 1")),
-		sha512.Sum512([]byte("hello world 2")),
-	}
-
-	expected := []string{
-		"51bd89d9fde19c8dd2b089ffb6a6bbabb24ecc463cdbbba63cfb23ee35ba678b8ac1ce2d56428753b320d22c3e402786f9df49ad6271cae4e973a75ab10249c3",
-		"c41b117e8e10b6f26db3db583f16802163113469759516eade27027d0e9c8f3a9b9d6338766cb548b9486f9e6ff3b6fc1f4ab46a30611b807900adce10a8da67",
-	}
-
-	result := convertHashArrayToStrings(hashes)
-	convertedResult := make([]interface{}, len(result))
-	for i, v := range result {
-		convertedResult[i] = v
-	}
-
-	if !equalStringSlices(convertedResult, expected) {
-		t.Errorf("Expected %v but got %v", expected, convertedResult)
-	}
-
+	return strings
 }
 
 func TestEvent_PrettyPrint(t *testing.T) {
-	event := Event{
-		Key:               []byte("eventKey"),
-		EventHash:         [64]byte{0x12, 0x34, 0x56, 0x78},
-		Level:             42,
-		ContentHashes:     [][64]byte{{0x98, 0x76}, {0xab, 0xcd}},
-		MetadataHashes:    [][64]byte{{0xef, 0x12}, {0x34, 0x56}},
-		HashOfParentEvent: [64]byte{0xde, 0xad},
-		HashOfRootEvent:   [64]byte{0xbe, 0xef},
-		Temporary:         true,
+	event := types.Event{
+		EventIdentifier: types.EventIdentifier{
+			EventHash: sha512.Sum512([]byte("eventKey")),
+			EventType: types.Normal,
+			FastMeta:  types.FastMeta{[]byte("fast meta")},
+		},
+		Level:          42,
+		Content:        types.ChunkMetaCollection{{Hash: sha512.Sum512([]byte("content chunk")), DataLength: 0}},
+		Metadata:       types.ChunkMetaCollection{{Hash: sha512.Sum512([]byte("metadata chunk")), DataLength: 0}},
+		ParentEvent:    sha512.Sum512([]byte("parentEvent")),
+		RootEvent:      sha512.Sum512([]byte("rootEvent")),
+		Temporary:      types.Binary(true),
+		FullTextSearch: types.Binary(true),
 	}
 
-	// We can only print the output visually, this test will just ensure it doesn't panic
+	// This test will only ensure it doesn't panic; visual check needed for actual output
 	event.PrettyPrint()
+}
+
+func TestEvent_UnmarshalInvalidJSON(t *testing.T) {
+	invalidJSON := `{
+		"eventHash": "invalidhash",
+		"eventType": "Normal",
+		"level": 42,
+		"fastMetaHash": "invalidhash",
+		"metadataHashes": ["invalidhash1", "invalidhash2"],
+		"contentHashes": ["invalidhash1", "invalidhash2"],
+		"hashOfParentEvent": "invalidhash",
+		"hashOfRootEvent": "invalidhash",
+		"temporary": true,
+		"fullTextSearch": true
+	}`
+
+	var unmarshalledEvent types.Event
+	err := json.Unmarshal([]byte(invalidJSON), &unmarshalledEvent)
+	assert.Error(t, err, "Expected an error for invalid JSON")
 }
