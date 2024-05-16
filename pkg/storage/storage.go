@@ -10,7 +10,7 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
-type storage struct {
+type Storage struct {
 	kv *keyValStore.KeyValStore
 }
 
@@ -23,17 +23,17 @@ type StoreFileOptions struct {
 }
 
 func NewStorage(kv *keyValStore.KeyValStore) StorageService {
-	return &storage{
+	return &Storage{
 		kv: kv,
 	}
 }
 
-func (ss *storage) Close() {
+func (ss *Storage) Close() {
 	ss.kv.Close()
 }
 
 // will store the file in the chunkStore and create new Event as child of given event
-func (ss *storage) StoreFile(options StoreFileOptions) (types.Event, error) {
+func (ss *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 	// Validate options before proceeding
 	err := options.ValidateOptions()
 	if err != nil {
@@ -119,7 +119,7 @@ func (options *StoreFileOptions) ValidateOptions() error {
 	return nil
 }
 
-func (ss *storage) GetFile(eventOfFile types.Event) ([]byte, error) {
+func (ss *Storage) GetFile(eventOfFile types.Event) ([]byte, error) {
 	file := []byte{}
 
 	for _, hash := range eventOfFile.ContentHashes {
@@ -134,7 +134,7 @@ func (ss *storage) GetFile(eventOfFile types.Event) ([]byte, error) {
 	return file, nil
 }
 
-func (ss *storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
+func (ss *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
 	metadata := []byte{}
 
 	for _, hash := range eventOfFile.MetadataHashes {
@@ -149,7 +149,7 @@ func (ss *storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
 	return metadata, nil
 }
 
-func (ss *storage) storeDataInChunkStore(data []byte) ([][64]byte, error) {
+func (ss *Storage) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("Error storing data: Data is empty")
 	}
@@ -175,6 +175,6 @@ func (ss *storage) storeDataInChunkStore(data []byte) ([][64]byte, error) {
 	return keys, nil
 }
 
-func (ss *storage) GarbageCollection() error {
+func (ss *Storage) GarbageCollection() error {
 	return ss.kv.Clean()
 }

@@ -21,7 +21,7 @@ func init() {
 
 // Same as Event struct in storageService.go but without some unnecessary fields
 
-func (ss *storage) CreateRootEvent(title string) (types.Event, error) {
+func (ss *Storage) CreateRootEvent(title string) (types.Event, error) {
 	// Create a new IndexEvent
 	item := types.Event{
 		Key:            []byte{},
@@ -70,7 +70,7 @@ func (ss *storage) CreateRootEvent(title string) (types.Event, error) {
 	return item, err
 }
 
-func (ss *storage) GetAllRootEvents() ([]types.Event, error) {
+func (ss *Storage) GetAllRootEvents() ([]types.Event, error) {
 	// Get all keys from the keyValStore
 	rootIndex, err := ss.GetRootIndex()
 	if err != nil {
@@ -97,7 +97,7 @@ func (ss *storage) GetAllRootEvents() ([]types.Event, error) {
 	return rootEvents, nil
 }
 
-func (ss *storage) GetRootIndex() ([]types.RootEventsIndex, error) {
+func (ss *Storage) GetRootIndex() ([]types.RootEventsIndex, error) {
 	// Get all keys from the keyValStore
 	rootIndex, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:"))
 	if err != nil {
@@ -117,7 +117,7 @@ func (ss *storage) GetRootIndex() ([]types.RootEventsIndex, error) {
 	return revi, nil
 }
 
-func (ss *storage) GetRootEventsWithTitle(title string) ([]types.Event, error) {
+func (ss *Storage) GetRootEventsWithTitle(title string) ([]types.Event, error) {
 	rootIndex, err := ss.kv.GetItemsWithPrefix([]byte("RootEvent:" + title + ":"))
 	if err != nil {
 		log.Fatalf("Error getting keys: %v", err)
