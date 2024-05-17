@@ -97,13 +97,15 @@ func (ekb EventKeyBytes) Deserialize() (*EventIdentifier, error) {
 
 	// Extract and set the FastMeta
 	fastMetaBytes := ekb[prefixLength+eventTypeLength+eventHashLength:]
-	err = evId.FastMeta.FromBytes(FastMetaBytes(fastMetaBytes))
+	err = evId.FastMeta.FromBytes(FastMetaBytesSerialized(fastMetaBytes))
 	if err != nil {
 		return nil, err
 	}
 
 	return evId, nil
 }
+
+type ChunkCollection []Chunk
 
 type ChunkMetaCollection []ChunkMeta
 

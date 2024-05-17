@@ -12,8 +12,8 @@ func TestIndex_RebuildIndex(t *testing.T) {
 	mockStorageService := new(mocks.StorageService)
 
 	events := []types.Event{
-		{EventHash: [64]byte{1}, ParentEvent: [64]byte{0}},
-		{EventHash: [64]byte{2}, ParentEvent: [64]byte{1}},
+		{EventIdentifier: types.EventIdentifier{EventHash: types.Hash{1}}, ParentEvent: types.Hash{0}},
+		{EventIdentifier: types.EventIdentifier{EventHash: types.Hash{2}}, ParentEvent: types.Hash{1}},
 	}
 
 	mockStorageService.On("GetAllEvents").Return(events, nil)
@@ -31,13 +31,13 @@ func TestIndex_RebuildParentsToChildren(t *testing.T) {
 	mockStorageService := new(mocks.StorageService)
 	index := NewIndex(mockStorageService)
 
-	parentHash := [64]byte{1}
-	childHash1 := [64]byte{2}
-	childHash2 := [64]byte{3}
+	parentHash := types.Hash{1}
+	childHash1 := types.Hash{2}
+	childHash2 := types.Hash{3}
 
 	events := []types.Event{
-		{EventHash: childHash1, ParentEvent: parentHash},
-		{EventHash: childHash2, ParentEvent: parentHash},
+		{EventIdentifier: types.EventIdentifier{EventHash: childHash1}, ParentEvent: parentHash},
+		{EventIdentifier: types.EventIdentifier{EventHash: childHash2}, ParentEvent: parentHash},
 	}
 
 	err := index.RebuildParentsToChildren(events)
@@ -51,11 +51,11 @@ func TestIndex_RebuildParentsToChildren(t *testing.T) {
 
 func TestIndex_GetChildrenHashesOfEvent(t *testing.T) {
 	index := &Index{
-		evParentToChild: make(map[[64]byte][][64]byte),
+		evParentToChild: make(map[types.Hash][]types.Hash),
 	}
 
-	parentHash := [64]byte{1}
-	childHash := [64]byte{2}
+	parentHash := types.Hash{1}
+	childHash := types.Hash{2}
 	index.evParentToChild[parentHash] = append(index.evParentToChild[parentHash], childHash)
 
 	retrievedChildren := index.GetChildrenHashesOfEvent(parentHash)
@@ -66,11 +66,11 @@ func TestIndex_GetDirectChildrenOfEvent(t *testing.T) {
 	mockStorageService := new(mocks.StorageService)
 	index := NewIndex(mockStorageService)
 
-	parentHash := [64]byte{1}
-	childHash := [64]byte{2}
+	parentHash := types.Hash{1}
+	childHash := types.Hash{2}
 	index.evParentToChild[parentHash] = append(index.evParentToChild[parentHash], childHash)
 
-	childEvent := types.Event{EventHash: childHash}
+	childEvent := types.Event{EventIdentifier: types.EventIdentifier{EventHash: childHash}}
 	mockStorageService.On("GetEvent", childHash).Return(childEvent, nil)
 
 	retrievedChildren, err := index.GetDirectChildrenOfEvent(parentHash)
@@ -83,13 +83,13 @@ func TestIndex_RebuildChildrenToParents(t *testing.T) {
 	mockStorageService := new(mocks.StorageService)
 	index := NewIndex(mockStorageService)
 
-	parentHash := [64]byte{1}
-	childHash1 := [64]byte{2}
-	childHash2 := [64]byte{3}
+	parentHash := types.Hash{1}
+	childHash1 := types.Hash{2}
+	childHash2 := types.Hash{3}
 
 	events := []types.Event{
-		{EventHash: childHash1, ParentEvent: parentHash},
-		{EventHash: childHash2, ParentEvent: parentHash},
+		{EventIdentifier: types.EventIdentifier{EventHash: childHash1}, ParentEvent: parentHash},
+		{EventIdentifier: types.EventIdentifier{EventHash: childHash2}, ParentEvent: parentHash},
 	}
 
 	err := index.RebuildChildrenToParents(events)
@@ -103,11 +103,11 @@ func TestIndex_RebuildChildrenToParents(t *testing.T) {
 
 func TestIndex_GetParentHashOfEvent(t *testing.T) {
 	index := &Index{
-		evChildToParent: make(map[[64]byte][64]byte),
+		evChildToParent: make(map[types.Hash]types.Hash),
 	}
 
-	parentHash := [64]byte{1}
-	childHash := [64]byte{2}
+	parentHash := types.Hash{1}
+	childHash := types.Hash{2}
 	index.evChildToParent[childHash] = parentHash
 
 	retrievedParentHash, exists := index.GetParentHashOfEvent(childHash)
@@ -119,11 +119,11 @@ func TestIndex_GetDirectParentOfEvent(t *testing.T) {
 	mockStorageService := new(mocks.StorageService)
 	index := NewIndex(mockStorageService)
 
-	parentHash := [64]byte{1}
-	childHash := [64]byte{2}
+	parentHash := types.Hash{1}
+	childHash := types.Hash{2}
 	index.evChildToParent[childHash] = parentHash
 
-	parentEvent := types.Event{EventHash: parentHash}
+	parentEvent := types.Event{EventIdentifier: types.EventIdentifier{EventHash: parentHash}}
 	mockStorageService.On("GetEvent", parentHash).Return(parentEvent, nil)
 
 	retrievedParentEvent, err := index.GetDirectParentOfEvent(childHash)

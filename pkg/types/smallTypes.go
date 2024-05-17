@@ -129,7 +129,7 @@ func (l *Level) SetToNow() {
 
 // FastMetaParameter is a single parameter of FastMeta
 type FastMetaParameter []byte
-type FastMetaBytes []byte
+type FastMetaBytesSerialized []byte
 
 // The maximum size of the FastMeta is 128kb
 const FastMetaMaxSize = 128 * 1024
@@ -178,7 +178,7 @@ func (f FastMeta) Hash() Hash {
 	return hash
 }
 
-func (f FastMeta) Bytes() FastMetaBytes {
+func (f FastMeta) Bytes() FastMetaBytesSerialized {
 	fastProto := protoFastMeta.FastMetaProto{}
 
 	for _, parameter := range f {
@@ -190,7 +190,7 @@ func (f FastMeta) Bytes() FastMetaBytes {
 	return buffer
 }
 
-func (f *FastMeta) FromBytes(data FastMetaBytes) error {
+func (f *FastMeta) FromBytes(data FastMetaBytesSerialized) error {
 	fastProto := protoFastMeta.FastMetaProto{}
 	err := proto.Unmarshal(data, &fastProto)
 	if err != nil {

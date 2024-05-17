@@ -36,8 +36,8 @@ var log *logrus.Logger
 type OuroborosDB struct {
 	DB     storage.StorageService
 	Index  *index.Index
-	config Config
 	log    *logrus.Logger
+	config Config
 }
 
 type Config struct {
@@ -69,6 +69,11 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		log = conf.Logger
 	} else {
 		log = conf.Logger
+	}
+
+	if conf.GarbageCollectionInterval <= 0 {
+		conf.Logger.Warn("GarbageCollectionInterval is zero or negative; setting to default 5 minutes")
+		conf.GarbageCollectionInterval = 5 * time.Minute
 	}
 
 	kvStore, err := keyValStore.NewKeyValStore(
@@ -110,7 +115,7 @@ func (ou *OuroborosDB) Close() {
 }
 
 func (ou *OuroborosDB) createGarbageCollection() {
-	ticker := time.NewTicker(ou.config.GarbageCollectionInterval * time.Minute)
+	ticker := time.NewTicker(ou.config.GarbageCollectionInterval)
 	for range ticker.C {
 		err := ou.DB.GarbageCollection()
 		fmt.Println("Garbage Collection", badger.ErrNoRewrite)

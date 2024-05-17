@@ -3,22 +3,21 @@ package buzhashChunker
 import (
 	"bytes"
 	"crypto/sha512"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"runtime"
 	"sync"
 
+	"github.com/i5heu/ouroboros-db/pkg/types"
 	chunker "github.com/ipfs/boxo/chunker"
 )
 
-func ChunkBytes(data []byte) ([]ChunkData, error) {
+func ChunkBytes(data []byte) (types.ChunkCollection, types.ChunkMetaCollection, error) {
 	reader := bytes.NewReader(data)
-
 	return ChunkReader(reader)
 }
 
-func ChunkReader(reader io.Reader) ([]ChunkData, error) {
+func ChunkReader(reader io.Reader) (types.ChunkCollection, types.ChunkMetaCollection, error) {
 	bz := chunker.NewBuzhash(reader)
 
 	// get thread count
@@ -31,20 +30,20 @@ func ChunkReader(reader io.Reader) ([]ChunkData, error) {
 	var collectorWg sync.WaitGroup
 
 	// spawn collector
-	resultChan := make(chan []ChunkData, 1)
+	resultChan := make(chan chunkResult, 1)
 	collectorWg.Add(1)
 	go collectChunkData(&collectorWg, hashChan, resultChan)
 
 	// Read and process chunks
-	for chunkIndex := 0; ; chunkIndex++ { // Use a loop-scoped index
+	for chunkIndex := 0; ; chunkIndex++ {
 		chunk, err := bz.NextBytes()
 		if err == io.EOF {
 			wg.Wait()
 			close(hashChan)
-			break // End of data reached.
+			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("error reading chunk: %w", err)
+			return nil, nil, fmt.Errorf("error reading chunk: %w", err)
 		}
 
 		wg.Add(1)
@@ -57,70 +56,84 @@ func ChunkReader(reader io.Reader) ([]ChunkData, error) {
 
 	finalResult, ok := <-resultChan
 	if !ok {
-		return nil, fmt.Errorf("failed to read from result channel")
+		return nil, nil, fmt.Errorf("failed to read from result channel")
 	}
 
-	return finalResult, nil
+	return finalResult.chunks, finalResult.meta, nil
 }
 
-func ChunkByteSynchronously(data []byte) ([]ChunkData, error) {
+func ChunkBytesSynchronously(data []byte) (types.ChunkCollection, types.ChunkMetaCollection, error) {
 	reader := bytes.NewReader(data)
-
 	return ChunkReaderSynchronously(reader)
 }
 
-func ChunkReaderSynchronously(reader io.Reader) ([]ChunkData, error) {
+func ChunkReaderSynchronously(reader io.Reader) (types.ChunkCollection, types.ChunkMetaCollection, error) {
 	bz := chunker.NewBuzhash(reader)
 
-	chunks := []ChunkData{}
+	var chunks types.ChunkCollection
+	var meta types.ChunkMetaCollection
 
-	for chunkIndex := 0; ; chunkIndex++ { // Use a loop-scoped index
+	for chunkIndex := 0; ; chunkIndex++ {
 		chunk, err := bz.NextBytes()
 		if err == io.EOF {
-			break // End of data reached.
+			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("error reading chunk: %w", err)
+			return nil, nil, fmt.Errorf("error reading chunk: %w", err)
 		}
 
 		hash := sha512.Sum512(chunk)
-		chunks = append(chunks, ChunkData{
-			Hash: hash,
+		chunkData := types.Chunk{
+			ChunkMeta: types.ChunkMeta{
+				Hash:       hash,
+				DataLength: uint32(len(chunk)),
+			},
 			Data: chunk,
-		})
+		}
+		chunks = append(chunks, chunkData)
+		meta = append(meta, chunkData.ChunkMeta)
 	}
 
-	return chunks, nil
+	return chunks, meta, nil
 }
 
 type chunkInformation struct {
 	chunkNumber int
-	hash        [64]byte
+	hash        types.Hash
 	data        []byte
 }
 
-func collectChunkData(collectorWg *sync.WaitGroup, chunkChan <-chan chunkInformation, resultChan chan<- []ChunkData) {
+type chunkResult struct {
+	chunks types.ChunkCollection
+	meta   types.ChunkMetaCollection
+}
+
+func collectChunkData(collectorWg *sync.WaitGroup, chunkChan <-chan chunkInformation, resultChan chan<- chunkResult) {
 	defer collectorWg.Done()
 
-	chunkMap := map[int]ChunkData{}
+	chunkMap := map[int]types.Chunk{}
 
 	for hashInfo := range chunkChan {
-		chunkMap[hashInfo.chunkNumber] = ChunkData{
-			Hash:       hashInfo.hash,
-			Data:       hashInfo.data,
-			DataLength: uint32(len(hashInfo.data)),
+		chunkMap[hashInfo.chunkNumber] = types.Chunk{
+			ChunkMeta: types.ChunkMeta{
+				Hash:       hashInfo.hash,
+				DataLength: uint32(len(hashInfo.data)),
+			},
+			Data: hashInfo.data,
 		}
 	}
 
-	// Convert map to slice
-	chunks := make([]ChunkData, len(chunkMap))
+	chunks := make(types.ChunkCollection, len(chunkMap))
+	meta := make(types.ChunkMetaCollection, len(chunkMap))
 	for i := 0; i < len(chunkMap); i++ {
-
 		chunks[i] = chunkMap[i]
+		meta[i] = chunkMap[i].ChunkMeta
 	}
 
-	resultChan <- chunks
-	return
+	resultChan <- chunkResult{
+		chunks: chunks,
+		meta:   meta,
+	}
 }
 
 func calculateSha512(wg *sync.WaitGroup, hashChan chan<- chunkInformation, data []byte, chunkNumber int, workerLimit chan struct{}) {
@@ -133,10 +146,4 @@ func calculateSha512(wg *sync.WaitGroup, hashChan chan<- chunkInformation, data 
 		data:        data,
 	}
 	<-workerLimit
-
-	return
-}
-
-func (c ChunkData) PrettyPrint() string {
-	return fmt.Sprintf("ChunkData{Hash: %x, Data(length): %x}", hex.EncodeToString(c.Hash[:]), len(c.Data))
 }

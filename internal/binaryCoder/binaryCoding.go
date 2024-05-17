@@ -4,57 +4,67 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
-// Convert an Event to an EventProto
-func convertToProtoEvent(ev types.Event) *EventProto {
+func EventToProto(event types.Event) (*EventProto, error) {
 	return &EventProto{
-		Key:               ev.Title,
-		EventHash:         ev.EventHash[:],
-		Level:             ev.Level,
-		ContentHashes:     hashesToBytes(ev.Content),
-		MetadataHashes:    hashesToBytes(ev.Metadata),
-		HashOfParentEvent: ev.ParentEvent[:],
-		HashOfRootEvent:   ev.RootEvent[:],
-		Temporary:         ev.Temporary,
-		FullTextSearch:    ev.FullTextSearch,
-	}
+		EventIdentifier: &EventIdentifierProto{
+			EventHash: event.EventIdentifier.EventHash[:],
+			EventType: int32(event.EventIdentifier.EventType),
+			FastMeta:  event.EventIdentifier.FastMeta.Bytes(),
+		},
+		Level:          int64(event.Level),
+		ContentHashes:  chunkMetasToBytes(event.Content),
+		MetadataHashes: chunkMetasToBytes(event.Metadata),
+		ParentEvent:    event.ParentEvent[:],
+		RootEvent:      event.RootEvent[:],
+		Temporary:      bool(event.Temporary),
+		FullTextSearch: bool(event.FullTextSearch),
+	}, nil
 }
 
-// Convert an EventProto to an Event
-func convertFromProtoEvent(pbEvent *EventProto) types.Event {
-	return types.Event{
-		Title:          pbEvent.GetKey(),
-		EventHash:      bytesToHash(pbEvent.GetEventHash()),
-		Level:          pbEvent.GetLevel(),
-		Content:        bytesToHashes(pbEvent.GetContentHashes()),
-		Metadata:       bytesToHashes(pbEvent.GetMetadataHashes()),
-		ParentEvent:    bytesToHash(pbEvent.GetHashOfParentEvent()),
-		RootEvent:      bytesToHash(pbEvent.GetHashOfRootEvent()),
-		Temporary:      pbEvent.GetTemporary(),
-		FullTextSearch: pbEvent.GetFullTextSearch(),
+func ProtoToEvent(protoEvent *EventProto) (types.Event, error) {
+	event := types.Event{
+		EventIdentifier: types.EventIdentifier{
+			EventHash: bytesToHash(protoEvent.EventIdentifier.EventHash),
+			EventType: types.EventType(protoEvent.EventIdentifier.EventType),
+			FastMeta:  bytesToFastMeta(protoEvent.EventIdentifier.FastMeta),
+		},
+		Level:          types.Level(protoEvent.Level),
+		Content:        bytesToChunkMetas(protoEvent.ContentHashes),
+		Metadata:       bytesToChunkMetas(protoEvent.MetadataHashes),
+		ParentEvent:    bytesToHash(protoEvent.ParentEvent),
+		RootEvent:      bytesToHash(protoEvent.RootEvent),
+		Temporary:      types.Binary(protoEvent.Temporary),
+		FullTextSearch: types.Binary(protoEvent.FullTextSearch),
 	}
+	return event, nil
 }
 
-// Convert a slice of [64]byte hashes to a slice of byte slices
-func hashesToBytes(hashes [][64]byte) [][]byte {
-	result := make([][]byte, len(hashes))
-	for i, hash := range hashes {
-		result[i] = hash[:]
+func chunkMetasToBytes(metas types.ChunkMetaCollection) [][]byte {
+	var result [][]byte
+	for _, meta := range metas {
+		result = append(result, meta.Hash[:])
 	}
 	return result
 }
 
-// Convert a slice of byte slices to a slice of [64]byte hashes
-func bytesToHashes(byteSlices [][]byte) [][64]byte {
-	hashes := make([][64]byte, len(byteSlices))
-	for i, bytes := range byteSlices {
-		copy(hashes[i][:], bytes)
+func bytesToChunkMetas(data [][]byte) types.ChunkMetaCollection {
+	var result types.ChunkMetaCollection
+	for _, d := range data {
+		var hash types.Hash
+		copy(hash[:], d)
+		result = append(result, types.ChunkMeta{Hash: hash})
 	}
-	return hashes
+	return result
 }
 
-// Convert a byte slice to a [64]byte hash
-func bytesToHash(b []byte) [64]byte {
-	var hash [64]byte
-	copy(hash[:], b)
+func bytesToHash(data []byte) types.Hash {
+	var hash types.Hash
+	copy(hash[:], data)
 	return hash
+}
+
+func bytesToFastMeta(data []byte) types.FastMeta {
+	var fastMeta types.FastMeta
+	fastMeta.FromBytes(data)
+	return fastMeta
 }

@@ -16,6 +16,7 @@ type Storage struct {
 
 type StoreFileOptions struct {
 	EventToAppendTo types.Event
+	FastMeta        types.FastMeta
 	Metadata        []byte
 	File            []byte
 	Temporary       types.Binary
@@ -42,8 +43,8 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 	}
 
 	// Create channels to handle asynchronous results and errors
-	fileChunkKeysChan := make(chan [][64]byte, 1)
-	metadataChunkKeysChan := make(chan [][64]byte, 1)
+	fileChunkKeysChan := make(chan types.ChunkMetaCollection, 1)
+	metadataChunkKeysChan := make(chan types.ChunkMetaCollection, 1)
 	errorChan := make(chan error, 2) // buffer for two possible errors
 
 	var wg sync.WaitGroup
@@ -89,11 +90,14 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 
 	// Create a new event
 	newEvent, err := s.CreateNewEvent(EventOptions{
-		ContentHashes:     fileChunkKeys,
-		MetadataHashes:    metadataChunkKeys,
-		HashOfParentEvent: options.EventToAppendTo.EventHash,
-		Temporary:         options.Temporary,
-		FullTextSearch:    options.FullTextSearch,
+		EventType:      types.Normal,
+		ParentEvent:    options.EventToAppendTo.EventIdentifier.EventHash,
+		RootEvent:      options.EventToAppendTo.RootEvent,
+		FastMeta:       types.FastMeta{},
+		Metadata:       metadataChunkKeys,
+		Content:        fileChunkKeys,
+		Temporary:      options.Temporary,
+		FullTextSearch: options.FullTextSearch,
 	})
 	if err != nil {
 		log.Fatalf("Error creating new event: %v", err)
@@ -104,7 +108,7 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 }
 
 func (options *StoreFileOptions) ValidateOptions() error {
-	if options.EventToAppendTo.EventHash == [64]byte{} {
+	if options.EventToAppendTo.EventIdentifier.EventHash == (types.Hash{}) {
 		return fmt.Errorf("Error storing file: Parent event was not defined")
 	}
 
@@ -123,12 +127,12 @@ func (s *Storage) GetFile(eventOfFile types.Event) ([]byte, error) {
 	file := []byte{}
 
 	for _, chunk := range eventOfFile.Content {
-		chunk, err := s.kv.Read(chunk.Hash.Bytes())
+		chunkData, err := s.kv.Read(chunk.Hash.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetFile: %v", err)
 		}
 
-		file = append(file, chunk...)
+		file = append(file, chunkData...)
 	}
 
 	return file, nil
@@ -138,32 +142,32 @@ func (s *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
 	metadata := []byte{}
 
 	for _, chunk := range eventOfFile.Metadata {
-		chunk, err := s.kv.Read(chunk.Hash.Bytes())
+		chunkData, err := s.kv.Read(chunk.Hash.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetMetadata: %v", err)
 		}
 
-		metadata = append(metadata, chunk...)
+		metadata = append(metadata, chunkData...)
 	}
 
 	return metadata, nil
 }
 
-func (s *Storage) storeDataInChunkStore(data []byte) ([][64]byte, error) {
+func (s *Storage) storeDataInChunkStore(data []byte) (types.ChunkMetaCollection, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("Error storing data: Data is empty")
 	}
 
-	chunks, err := buzhashChunker.ChunkBytes(data)
+	chunks, _, err := buzhashChunker.ChunkBytes(data)
 	if err != nil {
 		log.Fatalf("Error chunking data: %v", err)
 		return nil, err
 	}
 
-	var keys [][64]byte
+	var keys types.ChunkMetaCollection
 
 	for _, chunk := range chunks {
-		keys = append(keys, chunk.Hash)
+		keys = append(keys, chunk.ChunkMeta)
 	}
 
 	err = s.kv.BatchWriteNonExistingChunks(chunks)
