@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
+	"github.com/i5heu/ouroboros-db/pkg/types"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/sirupsen/logrus"
@@ -117,7 +117,7 @@ func (k *KeyValStore) WriteBatch(batch [][2][]byte) error {
 	return err
 }
 
-func (k *KeyValStore) BatchWriteNonExistingChunks(chunks []buzhashChunker.ChunkData) error {
+func (k *KeyValStore) BatchWriteNonExistingChunks(chunks types.ChunkCollection) error {
 	var keys [][]byte
 	for _, chunk := range chunks {
 		chunk := chunk
@@ -130,7 +130,7 @@ func (k *KeyValStore) BatchWriteNonExistingChunks(chunks []buzhashChunker.ChunkD
 		return err
 	}
 
-	var nonExistingChunks []buzhashChunker.ChunkData
+	var nonExistingChunks types.ChunkCollection
 	for _, chunk := range chunks {
 		chunk := chunk
 		if !existsMap[string(chunk.Hash[:])] {
@@ -171,7 +171,7 @@ func (k *KeyValStore) BatchCheckKeyExistence(keys [][]byte) (map[string]bool, er
 	return existsMap, err
 }
 
-func (k *KeyValStore) BatchWriteChunk(chunks []buzhashChunker.ChunkData) error {
+func (k *KeyValStore) BatchWriteChunk(chunks types.ChunkCollection) error {
 
 	wb := k.badgerDB.NewWriteBatch()
 	defer wb.Cancel()
@@ -190,7 +190,7 @@ func (k *KeyValStore) BatchWriteChunk(chunks []buzhashChunker.ChunkData) error {
 	return wb.Flush()
 }
 
-func (k *KeyValStore) verifyChunksExistence(chunks []buzhashChunker.ChunkData) error {
+func (k *KeyValStore) verifyChunksExistence(chunks types.ChunkCollection) error {
 	var keys [][]byte
 	for _, chunk := range chunks {
 		keys = append(keys, chunk.Hash[:])
@@ -201,7 +201,7 @@ func (k *KeyValStore) verifyChunksExistence(chunks []buzhashChunker.ChunkData) e
 		return fmt.Errorf("error checking key existence: %w", err)
 	}
 
-	var nonExistingChunks []buzhashChunker.ChunkData
+	var nonExistingChunks types.ChunkCollection
 	for _, chunk := range chunks {
 		if !chunkState[string(chunk.Hash[:])] {
 			nonExistingChunks = append(nonExistingChunks, chunk)

@@ -9,29 +9,27 @@ func (i *Index) RebuildParentsToChildren(allEvents []types.Event) error {
 	clear(i.evParentToChild)
 
 	for _, event := range allEvents {
-		i.evParentToChild[event.HashOfParentEvent] = append(i.evParentToChild[event.HashOfParentEvent], event.EventHash)
+		i.evParentToChild[event.ParentEvent] = append(i.evParentToChild[event.ParentEvent], event.EventIdentifier.EventHash)
 	}
 
 	return nil
 }
 
-func (i *Index) GetChildrenHashesOfEvent(eventHash [64]byte) [][64]byte {
+func (i *Index) GetChildrenHashesOfEvent(eventHash types.Hash) []types.Hash {
 	i.evParentToChildLock.RLock()
 	defer i.evParentToChildLock.RUnlock()
 	return i.evParentToChild[eventHash]
 }
 
-func (i *Index) GetDirectChildrenOfEvent(eventHash [64]byte) ([]types.Event, error) {
+func (i *Index) GetDirectChildrenOfEvent(eventHash types.Hash) ([]types.Event, error) {
 	childrenHashes := i.GetChildrenHashesOfEvent(eventHash)
 	children := make([]types.Event, 0)
 
 	for _, childHash := range childrenHashes {
-
 		child, err := i.s.GetEvent(childHash)
 		if err != nil {
 			return nil, err
 		}
-
 		children = append(children, child)
 	}
 

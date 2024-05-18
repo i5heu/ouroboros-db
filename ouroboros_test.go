@@ -31,7 +31,7 @@ func randomString(n int) string {
 	return string(b)
 }
 
-func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosDB, backEventHashes [][64]byte) {
+func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosDB, backEventHashes []types.Hash) {
 	if conf.totalEvents == 0 {
 		conf.totalEvents = 1000
 	}
@@ -53,7 +53,7 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 		if err != nil {
 			t.Errorf("CreateRootEvent failed with error: %v", err)
 		}
-		backEventHashes = [][64]byte{rootEv.EventHash}
+		backEventHashes = []types.Hash{rootEv.EventIdentifier.EventHash}
 		return ou, backEventHashes
 	}
 
@@ -91,7 +91,7 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 
 				} else {
 					ev, err := ou.DB.CreateNewEvent(storage.EventOptions{
-						HashOfParentEvent: parent.EventHash,
+						ParentEvent: parent.EventIdentifier.EventHash,
 					})
 					if err != nil {
 						t.Errorf("CreateNewEvent failed with error: %v", err)
@@ -111,18 +111,18 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 
 	// Return all events or random events
 	if conf.returnAllEvents {
-		backEventHashes = make([][64]byte, len(events))
+		backEventHashes = make([]types.Hash, len(events))
 		for i, ev := range events {
-			backEventHashes[i] = ev.EventHash
+			backEventHashes[i] = ev.EventIdentifier.EventHash
 		}
 	} else {
 		numRandom := conf.returnRandomEvents
 		if numRandom == 0 || numRandom > len(events) {
 			numRandom = len(events) / 2
 		}
-		backEventHashes = make([][64]byte, numRandom)
+		backEventHashes = make([]types.Hash, numRandom)
 		for i := 0; i < numRandom; i++ {
-			backEventHashes[i] = events[rand.Intn(len(events))].EventHash
+			backEventHashes[i] = events[rand.Intn(len(events))].EventIdentifier.EventHash
 		}
 	}
 
@@ -201,7 +201,7 @@ func Test_DB_StoreFile(t *testing.T) {
 
 	for _, evHash := range evs {
 		_, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: types.Event{EventHash: evHash},
+			EventToAppendTo: types.Event{EventIdentifier: types.EventIdentifier{EventHash: evHash}},
 			Metadata:        []byte(randomString(100)),
 			File:            []byte(randomString(100)),
 		})
@@ -239,7 +239,7 @@ func Test_DB_GetFile(t *testing.T) {
 
 	for _, data := range testData {
 		sev, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: types.Event{EventHash: rootEv},
+			EventToAppendTo: types.Event{EventIdentifier: types.EventIdentifier{EventHash: rootEv}},
 			Metadata:        data.metadata,
 			File:            data.file,
 		})
@@ -247,7 +247,7 @@ func Test_DB_GetFile(t *testing.T) {
 			t.Errorf("StoreFile failed with error: %v", err)
 		}
 
-		if sev.ContentHashes == nil || len(sev.ContentHashes) == 0 {
+		if sev.Content == nil || len(sev.Content) == 0 {
 			t.Errorf("StoreFile failed, expected non-nil, got nil")
 		}
 
@@ -318,7 +318,7 @@ func Test_DB_GetMetadata(t *testing.T) {
 
 	for _, data := range testData {
 		sev, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: types.Event{EventHash: rootEv},
+			EventToAppendTo: types.Event{EventIdentifier: types.EventIdentifier{EventHash: rootEv}},
 			Metadata:        data.metadata,
 			File:            data.file,
 		})
@@ -326,7 +326,7 @@ func Test_DB_GetMetadata(t *testing.T) {
 			t.Errorf("StoreFile failed with error: %v", err)
 		}
 
-		if sev.MetadataHashes == nil || len(sev.MetadataHashes) == 0 {
+		if sev.Content == nil || len(sev.Content) == 0 {
 			t.Errorf("StoreFile failed, expected non-nil, got nil")
 		}
 
@@ -417,7 +417,7 @@ func Test_DB_CreateNewEvent(t *testing.T) {
 	})
 
 	_, err := ou.DB.CreateNewEvent(storage.EventOptions{
-		HashOfParentEvent: evs[0],
+		ParentEvent: evs[0],
 	})
 	if err != nil {
 		t.Errorf("CreateNewEvent failed with error: %v", err)
@@ -452,7 +452,7 @@ func Example() {
 
 	// Create a child event under the "ExampleRoot" event
 	_, err = ou.DB.CreateNewEvent(storage.EventOptions{
-		HashOfParentEvent: rootEvent.EventHash,
+		ParentEvent: rootEvent.EventHash,
 	})
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error creating child event: %s", err))
@@ -575,7 +575,7 @@ func Benchmark_DB_GetFile(b *testing.B) {
 
 	for ev := range evs {
 		storeEv, err := ou.DB.StoreFile(storage.StoreFileOptions{
-			EventToAppendTo: types.Event{EventHash: evs[ev]},
+			EventToAppendTo: types.Event{EventIdentifier: types.EventIdentifier{EventHash: evs[ev]}},
 			Metadata:        []byte(randomString(100)),
 			File:            []byte(randomString(100)),
 		})
@@ -718,7 +718,7 @@ func Benchmark_DB_CreateNewEvent(b *testing.B) {
 	b.Run("CreateNewEvent", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, err := ou.DB.CreateNewEvent(storage.EventOptions{
-				HashOfParentEvent: evs[rand.Intn(len(evs))],
+				ParentEvent: evs[rand.Intn(len(evs))],
 			})
 			if err != nil {
 				b.Errorf("CreateNewEvent failed with error: %v", err)

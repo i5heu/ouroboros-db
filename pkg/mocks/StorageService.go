@@ -154,7 +154,7 @@ func (_m *StorageService) GetAllRootEvents() ([]types.Event, error) {
 }
 
 // GetEvent provides a mock function with given fields: hashOfEvent
-func (_m *StorageService) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
+func (_m *StorageService) GetEvent(hashOfEvent types.Hash) (types.Event, error) {
 	ret := _m.Called(hashOfEvent)
 
 	if len(ret) == 0 {
@@ -163,16 +163,16 @@ func (_m *StorageService) GetEvent(hashOfEvent [64]byte) (types.Event, error) {
 
 	var r0 types.Event
 	var r1 error
-	if rf, ok := ret.Get(0).(func([64]byte) (types.Event, error)); ok {
+	if rf, ok := ret.Get(0).(func(types.Hash) (types.Event, error)); ok {
 		return rf(hashOfEvent)
 	}
-	if rf, ok := ret.Get(0).(func([64]byte) types.Event); ok {
+	if rf, ok := ret.Get(0).(func(types.Hash) types.Event); ok {
 		r0 = rf(hashOfEvent)
 	} else {
 		r0 = ret.Get(0).(types.Event)
 	}
 
-	if rf, ok := ret.Get(1).(func([64]byte) error); ok {
+	if rf, ok := ret.Get(1).(func(types.Hash) error); ok {
 		r1 = rf(hashOfEvent)
 	} else {
 		r1 = ret.Error(1)

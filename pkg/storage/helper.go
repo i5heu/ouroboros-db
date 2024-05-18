@@ -1,7 +1,11 @@
 package storage
 
-import "encoding/hex"
+import (
+	"encoding/hex"
 
-func GenerateKeyFromPrefixAndHash(prefix string, hash [64]byte) []byte {
+	"github.com/i5heu/ouroboros-db/pkg/types"
+)
+
+func GenerateKeyFromPrefixAndHash(prefix string, hash types.Hash) []byte {
 	return append([]byte(prefix), []byte(hex.EncodeToString(hash[:]))...)
 }

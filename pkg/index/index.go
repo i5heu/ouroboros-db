@@ -4,32 +4,26 @@ import (
 	"sync"
 
 	"github.com/i5heu/ouroboros-db/pkg/storage"
+	"github.com/i5heu/ouroboros-db/pkg/types"
 )
 
 type Index struct {
 	s                   storage.StorageService
-	evParentToChild     map[[64]byte][][64]byte
+	evParentToChild     map[types.Hash][]types.Hash
 	evParentToChildLock sync.RWMutex
-	evChildToParent     map[[64]byte][64]byte
+	evChildToParent     map[types.Hash]types.Hash
 	evChildToParentLock sync.RWMutex
 }
 
 func NewIndex(ss storage.StorageService) *Index {
-
-	i := &Index{
-		s:                   ss,
-		evParentToChildLock: sync.RWMutex{},
-		evParentToChild:     make(map[[64]byte][][64]byte),
-		evChildToParentLock: sync.RWMutex{},
-		evChildToParent:     make(map[[64]byte][64]byte),
+	return &Index{
+		s:               ss,
+		evParentToChild: make(map[types.Hash][]types.Hash),
+		evChildToParent: make(map[types.Hash]types.Hash),
 	}
-
-	return i
 }
 
 func (i *Index) RebuildIndex() (uint64, error) {
-	// get every event
-	// TODO we might need to optimize memory usage here
 	events, err := i.s.GetAllEvents()
 	if err != nil {
 		return 0, err

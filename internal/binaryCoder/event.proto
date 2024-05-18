@@ -3,16 +3,19 @@ syntax = "proto3";
 package binaryCoder;
 option go_package = "github.com/i5heu/ouroboros-db/internal/binaryCoder";
 
-
-message EventProto {
-  bytes key = 1;
-  bytes event_hash = 2;
-  int64 level = 3;
-  repeated bytes content_hashes = 4;
-  repeated bytes metadata_hashes = 5;
-  bytes hash_of_parent_event = 6;
-  bytes hash_of_root_event = 7;
-  bool temporary = 8;
-  bool full_text_search = 9;
+message EventIdentifierProto {
+  bytes event_hash = 1;
+  int32 event_type = 2;
+  bytes fast_meta = 3;
 }
 
+message EventProto {
+  EventIdentifierProto event_identifier = 1;
+  int64 level = 2;
+  repeated bytes content_hashes = 3;
+  repeated bytes metadata_hashes = 4;
+  bytes parent_event = 5;
+  bytes root_event = 6;
+  bool temporary = 7;
+  bool full_text_search = 8;
+}

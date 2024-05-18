@@ -14,13 +14,19 @@ const (
 )
 
 func (s *Storage) CreateRootEvent(title string) (types.Event, error) {
-	// Create a new IndexEvent
+	// Create a new Event
 	item := types.Event{
-		Key:            []byte{},
-		Level:          time.Now().UnixNano(),
-		EventHash:      [64]byte{},
-		ContentHashes:  [][64]byte{},
-		MetadataHashes: [][64]byte{},
+		EventIdentifier: types.EventIdentifier{
+			EventType: types.Root,
+			FastMeta:  types.FastMeta{[]byte(title)},
+		},
+		Level:          types.Level(time.Now().UnixNano()),
+		Metadata:       types.ChunkMetaCollection{},
+		Content:        types.ChunkMetaCollection{},
+		ParentEvent:    types.Hash{},
+		RootEvent:      types.Hash{},
+		Temporary:      types.Binary(false),
+		FullTextSearch: types.Binary(false),
 	}
 
 	// Check if RootEvent with the same title already exists
@@ -35,29 +41,27 @@ func (s *Storage) CreateRootEvent(title string) (types.Event, error) {
 		return types.Event{}, fmt.Errorf("Error creating new root event: RootEvent with the same title already exists")
 	}
 
-	item.MetadataHashes, err = s.storeDataInChunkStore([]byte(title))
+	item.Metadata, err = s.storeDataInChunkStore([]byte(title))
 	if err != nil {
 		log.Fatalf("Error storing metadata: %v", err)
 		return types.Event{}, err
 	}
 
-	item.HashOfParentEvent = [64]byte{'R', 'o', 'o', 't', 'E', 'v', 'e', 'n', 't'}
-	item.HashOfRootEvent = [64]byte{'R', 'o', 'o', 't', 'E', 'v', 'e', 'n', 't'}
-	item.EventHash = item.CreateDetailsMetaHash()
-	item.Key = GenerateKeyFromPrefixAndHash("Event:", item.EventHash)
+	item.EventIdentifier.EventHash = item.CreateDetailsMetaHash()
+	item.RootEvent = item.EventIdentifier.EventHash
 
-	// Serialize the EventChainItem using gob
+	// Serialize the Event using gob
 	data, err := binaryCoder.EventToByte(item)
 	if err != nil {
-		log.Fatalf("Error serializing EventChainItem: %v", err)
+		log.Fatalf("Error serializing Event: %v", err)
 		return types.Event{}, err
 	}
 
-	// Write the EventChainItem to the keyValStore
-	s.kv.Write(item.Key, data)
+	// Write the Event to the keyValStore
+	s.kv.Write(GenerateKeyFromPrefixAndHash("Event:", item.EventIdentifier.EventHash), data)
 
 	// define the event as entry point for the EventChain
-	s.kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), item.Key)
+	s.kv.Write([]byte("RootEvent:"+title+":"+fmt.Sprint(item.Level)), GenerateKeyFromPrefixAndHash("Event:", item.EventIdentifier.EventHash))
 
 	return item, err
 }
