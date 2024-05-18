@@ -71,8 +71,8 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		log = conf.Logger
 	}
 
-	if conf.GarbageCollectionInterval <= 0 {
-		conf.Logger.Warn("GarbageCollectionInterval is zero or negative; setting to default 5 minutes")
+	if conf.GarbageCollectionInterval < 2*time.Minute {
+		conf.Logger.Warn("GarbageCollectionInterval is smaller then 2 Min; setting to default 5 minutes")
 		conf.GarbageCollectionInterval = 5 * time.Minute
 	}
 
