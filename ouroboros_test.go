@@ -671,7 +671,7 @@ func Example() {
 }
 
 func Benchmark_setupDBWithData(b *testing.B) {
-	b.Run("RebuildIndex", func(b *testing.B) {
+	b.Run("setupDBWithData", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			setupDBWithData(b, setupDBConfig{
 				totalEvents: 10000,
