@@ -33,6 +33,6 @@ done
 
 # Execute the comparison command and save it as a CSV
 echo "Comparing all versions with benchstat..."
-eval "$benchstat_cmd" > "benchmarks/combined_benchmarks_comparison.csv"
+eval "$benchstat_cmd" > "benchmarks/combined_benchmarks_comparison"
 
 echo "Benchmarking and comparison completed."

@@ -180,7 +180,7 @@ func getChildEvents(db *OuroborosDB.OuroborosDB, parentEvent storage.Event) []st
   go test -run='^$' -bench=.
 ```
 ### Benchmark Versions 
-Works with uncommitted changes and version/commits that are reachable by `git checkout`.  
+Works with committed changes and version/commits that are reachable by `git checkout`.  
 You also need to have installed `benchstat` to compare the benchmarks, install it with `go get golang.org/x/perf/cmd/benchstat@latest`
 
 ```bash
@@ -192,26 +192,28 @@ You also need to have installed `benchstat` to compare the benchmarks, install i
 ```bash
 goos: linux
 goarch: arm64
-pkg: OuroborosDB
-                                                           │ ./benchmarks/v0.0.2 │         ./benchmarks/v0.0.3         │
-                                                           │       sec/op        │    sec/op     vs base               │
-_Index_RebuildingIndex/RebuildIndex-8                              397.79m ±  2%   19.40m ±  2%  -95.12% (p=0.002 n=6)
-_Index_GetDirectChildrenOfEvent/GetChildrenOfEvent-8               35.559µ ±  3%   4.727µ ±  3%  -86.71% (p=0.002 n=6)
-_Index_GetChildrenHashesOfEvent/GetChildrenHashesOfEvent-8          77.27n ±  2%   75.79n ±  1%   -1.91% (p=0.004 n=6)
-_DB_StoreFile/StoreFile-8                                           311.7µ ±  4%   188.4µ ±  4%  -39.57% (p=0.002 n=6)
-_DB_GetFile/GetFile-8                                               3.695µ ±  4%   3.422µ ±  4%   -7.40% (p=0.004 n=6)
-_DB_GetEvent/GetEvent-8                                            45.636µ ±  2%   6.220µ ±  2%  -86.37% (p=0.002 n=6)
-_DB_GetMetadata/GetMetadata-8                                       4.040µ ±  4%   3.972µ ±  9%        ~ (p=0.132 n=6)
-_DB_GetAllRootEvents/GetAllRootEvents-8                            121.18m ±  5%   19.46m ±  2%  -83.94% (p=0.002 n=6)
-_DB_GetRootIndex/GetRootIndex-8                                     2.465m ±  5%   2.477m ±  3%        ~ (p=1.000 n=6)
-_DB_GetRootEventsWithTitle/GetRootEventsWithTitle-8                 53.55µ ±  2%   12.24µ ±  3%  -77.13% (p=0.002 n=6)
-_DB_CreateRootEvent/CreateRootEvent-8                               158.1µ ± 11%   129.1µ ± 11%  -18.34% (p=0.002 n=6)
-_DB_CreateNewEvent/CreateNewEvent-8                                135.91µ ±  6%   49.64µ ± 15%  -63.48% (p=0.002 n=6)
-geomean                                                             144.0µ         52.30µ        -63.69%
+pkg: github.com/i5heu/ouroboros-db
+                                                           │ benchmarks/v0.0.5.txt │       benchmarks/v0.0.8.txt        │       benchmarks/v0.0.14.txt        │
+                                                           │        sec/op         │    sec/op     vs base              │    sec/op     vs base               │
+_setupDBWithData/RebuildIndex-8                                       645.8m ±  9%   657.2m ±  7%       ~ (p=0.589 n=6)   669.7m ±  3%        ~ (p=0.093 n=6)
+_Index_RebuildingIndex/RebuildIndex-8                                 20.78m ± 11%   19.98m ± 20%       ~ (p=0.699 n=6)   23.04m ± 11%  +10.86% (p=0.041 n=6)
+_Index_GetDirectChildrenOfEvent/GetChildrenOfEvent-8                  4.500µ ±  6%   4.841µ ±  2%  +7.58% (p=0.004 n=6)   5.267µ ±  5%  +17.04% (p=0.002 n=6)
+_Index_GetChildrenHashesOfEvent/GetChildrenHashesOfEvent-8            77.12n ±  3%   76.19n ±  4%       ~ (p=0.699 n=6)   77.81n ±  3%        ~ (p=0.310 n=6)
+_DB_StoreFile/StoreFile-8                                             179.9µ ±  7%   185.9µ ±  5%       ~ (p=0.485 n=6)   187.9µ ±  6%        ~ (p=0.589 n=6)
+_DB_GetFile/GetFile-8                                                 3.613µ ±  3%   3.667µ ±  2%       ~ (p=0.132 n=6)   3.575µ ±  3%        ~ (p=0.589 n=6)
+_DB_GetEvent/GetEvent-8                                               6.099µ ±  3%   6.286µ ±  1%  +3.07% (p=0.002 n=6)   6.314µ ±  4%   +3.53% (p=0.026 n=6)
+_DB_GetMetadata/GetMetadata-8                                         3.982µ ±  3%   3.958µ ±  4%       ~ (p=0.589 n=6)   3.929µ ±  4%        ~ (p=0.394 n=6)
+_DB_GetAllRootEvents/GetAllRootEvents-8                               19.42m ±  5%   19.44m ±  3%       ~ (p=0.818 n=6)   19.62m ±  6%        ~ (p=0.180 n=6)
+_DB_GetRootIndex/GetRootIndex-8                                       2.455m ±  2%   2.487m ±  5%       ~ (p=0.310 n=6)   2.453m ±  6%        ~ (p=0.818 n=6)
+_DB_GetRootEventsWithTitle/GetRootEventsWithTitle-8                   12.33µ ±  1%   12.54µ ±  3%       ~ (p=0.180 n=6)   12.24µ ±  2%        ~ (p=0.589 n=6)
+_DB_CreateRootEvent/CreateRootEvent-8                                 133.1µ ±  4%   131.8µ ±  2%       ~ (p=0.589 n=6)   133.3µ ±  9%        ~ (p=1.000 n=6)
+_DB_CreateNewEvent/CreateNewEvent-8                                   49.86µ ± 19%   50.50µ ± 15%       ~ (p=0.818 n=6)   51.24µ ± 14%        ~ (p=0.818 n=6)
+geomean                                                               108.4µ         109.7µ        +1.13%                 111.7µ         +3.05%
 ```
 
 ## OuroborosDB Performance Changelog
 
+- **v0.0.14** - Major refactor of the Event type and introduction of FastMeta which should speed up search
 - **v0.0.3** - Switch from `gob` to `protobuf` for serialization
 - **v0.0.2** - Create tests and benchmarks
 
