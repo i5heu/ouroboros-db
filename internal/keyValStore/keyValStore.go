@@ -251,7 +251,7 @@ func (k *KeyValStore) Clean() error {
 	if err != nil {
 		return fmt.Errorf("error flattening db: %w", err)
 	} else {
-		fmt.Println("Compaction completed successfully.")
+		log.Info("DB Flattened")
 	}
 
 	// clean badgerDB

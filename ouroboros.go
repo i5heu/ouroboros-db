@@ -118,8 +118,8 @@ func (ou *OuroborosDB) createGarbageCollection() {
 	ticker := time.NewTicker(ou.config.GarbageCollectionInterval)
 	for range ticker.C {
 		err := ou.DB.GarbageCollection()
-		fmt.Println("Garbage Collection", badger.ErrNoRewrite)
-		if err != nil {
+		log.Info("Garbage Collection", badger.ErrNoRewrite)
+		if err != nil && err != badger.ErrNoRewrite {
 			log.Fatal("Error during garbage collection: ", err) // maybe we have to rework this here a bit
 		}
 	}
