@@ -157,8 +157,8 @@ func Test_Index_RebuildIndex(t *testing.T) {
 
 func Test_Index_GetDirectChildrenOfEvent(t *testing.T) {
 	ou, evs := setupDBWithData(t, setupDBConfig{
-		totalEvents:        100,
-		returnRandomEvents: 10,
+		totalEvents:     100,
+		returnAllEvents: true,
 	})
 
 	var childrenCount int // todo this is not a good test
@@ -169,6 +169,11 @@ func Test_Index_GetDirectChildrenOfEvent(t *testing.T) {
 			t.Errorf("GetDirectChildrenOfEvent failed with error: %v", err)
 		}
 		childrenCount += len(children)
+
+	}
+
+	if childrenCount == 0 {
+		t.Errorf("GetDirectChildrenOfEvent failed, expected non-zero count, got %d", childrenCount)
 	}
 }
 
@@ -519,10 +524,12 @@ func Benchmark_Index_GetDirectChildrenOfEvent(b *testing.B) {
 
 	b.Run("GetChildrenOfEvent", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, err := ou.Index.GetDirectChildrenOfEvent(evs[rand.Intn(len(evs))])
+			ev, err := ou.Index.GetDirectChildrenOfEvent(evs[rand.Intn(len(evs))])
 			if err != nil {
 				b.Errorf("RebuildIndex failed with error: %v", err)
 			}
+
+			fmt.Println(len(ev))
 		}
 	})
 }
