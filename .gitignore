@@ -9,3 +9,4 @@ ExamplePath/*
 *.csv
 *.html
 *.prof
+*.sh
