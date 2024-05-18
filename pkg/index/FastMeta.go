@@ -84,8 +84,6 @@ func (i *Index) GetEventsByFastMeta(fm types.FastMeta) ([]types.Event, error) {
 
 	evHashes := i.GetEventHashesByFastMeta(fm)
 
-	fmt.Println("evHashes", evHashes)
-
 	events := make([]types.Event, 0)
 	for _, eventHash := range evHashes {
 		event, err := i.s.GetEvent(eventHash)
