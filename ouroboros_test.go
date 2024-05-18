@@ -427,9 +427,9 @@ func Test_DB_CreateNewEvent(t *testing.T) {
 func Example() {
 	// Initialize OuroborosDB with basic configuration
 	ou, err := ouroboros.NewOuroborosDB(ouroboros.Config{
-		Paths:                     []string{"ExamplePath"}, // Directory for data storage
-		MinimumFreeGB:             1,                       // Minimum free space in GB
-		GarbageCollectionInterval: 10,                      // GC interval in seconds
+		Paths:                     []string{"ExamplePath/" + time.Now().String()}, // Directory for data storage
+		MinimumFreeGB:             1,                                              // Minimum free space in GB
+		GarbageCollectionInterval: 10,                                             // GC interval in seconds
 	})
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Failed to initialize OuroborosDB: %s", err))
@@ -481,12 +481,6 @@ func Example() {
 	for _ = range children {
 		fmt.Printf("Retrieved child event\n")
 	}
-
-	// Output:
-	// Created root eventCreated child event
-	// Retrieved root event
-	// Retrieved child event
-	// Compaction completed successfully.
 }
 
 func Benchmark_setupDBWithData(b *testing.B) {

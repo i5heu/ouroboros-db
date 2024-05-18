@@ -8,9 +8,14 @@ import (
 )
 
 func ByteToEvent(bytes []byte) (types.Event, error) {
+
+	if len(bytes) == 0 {
+		return types.Event{}, fmt.Errorf("Error decoding Event: empty byte array")
+	}
+
 	pbEvent := &EventProto{}
 	if err := proto.Unmarshal(bytes, pbEvent); err != nil {
-		return types.Event{}, fmt.Errorf("Error decoding Event with Key: %v", err)
+		return types.Event{}, fmt.Errorf("Error decoding Event: %v", err)
 	}
 	item, err := convertFromProtoEvent(pbEvent)
 	if err != nil {
