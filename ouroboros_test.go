@@ -474,7 +474,7 @@ func Example() {
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error retrieving root events: %s", err))
 	}
-	for _ = range rootEvents {
+	for range rootEvents {
 		fmt.Printf("Retrieved root event\n")
 	}
 
@@ -483,7 +483,7 @@ func Example() {
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error retrieving children of root event: %s", err))
 	}
-	for _ = range children {
+	for range children {
 		fmt.Printf("Retrieved child event\n")
 	}
 }
