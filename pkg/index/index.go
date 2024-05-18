@@ -34,6 +34,7 @@ func (i *Index) RebuildIndex() (uint64, error) {
 
 	i.RebuildParentsToChildren(events)
 	i.RebuildChildrenToParents(events)
+	i.RebuildFastMeta(events)
 
 	return uint64(len(events)), nil
 }

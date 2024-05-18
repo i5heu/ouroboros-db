@@ -193,22 +193,28 @@ You also need to have installed `benchstat` to compare the benchmarks, install i
 goos: linux
 goarch: arm64
 pkg: github.com/i5heu/ouroboros-db
-                                                           │ benchmarks/v0.0.5.txt │       benchmarks/v0.0.8.txt        │       benchmarks/v0.0.16.txt       │
-                                                           │        sec/op         │    sec/op     vs base              │    sec/op     vs base              │
-_setupDBWithData/RebuildIndex-8                                       655.2m ±  4%   650.3m ±  2%       ~ (p=0.699 n=6)   644.2m ±  3%       ~ (p=0.699 n=6)
-_Index_RebuildingIndex/RebuildIndex-8                                 20.71m ± 16%   20.97m ± 11%       ~ (p=0.699 n=6)   20.88m ± 17%       ~ (p=0.699 n=6)
-_Index_GetDirectChildrenOfEvent/GetChildrenOfEvent-8                  4.992µ ±  3%   4.944µ ±  4%       ~ (p=0.485 n=6)   4.614µ ±  4%  -7.58% (p=0.002 n=6)
-_Index_GetChildrenHashesOfEvent/GetChildrenHashesOfEvent-8            77.94n ±  1%   77.63n ±  2%       ~ (p=0.240 n=6)   77.28n ±  4%       ~ (p=0.699 n=6)
-_DB_StoreFile/StoreFile-8                                             184.8µ ±  3%   186.4µ ±  1%       ~ (p=0.132 n=6)   184.7µ ±  3%       ~ (p=0.818 n=6)
-_DB_GetFile/GetFile-8                                                 3.683µ ±  5%   3.631µ ±  5%       ~ (p=0.368 n=6)   3.716µ ±  6%       ~ (p=0.556 n=6)
-_DB_GetEvent/GetEvent-8                                               6.271µ ±  2%   6.283µ ±  2%       ~ (p=0.699 n=6)   6.173µ ±  5%       ~ (p=0.589 n=6)
-_DB_GetMetadata/GetMetadata-8                                         4.059µ ±  2%   4.078µ ±  5%       ~ (p=1.000 n=6)   4.041µ ±  3%       ~ (p=0.394 n=6)
-_DB_GetAllRootEvents/GetAllRootEvents-8                               19.74m ±  2%   19.24m ±  3%  -2.52% (p=0.026 n=6)   19.89m ±  5%       ~ (p=0.937 n=6)
-_DB_GetRootIndex/GetRootIndex-8                                       2.464m ±  4%   2.497m ±  5%       ~ (p=0.132 n=6)   2.474m ±  5%       ~ (p=0.589 n=6)
-_DB_GetRootEventsWithTitle/GetRootEventsWithTitle-8                   12.26µ ±  3%   12.18µ ±  5%       ~ (p=0.818 n=6)   12.26µ ±  4%       ~ (p=0.937 n=6)
-_DB_CreateRootEvent/CreateRootEvent-8                                 131.0µ ±  4%   130.7µ ±  3%       ~ (p=0.485 n=6)   130.9µ ± 10%       ~ (p=0.937 n=6)
-_DB_CreateNewEvent/CreateNewEvent-8                                   50.87µ ± 16%   50.14µ ± 17%       ~ (p=0.589 n=6)   49.52µ ± 18%       ~ (p=0.937 n=6)
-geomean                                                               110.4µ         110.1µ        -0.34%                 109.4µ        -0.95%
+                                                                             │ benchmarks/v0.0.5.txt │       benchmarks/v0.0.8.txt        │       benchmarks/v0.0.16.txt       │        benchmarks/v0.0.17.txt         │
+                                                                             │        sec/op         │    sec/op     vs base              │    sec/op     vs base              │    sec/op      vs base                │
+_setupDBWithData/RebuildIndex-8                                                         655.2m ±  4%   650.3m ±  2%       ~ (p=0.699 n=6)   644.2m ±  3%       ~ (p=0.699 n=6)   2506.8m ± 58%  +282.58% (p=0.002 n=6)
+_Index_RebuildingIndex/RebuildIndex-8                                                   20.71m ± 16%   20.97m ± 11%       ~ (p=0.699 n=6)   20.88m ± 17%       ~ (p=0.699 n=6)    26.50m ±  3%   +27.94% (p=0.002 n=6)
+_Index_GetDirectChildrenOfEvent/GetChildrenOfEvent-8                                    4.992µ ±  3%   4.944µ ±  4%       ~ (p=0.485 n=6)   4.614µ ±  4%  -7.58% (p=0.002 n=6)    5.150µ ±  2%    +3.17% (p=0.009 n=6)
+_Index_GetChildrenHashesOfEvent/GetChildrenHashesOfEvent-8                              77.94n ±  1%   77.63n ±  2%       ~ (p=0.240 n=6)   77.28n ±  4%       ~ (p=0.699 n=6)   113.65n ±  3%   +45.82% (p=0.002 n=6)
+_DB_StoreFile/StoreFile-8                                                               184.8µ ±  3%   186.4µ ±  1%       ~ (p=0.132 n=6)   184.7µ ±  3%       ~ (p=0.818 n=6)    358.9µ ±  6%   +94.22% (p=0.002 n=6)
+_DB_GetFile/GetFile-8                                                                   3.683µ ±  5%   3.631µ ±  5%       ~ (p=0.368 n=6)   3.716µ ±  6%       ~ (p=0.556 n=6)    3.738µ ±  1%         ~ (p=0.126 n=6)
+_DB_GetEvent/GetEvent-8                                                                 6.271µ ±  2%   6.283µ ±  2%       ~ (p=0.699 n=6)   6.173µ ±  5%       ~ (p=0.589 n=6)    6.521µ ±  2%    +3.99% (p=0.002 n=6)
+_DB_GetMetadata/GetMetadata-8                                                           4.059µ ±  2%   4.078µ ±  5%       ~ (p=1.000 n=6)   4.041µ ±  3%       ~ (p=0.394 n=6)    4.072µ ±  4%         ~ (p=0.818 n=6)
+_DB_GetAllRootEvents/GetAllRootEvents-8                                                 19.74m ±  2%   19.24m ±  3%  -2.52% (p=0.026 n=6)   19.89m ±  5%       ~ (p=0.937 n=6)    21.04m ±  1%    +6.59% (p=0.002 n=6)
+_DB_GetRootIndex/GetRootIndex-8                                                         2.464m ±  4%   2.497m ±  5%       ~ (p=0.132 n=6)   2.474m ±  5%       ~ (p=0.589 n=6)    2.428m ±  4%         ~ (p=0.699 n=6)
+_DB_GetRootEventsWithTitle/GetRootEventsWithTitle-8                                     12.26µ ±  3%   12.18µ ±  5%       ~ (p=0.818 n=6)   12.26µ ±  4%       ~ (p=0.937 n=6)    13.38µ ±  2%    +9.13% (p=0.002 n=6)
+_DB_CreateRootEvent/CreateRootEvent-8                                                   131.0µ ±  4%   130.7µ ±  3%       ~ (p=0.485 n=6)   130.9µ ± 10%       ~ (p=0.937 n=6)    241.3µ ±  4%   +84.19% (p=0.002 n=6)
+_DB_CreateNewEvent/CreateNewEvent-8                                                     50.87µ ± 16%   50.14µ ± 17%       ~ (p=0.589 n=6)   49.52µ ± 18%       ~ (p=0.937 n=6)    85.56µ ±  4%   +68.21% (p=0.002 n=6)
+_DB_fastMeta/CreateNewEvent_with_FastMeta-8                                                                                                                                       88.08µ ±  5%
+_DB_fastMeta/GetEvent_with_FastMeta-8                                                                                                                                             6.377µ ±  2%
+_Index_GetParentHashOfEvent/GetParentHashOfEvent-8                                                                                                                                135.2n ±  4%
+_Index_RebuildIFastMeta/RebuildFastMeta-8                                                                                                                                         1.108m ±  8%
+_Index_GetEventHashesByFastMetaParameter/GetEventHashesByFastMetaParameter-8                                                                                                      71.30n ±  1%
+_Index_GetEventsByFastMeta/GetEventsByFastMeta-8                                                                                                                                  3.928m ±  1%
+geomean                                                                                 110.4µ         110.1µ        -0.34%                 109.4µ        -0.95%                  75.34µ         +35.87%
 
 ```
 
