@@ -15,17 +15,16 @@ func (i *Index) RebuildChildrenToParents(allEvents []types.Event) error {
 	return nil
 }
 
-func (i *Index) GetParentHashOfEvent(eventHash types.Hash) (types.Hash, bool) {
+func (i *Index) GetParentHashOfEvent(eventHash types.Hash) types.Hash {
 	i.evChildToParentLock.RLock()
 	defer i.evChildToParentLock.RUnlock()
-	parentHash, exists := i.evChildToParent[eventHash]
-	return parentHash, exists
+	return i.evChildToParent[eventHash]
 }
 
 func (i *Index) GetDirectParentOfEvent(eventHash types.Hash) (*types.Event, error) {
-	parentHash, exists := i.GetParentHashOfEvent(eventHash)
-	if !exists {
-		return nil, nil // No parent found
+	parentHash := i.GetParentHashOfEvent(eventHash)
+	if parentHash == (types.Hash{}) {
+		return nil, nil
 	}
 
 	parentEvent, err := i.s.GetEvent(parentHash)

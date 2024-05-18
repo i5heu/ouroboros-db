@@ -155,6 +155,53 @@ func Test_Index_RebuildIndex(t *testing.T) {
 	}
 }
 
+func Test_Index_GetDirectParentOfEvent(t *testing.T) {
+	ou, evs := setupDBWithData(t, setupDBConfig{
+		totalEvents:     1000,
+		returnAllEvents: true,
+		eventLevels:     5,
+	})
+
+	var parentCount int
+
+	for _, evHash := range evs {
+		parent, err := ou.Index.GetDirectParentOfEvent(evHash)
+		if err != nil {
+			t.Errorf("GetDirectParentOfEvent failed with error: %v", err)
+		}
+		if parent == nil {
+			continue
+		}
+		parentCount++
+	}
+
+	if parentCount == 0 {
+		t.Errorf("GetDirectParentOfEvent failed, expected non-zero count, got %d", parentCount)
+	}
+}
+
+func Test_Index_GetParentHashOfEvent(t *testing.T) {
+	ou, evs := setupDBWithData(t, setupDBConfig{
+		totalEvents:     1000,
+		returnAllEvents: true,
+		eventLevels:     5,
+	})
+
+	var childrenCount int
+
+	for _, evHash := range evs {
+		parent := ou.Index.GetParentHashOfEvent(evHash)
+		if parent == [64]byte{} {
+			continue
+		}
+		childrenCount++
+	}
+
+	if childrenCount == 0 {
+		t.Errorf("GetChildrenHashesOfEvent failed, expected non-zero count, got %d", childrenCount)
+	}
+}
+
 func Test_Index_GetDirectChildrenOfEvent(t *testing.T) {
 	ou, evs := setupDBWithData(t, setupDBConfig{
 		totalEvents:     100,
@@ -426,6 +473,42 @@ func Test_DB_CreateNewEvent(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("CreateNewEvent failed with error: %v", err)
+	}
+}
+
+func Test_DB_fastMeta(t *testing.T) {
+	ou, evs := setupDBWithData(t, setupDBConfig{
+		totalEvents: 1,
+	})
+
+	rootEv := evs[0]
+
+	fm := types.FastMeta{
+		types.FastMetaParameter([]byte("test1")),
+		types.FastMetaParameter([]byte("test2")),
+		types.FastMetaParameter([]byte("test3")),
+		types.FastMetaParameter([]byte("test4")),
+		types.FastMetaParameter([]byte("test5")),
+		types.FastMetaParameter([]byte("test6")),
+	}
+
+	ev, err := ou.DB.CreateNewEvent(storage.EventOptions{
+		ParentEvent: rootEv,
+		FastMeta:    fm,
+	})
+	if err != nil {
+		t.Errorf("CreateNewEvent failed with error: %v", err)
+	}
+
+	evGet, err := ou.DB.GetEvent(ev.EventIdentifier.EventHash)
+	if err != nil {
+		t.Errorf("GetEvent failed with error: %v", err)
+	}
+
+	for i, param := range evGet.FastMeta {
+		if string(param) != string(fm[i]) {
+			t.Errorf("FastMeta failed, expected %s, got %s", fm[i], param)
+		}
 	}
 }
 
@@ -728,6 +811,72 @@ func Benchmark_DB_CreateNewEvent(b *testing.B) {
 			if err != nil {
 				b.Errorf("CreateNewEvent failed with error: %v", err)
 			}
+		}
+	})
+}
+
+func Benchmark_DB_fastMeta(b *testing.B) {
+	ou, evs := setupDBWithData(b, setupDBConfig{
+		totalEvents: 1,
+	})
+
+	rootEv := evs[0]
+
+	fm := types.FastMeta{
+		types.FastMetaParameter([]byte("test1")),
+		types.FastMetaParameter([]byte("test2")),
+		types.FastMetaParameter([]byte("test3")),
+		types.FastMetaParameter([]byte("test4")),
+		types.FastMetaParameter([]byte("test5")),
+		types.FastMetaParameter([]byte("test6")),
+	}
+
+	b.Run("CreateNewEvent with FastMeta", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, err := ou.DB.CreateNewEvent(storage.EventOptions{
+				ParentEvent: rootEv,
+				FastMeta:    fm,
+			})
+			if err != nil {
+				b.Errorf("CreateNewEvent failed with error: %v", err)
+			}
+		}
+	})
+
+	ev, err := ou.DB.CreateNewEvent(storage.EventOptions{
+		ParentEvent: rootEv,
+		FastMeta:    fm,
+	})
+	if err != nil {
+		b.Errorf("CreateNewEvent failed with error: %v", err)
+	}
+
+	b.Run("GetEvent with FastMeta", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			evGet, err := ou.DB.GetEvent(ev.EventIdentifier.EventHash)
+			if err != nil {
+				b.Errorf("GetEvent failed with error: %v", err)
+			}
+			for i, param := range evGet.FastMeta {
+				if string(param) != string(fm[i]) {
+					b.Errorf("FastMeta failed, expected %s, got %s", fm[i], param)
+				}
+			}
+		}
+	})
+}
+
+func Benchmark_Index_GetParentHashOfEvent(b *testing.B) {
+	ou, evs := setupDBWithData(b, setupDBConfig{
+		totalEvents:     1000,
+		returnAllEvents: true,
+		eventLevels:     5,
+	})
+
+	b.Run("GetParentHashOfEvent", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			evHash := evs[rand.Intn(len(evs))]
+			_ = ou.Index.GetParentHashOfEvent(evHash)
 		}
 	})
 }

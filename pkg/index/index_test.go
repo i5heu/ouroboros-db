@@ -110,8 +110,7 @@ func TestIndex_GetParentHashOfEvent(t *testing.T) {
 	childHash := types.Hash{2}
 	index.evChildToParent[childHash] = parentHash
 
-	retrievedParentHash, exists := index.GetParentHashOfEvent(childHash)
-	assert.True(t, exists)
+	retrievedParentHash := index.GetParentHashOfEvent(childHash)
 	assert.Equal(t, parentHash, retrievedParentHash)
 }
 
