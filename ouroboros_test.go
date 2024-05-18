@@ -20,6 +20,7 @@ type setupDBConfig struct {
 	notBuildIndex        bool
 	generateWithFiles    bool
 	generateWithMetaData bool
+	add5FastMeta         bool
 }
 
 func randomString(n int) string {
@@ -29,6 +30,20 @@ func randomString(n int) string {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
+}
+
+func generateFastMeta(add5FastMeta bool) types.FastMeta {
+	if !add5FastMeta {
+		return nil
+	}
+
+	return types.FastMeta{
+		types.FastMetaParameter([]byte(randomString(100))),
+		types.FastMetaParameter([]byte(randomString(100))),
+		types.FastMetaParameter([]byte(randomString(100))),
+		types.FastMetaParameter([]byte(randomString(100))),
+		types.FastMetaParameter([]byte(randomString(100))),
+	}
 }
 
 func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosDB, backEventHashes []types.Hash) {
@@ -81,6 +96,7 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 				if conf.generateWithFiles || conf.generateWithMetaData {
 					ev, err := ou.DB.StoreFile(storage.StoreFileOptions{
 						EventToAppendTo: parent,
+						FastMeta:        generateFastMeta(conf.add5FastMeta),
 						Metadata:        []byte(randomString(100)),
 						File:            []byte(randomString(100)),
 					})
@@ -92,6 +108,7 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 				} else {
 					ev, err := ou.DB.CreateNewEvent(storage.EventOptions{
 						ParentEvent: parent.EventIdentifier.EventHash,
+						FastMeta:    generateFastMeta(conf.add5FastMeta),
 					})
 					if err != nil {
 						t.Errorf("CreateNewEvent failed with error: %v", err)
@@ -512,6 +529,88 @@ func Test_DB_fastMeta(t *testing.T) {
 	}
 }
 
+func Test_Index_RebuildIFastMeta(t *testing.T) {
+	ou, evhs := setupDBWithData(t, setupDBConfig{
+		totalEvents:   10000,
+		notBuildIndex: true,
+	})
+
+	evs, err := ou.DB.GetAllEvents()
+	if err != nil {
+		t.Errorf("GetAllEvents failed with error: %v", err)
+	}
+
+	// Rebuild the index
+	indexedRows, err := ou.Index.RebuildFastMeta(evs)
+	if err != nil {
+		t.Errorf("RebuildFastMeta failed with error: %v", err)
+	}
+
+	if indexedRows > uint64(len(evhs)) {
+		t.Errorf("RebuildFastMeta failed, expected %d, got %d", len(evs), indexedRows)
+	}
+}
+
+func Test_Index_GetEventHashesByFastMetaParameter(t *testing.T) {
+	ou, evhs := setupDBWithData(t, setupDBConfig{
+		totalEvents: 1,
+	})
+
+	rootEvHash := evhs[0]
+
+	savedEvHashWithFastMeta := make(map[types.Hash]types.FastMeta)
+
+	// create 20 events with 5 fast meta parameters
+	for i := 0; i < 20; i++ {
+
+		fm := types.FastMeta{
+			types.FastMetaParameter([]byte([]byte("test1"))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test2:%d", i))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test3:%d", i))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test4:%d", i))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test5:%d", i))),
+		}
+
+		insertEv, err := ou.DB.CreateNewEvent(storage.EventOptions{
+			ParentEvent: rootEvHash,
+			FastMeta:    fm,
+		})
+		if err != nil {
+			t.Errorf("CreateNewEvent failed with error: %v", err)
+		}
+
+		savedEvHashWithFastMeta[insertEv.EventHash] = fm
+	}
+
+	// Rebuild the index
+	resultEv, err := ou.DB.GetAllEvents()
+	if err != nil {
+		t.Errorf("GetAllEvents failed with error: %v", err)
+	}
+	_, err = ou.Index.RebuildFastMeta(resultEv)
+	if err != nil {
+		t.Errorf("RebuildFastMeta failed with error: %v", err)
+	}
+
+	// get all events with the first fast meta parameter
+	result := ou.Index.GetEventHashesByFastMetaParameter(types.FastMetaParameter([]byte([]byte("test1"))))
+	if len(result) == 0 {
+		t.Errorf("GetEventHashesByFastMetaParameter failed, expected non-zero count, got %d", len(result))
+	}
+
+	for _, evHash := range result {
+		fm, ok := savedEvHashWithFastMeta[evHash]
+		if !ok {
+			t.Errorf("GetEventHashesByFastMetaParameter failed, expected to find the event")
+		}
+
+		if string(fm[0]) != "test1" {
+			t.Errorf("GetEventHashesByFastMetaParameter failed, expected %s, got %s", "test1", fm[0])
+		}
+	}
+
+}
+
 func Example() {
 	// Initialize OuroborosDB with basic configuration
 	ou, err := ouroboros.NewOuroborosDB(ouroboros.Config{
@@ -877,6 +976,78 @@ func Benchmark_Index_GetParentHashOfEvent(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			evHash := evs[rand.Intn(len(evs))]
 			_ = ou.Index.GetParentHashOfEvent(evHash)
+		}
+	})
+}
+
+func Benchmark_Index_RebuildIFastMeta(b *testing.B) {
+	ou, _ := setupDBWithData(b, setupDBConfig{
+		totalEvents:   10000,
+		notBuildIndex: true,
+	})
+
+	evs, err := ou.DB.GetAllEvents()
+	if err != nil {
+		b.Fatalf("GetAllEvents failed with error: %v", err)
+	}
+
+	b.ResetTimer()
+	b.Run("RebuildFastMeta", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, err := ou.Index.RebuildFastMeta(evs)
+			if err != nil {
+				b.Errorf("RebuildFastMeta failed with error: %v", err)
+			}
+		}
+	})
+}
+
+func Benchmark_Index_GetEventHashesByFastMetaParameter(b *testing.B) {
+	ou, evhs := setupDBWithData(b, setupDBConfig{
+		totalEvents: 1,
+	})
+
+	rootEvHash := evhs[0]
+
+	savedEvHashWithFastMeta := make(map[types.Hash]types.FastMeta)
+
+	for i := 0; i < 1000; i++ {
+		fm := types.FastMeta{
+			types.FastMetaParameter([]byte("test1")),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test2:%d", i))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test3:%d", i))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test4:%d", i))),
+			types.FastMetaParameter([]byte(fmt.Sprintf("test5:%d", i))),
+		}
+
+		insertEv, err := ou.DB.CreateNewEvent(storage.EventOptions{
+			ParentEvent: rootEvHash,
+			FastMeta:    fm,
+		})
+		if err != nil {
+			b.Fatalf("CreateNewEvent failed with error: %v", err)
+		}
+
+		savedEvHashWithFastMeta[insertEv.EventHash] = fm
+	}
+
+	// Rebuild the index
+	resultEv, err := ou.DB.GetAllEvents()
+	if err != nil {
+		b.Fatalf("GetAllEvents failed with error: %v", err)
+	}
+	_, err = ou.Index.RebuildFastMeta(resultEv)
+	if err != nil {
+		b.Fatalf("RebuildFastMeta failed with error: %v", err)
+	}
+
+	b.ResetTimer()
+	b.Run("GetEventHashesByFastMetaParameter", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			result := ou.Index.GetEventHashesByFastMetaParameter(types.FastMetaParameter([]byte("test1")))
+			if len(result) == 0 {
+				b.Errorf("GetEventHashesByFastMetaParameter failed, expected non-zero count, got %d", len(result))
+			}
 		}
 	})
 }

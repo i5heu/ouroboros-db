@@ -1,6 +1,7 @@
 package index
 
 import (
+	"crypto/sha512"
 	"testing"
 
 	"github.com/i5heu/ouroboros-db/pkg/mocks"
@@ -129,4 +130,41 @@ func TestIndex_GetDirectParentOfEvent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, &parentEvent, retrievedParentEvent)
 	mockStorageService.AssertExpectations(t)
+}
+
+func TestIndex_GetEventsByFastMeta(t *testing.T) {
+	mockStorageService := new(mocks.StorageService)
+	in := NewIndex(mockStorageService)
+
+	eventHash1 := types.Hash(sha512.New().Sum([]byte("Test1")))
+	eventHash2 := types.Hash(sha512.New().Sum([]byte("Test2")))
+	eventHash3 := types.Hash(sha512.New().Sum([]byte("Test3")))
+	eventHash4 := types.Hash(sha512.New().Sum([]byte("Test4")))
+
+	in.fastMetaToEvent = map[string][]types.Hash{
+		types.FastMetaParameter([]byte("test2")).String(): {eventHash2, eventHash3, eventHash1},
+		types.FastMetaParameter([]byte("test3")).String(): {eventHash2, eventHash3, eventHash4},
+	}
+
+	returnedEvents := []types.Event{
+		{EventIdentifier: types.EventIdentifier{EventHash: eventHash2}},
+		{EventIdentifier: types.EventIdentifier{EventHash: eventHash3}},
+	}
+
+	mockStorageService.On("GetEvent", eventHash2).Return(returnedEvents[0], nil).Once()
+	mockStorageService.On("GetEvent", eventHash3).Return(returnedEvents[1], nil).Once()
+
+	fm := types.FastMeta{
+		types.FastMetaParameter([]byte("test2")),
+		types.FastMetaParameter([]byte("test3")),
+	}
+	retrievedEvents, err := in.GetEventsByFastMeta(fm)
+	assert.NoError(t, err)
+	if len(retrievedEvents) != len(returnedEvents) {
+		t.Errorf("Expected %d events, got %d", len(returnedEvents), len(retrievedEvents))
+	}
+
+	for i, event := range retrievedEvents {
+		assert.Equal(t, returnedEvents[i], event)
+	}
 }

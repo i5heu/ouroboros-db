@@ -13,6 +13,8 @@ type Index struct {
 	evParentToChildLock sync.RWMutex
 	evChildToParent     map[types.Hash]types.Hash
 	evChildToParentLock sync.RWMutex
+	fastMetaToEvent     map[string][]types.Hash
+	fastMetaToEventLock sync.RWMutex
 }
 
 func NewIndex(ss storage.StorageService) *Index {
@@ -20,6 +22,7 @@ func NewIndex(ss storage.StorageService) *Index {
 		s:               ss,
 		evParentToChild: make(map[types.Hash][]types.Hash),
 		evChildToParent: make(map[types.Hash]types.Hash),
+		fastMetaToEvent: make(map[string][]types.Hash),
 	}
 }
 

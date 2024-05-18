@@ -129,6 +129,11 @@ func (l *Level) SetToNow() {
 
 // FastMetaParameter is a single parameter of FastMeta
 type FastMetaParameter []byte
+
+func (f FastMetaParameter) String() string {
+	return hex.EncodeToString(f)
+}
+
 type FastMetaBytesSerialized []byte
 
 // The maximum size of the FastMeta is 128kb
