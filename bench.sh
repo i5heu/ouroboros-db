@@ -15,7 +15,7 @@ for version in "${versions[@]}"; do
     if [ -f ./ouroboros_test.go ]; then
         test_cmd="go test -run='^$' -bench=. -count=6"
     else
-        test_cmd="go test ./test -run='^$' -bench=. -count=6"
+        test_cmd="go test -run='^$' -bench=. ./tests -count=6"
     fi
 
     echo "Running benchmarks for version: $version"
