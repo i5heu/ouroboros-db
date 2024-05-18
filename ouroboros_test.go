@@ -524,12 +524,10 @@ func Benchmark_Index_GetDirectChildrenOfEvent(b *testing.B) {
 
 	b.Run("GetChildrenOfEvent", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ev, err := ou.Index.GetDirectChildrenOfEvent(evs[rand.Intn(len(evs))])
+			_, err := ou.Index.GetDirectChildrenOfEvent(evs[rand.Intn(len(evs))])
 			if err != nil {
 				b.Errorf("RebuildIndex failed with error: %v", err)
 			}
-
-			fmt.Println(len(ev))
 		}
 	})
 }
