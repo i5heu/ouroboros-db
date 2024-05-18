@@ -11,8 +11,12 @@ func (sc *StoreConfig) checkConfig() error {
 		return errors.New("no path provided in configuration")
 	}
 
-	if sc.Paths[0] == "ExamplePath" {
-		return nil
+	// create the directory if it does not exist
+	if _, err := os.Stat(sc.Paths[0]); os.IsNotExist(err) {
+		err := os.MkdirAll(sc.Paths[0], 0755)
+		if err != nil {
+			return errors.New("could not create directory")
+		}
 	}
 
 	path := sc.Paths[0] // Currently only the first path is utilized
