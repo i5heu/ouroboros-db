@@ -20,6 +20,9 @@ for version in "${versions[@]}"; do
 
     echo "Running benchmarks for version: $version"
     eval "$test_cmd" > "benchmarks/${version}.txt"
+
+    # Replace the third line of the benchmark file
+    sed -i '3s/.*/pkg: github.com\/i5heu\/ouroboros-db/' "benchmarks/${version}.txt"
 done
 
 # Checkout the main branch again
