@@ -14,22 +14,19 @@ type funcResult struct {
 func main() {
 	work := []int{}
 
-	for i := 0; i < 50000; i++ {
+	for i := 0; i < 1000; i++ {
 		work = append(work, i)
 	}
 
 	wp := workerpool.NewWorkerPool(workerpool.Config{GlobalBuffer: 1000})
-	room := wp.CreateRoom(1000)
+	room := wp.CreateRoom(1)
 
 	room.AsyncCollector()
 
 	for _, w := range work {
 		task := w
 		room.NewTaskWaitForFreeSlot(func() interface{} {
-			return funcResult{
-				bob: task * task,
-				err: fmt.Errorf("Hello World"),
-			}
+			return task
 		})
 	}
 
@@ -38,10 +35,5 @@ func main() {
 		fmt.Println(err)
 	}
 
-	field, ok := result[500].(funcResult)
-	if !ok {
-		fmt.Println("not ok")
-	}
-
-	fmt.Println(len(result), field.err.Error())
+	fmt.Println(result, len(result))
 }
