@@ -38,7 +38,7 @@ A embedded database built around the concept of event trees, emphasizing data de
     - [Benchmark Versions](#benchmark-versions)
   - [OuroborosDB Performance Version Differences](#ouroborosdb-performance-version-differences)
   - [OuroborosDB Performance Changelog](#ouroborosdb-performance-changelog)
-  - [Current Features](#current-features)
+  - [1.0.0 Features](#100-features)
   - [Future Features](#future-features)
   - [Current Problems and things to research:](#current-problems-and-things-to-research)
   - [Name and Logo](#name-and-logo)
@@ -228,14 +228,34 @@ geomean                                                                         
 - **v0.0.2** - Create tests and benchmarks
 
 
-## Current Features
+## 1.0.0 Features
+🚧 = currently in development
+
 - [x] Data Deduplication
 - [x] Basic Data Store and Retrieval
-- [ ] Data Integrity Checks
 - [x] Child to Parent Index
+- [ ] Data Basics
+  - [ ] 🚧 Data Compression 
+    - [ ] xz
+    - [ ] zstd 
+  - [ ] Erasure coding
+  - [ ] Encryption
+  - [ ] Data Integrity Checks
+- [ ] Distributed System
+  - [ ] 🚧 Bootstrap System
+  - [ ] Authentication
+  - [ ] Message Distribution
+    - [ ] Broadcast
+    - [ ] Unicast
+  - [ ] Data Replication
+    - [ ] DHT for Sharding? - maybe full HT is enough
+    - [ ] Data Collection
+      - [ ] Find and Collect Data in Network
+      - [ ] Allow other nodes that are faster to collect data and send it to the slower with 
 
 ## Future Features
-- [ ] Full Text Search
+- [ ] Full Text Search - blevesearch/bleve
+  - [ ] Semantic Search with API requests for Embeddings
 - [ ] Is the deletion of not Temporary Events a good idea?
   - Maybe if only some superUser can delete them with a key or something. 
 - [ ] It would be nice to have pipelines that can run custom JS or webassembly to do arbitrary things.   
