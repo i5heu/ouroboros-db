@@ -235,9 +235,7 @@ geomean                                                                         
 - [x] Basic Data Store and Retrieval
 - [x] Child to Parent Index
 - [ ] Data Basics
-  - [ ] 🚧 Data Compression 
-    - [ ] xz
-    - [ ] zstd 
+  - [ ] 🚧 Data Compression with LZMA
   - [ ] Erasure coding
   - [ ] Encryption
   - [ ] Data Integrity Checks
@@ -251,7 +249,7 @@ geomean                                                                         
     - [ ] DHT for Sharding? - maybe full HT is enough
     - [ ] Data Collection
       - [ ] Find and Collect Data in Network
-      - [ ] Allow other nodes that are faster to collect data and send it to the slower with 
+      - [ ] Allow other nodes that are faster to collect data and send it to the slower with zstd
 
 ## Future Features
 - [ ] Full Text Search - blevesearch/bleve

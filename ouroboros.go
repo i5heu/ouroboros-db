@@ -25,6 +25,7 @@ import (
 	"github.com/i5heu/ouroboros-db/internal/keyValStore"
 	"github.com/i5heu/ouroboros-db/pkg/index"
 	"github.com/i5heu/ouroboros-db/pkg/storage"
+	"github.com/i5heu/ouroboros-db/pkg/workerPool"
 
 	"github.com/sirupsen/logrus"
 
@@ -38,6 +39,7 @@ type OuroborosDB struct {
 	Index  *index.Index
 	log    *logrus.Logger
 	config Config
+	wp     *workerPool.WorkerPool
 }
 
 type Config struct {
@@ -94,6 +96,7 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		Index:  index,
 		config: conf,
 		log:    conf.Logger,
+		wp:     workerPool.NewWorkerPool(workerPool.Config{}),
 	}
 
 	go ou.createGarbageCollection()

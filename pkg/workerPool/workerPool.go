@@ -143,7 +143,6 @@ func (ro *Room) AsyncCollector() {
 func (ro *Room) GetAsyncResults() ([]interface{}, error) {
 	go ro.WaitAndClose()
 	ro.asyncCollectorWait.Wait()
-
 	ro.resultMutex.Lock()
 	defer ro.resultMutex.Unlock()
 

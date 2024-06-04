@@ -6,12 +6,13 @@ import (
 	"sync"
 
 	"github.com/i5heu/ouroboros-db/internal/keyValStore"
-	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
 	"github.com/i5heu/ouroboros-db/pkg/types"
+	"github.com/i5heu/ouroboros-db/pkg/workerPool"
 )
 
 type Storage struct {
 	kv *keyValStore.KeyValStore
+	wp *workerPool.WorkerPool
 }
 
 type StoreFileOptions struct {
@@ -21,6 +22,7 @@ type StoreFileOptions struct {
 	File            []byte
 	Temporary       types.Binary
 	FullTextSearch  types.Binary
+	WorkerPool      *workerPool.WorkerPool
 }
 
 func NewStorage(kv *keyValStore.KeyValStore) StorageService {
@@ -158,7 +160,7 @@ func (s *Storage) storeDataInChunkStore(data []byte) (types.ChunkMetaCollection,
 		return nil, fmt.Errorf("Error storing data: Data is empty")
 	}
 
-	chunks, _, err := buzhashChunker.ChunkBytes(data)
+	chunks, _, err := s.StoreDataPipeline(data)
 	if err != nil {
 		log.Fatalf("Error chunking data: %v", err)
 		return nil, err
