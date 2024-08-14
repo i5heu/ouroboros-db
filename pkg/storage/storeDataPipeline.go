@@ -2,7 +2,10 @@ package storage
 
 import (
 	"bytes"
+	"fmt"
 
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
 	"crypto/sha512"
 
@@ -48,6 +51,76 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 			cipherdata := aead.Seal(nil, nonce, []byte(compressedChunk), nil)
 
 			aead.Open(nil, nonce, cipherdata, nil)
+
+			// erasure code
+			// todo
+
+			return ChunkData{
+				Hash: types.Hash(hashOfChunk[:]),
+				Data: cipherdata,
+			}
+		})
+	}
+
+	chunkData, err := room.GetAsyncResults()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var chunkResult []ChunkData
+
+	for _, cd := range chunkData {
+		chunkResult = append(chunkResult, cd.(ChunkData))
+	}
+
+	chunkMetas := make(types.ChunkMetaCollection, len(chunkData))
+	chunks := make(types.ChunkCollection, len(chunkData))
+	return chunks, chunkMetas, nil
+}
+
+func (s *Storage) StoreDataPipelineAES(data []byte) (types.ChunkCollection, types.ChunkMetaCollection, error) {
+	room := s.wp.CreateRoom(100)
+	room.AsyncCollector()
+
+	pass := "HelloWorld"
+
+	key := sha256.Sum256([]byte(pass))
+	c, err := aes.NewCipher(key[:32])
+	// if there are any errors, handle them
+	if err != nil {
+		return nil, nil, err
+	}
+
+	gcm, err := cipher.NewGCM(c)
+	// if any error generating new GCM
+	// handle them
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	chunkResults, _ := buzhashChunker.ChunkBytes(data)
+
+	for chunkTmp := range chunkResults {
+		chunk := chunkTmp
+		room.NewTaskWaitForFreeSlot(func() interface{} {
+			// sha512
+			hashOfChunk := sha512.Sum512(chunk.Data)
+
+			// compress use xz
+			compressedChunk, err := compressWithLzma(chunk.Data)
+			if err != nil {
+				return err
+			}
+
+			// encrypt
+			nonce := make([]byte, gcm.NonceSize())
+			cipherdata := gcm.Seal(nil, nonce, []byte(compressedChunk), nil)
+
+			// decrypt
+			_, err = gcm.Open(nil, nonce, cipherdata, nil)
+			if err != nil {
+				return err
+			}
 
 			// erasure code
 			// todo
