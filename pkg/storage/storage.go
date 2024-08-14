@@ -55,7 +55,7 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 	errorChan := make(chan error, 2) // buffer for two possible errors
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 
 	// Store file data in chunk store asynchronously
 	go func() {
@@ -68,16 +68,19 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 		fileChunkKeysChan <- keys
 	}()
 
-	// Store metadata in chunk store asynchronously
-	go func() {
-		defer wg.Done()
-		keys, err := s.storeDataInChunkStore(options.Metadata)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		metadataChunkKeysChan <- keys
-	}()
+	if options.Metadata != nil {
+		wg.Add(1)
+		// Store metadata in chunk store asynchronously
+		go func() {
+			defer wg.Done()
+			keys, err := s.storeDataInChunkStore(options.Metadata)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+			metadataChunkKeysChan <- keys
+		}()
+	}
 
 	// Wait for both goroutines to complete
 	wg.Wait()
