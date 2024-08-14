@@ -5,7 +5,6 @@ import (
 
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/sha256"
 	"crypto/sha512"
 
 	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
@@ -22,9 +21,7 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 	room := s.wp.CreateRoom(100)
 	room.AsyncCollector()
 
-	pass := "HelloWorld"
-	key := sha256.Sum256([]byte(pass))
-	c, err := aes.NewCipher(key[:32])
+	c, err := aes.NewCipher(s.dataEncryptionKey[:])
 	if err != nil {
 		return nil, nil, err
 	}

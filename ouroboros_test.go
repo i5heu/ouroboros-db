@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/i5heu/ouroboros-db"
 	"github.com/i5heu/ouroboros-db/pkg/storage"
 	"github.com/i5heu/ouroboros-db/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 type setupDBConfig struct {
@@ -54,10 +56,14 @@ func setupDBWithData(t testing.TB, conf setupDBConfig) (ou *ouroboros.OuroborosD
 		conf.eventLevels = 3
 	}
 
+	logger := logrus.New()
+	logger.SetOutput(os.Stdout)
+
 	ou, err := ouroboros.NewOuroborosDB(ouroboros.Config{
 		Paths:                     []string{t.TempDir(), t.TempDir()},
 		MinimumFreeGB:             1,
 		GarbageCollectionInterval: 10,
+		Logger:                    logger,
 	})
 	if err != nil {
 		t.Errorf("NewOuroborosDB failed with error: %v", err)

@@ -3,7 +3,6 @@ package storage
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/sha256"
 	"fmt"
 	"log"
 	"sync"
@@ -14,8 +13,9 @@ import (
 )
 
 type Storage struct {
-	kv *keyValStore.KeyValStore
-	wp *workerPool.WorkerPool
+	dataEncryptionKey [32]byte
+	kv                *keyValStore.KeyValStore
+	wp                *workerPool.WorkerPool
 }
 
 type StoreFileOptions struct {
@@ -28,10 +28,11 @@ type StoreFileOptions struct {
 	WorkerPool      *workerPool.WorkerPool
 }
 
-func NewStorage(kv *keyValStore.KeyValStore, wp *workerPool.WorkerPool) StorageService {
+func NewStorage(kv *keyValStore.KeyValStore, wp *workerPool.WorkerPool, dataEncryptionKey [32]byte) StorageService {
 	return &Storage{
-		kv: kv,
-		wp: wp,
+		kv:                kv,
+		wp:                wp,
+		dataEncryptionKey: dataEncryptionKey,
 	}
 }
 
@@ -151,9 +152,7 @@ func (s *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
 func (s *Storage) getData(chunkCollection types.ChunkMetaCollection) ([]byte, error) {
 	data := []byte{}
 
-	pass := "HelloWorld"
-	key := sha256.Sum256([]byte(pass))
-	c, err := aes.NewCipher(key[:32])
+	c, err := aes.NewCipher(s.dataEncryptionKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("Error creating cipher: %v", err)
 	}
