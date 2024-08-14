@@ -2,14 +2,14 @@ package storage
 
 import (
 	"bytes"
-	"crypto/sha512"
-	"encoding/hex"
-	"fmt"
 
-	"github.com/cloudflare/circl/pke/kyber/kyber1024"
+	"crypto/sha256"
+	"crypto/sha512"
+
 	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
 	"github.com/i5heu/ouroboros-db/pkg/types"
 	"github.com/ulikunitz/xz/lzma"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 type ChunkData struct {
@@ -21,18 +21,19 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 	room := s.wp.CreateRoom(100)
 	room.AsyncCollector()
 
-	pub, _, err := kyber1024.GenerateKey(nil)
+	pass := "HelloWorld"
+
+	key := sha256.Sum256([]byte(pass))
+	aead, err := chacha20poly1305.NewX(key[:32])
 	if err != nil {
 		return nil, nil, err
 	}
 
 	chunkResults, _ := buzhashChunker.ChunkBytes(data)
 
-	fmt.Println("start 1")
 	for chunkTmp := range chunkResults {
 		chunk := chunkTmp
 		room.NewTaskWaitForFreeSlot(func() interface{} {
-			fmt.Println("start 2")
 			// sha512
 			hashOfChunk := sha512.Sum512(chunk.Data)
 
@@ -43,20 +44,20 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 			}
 
 			// encrypt
-			var encryptedChunk []byte
-			pub.EncryptTo(encryptedChunk, compressedChunk, nil)
+			nonce := make([]byte, chacha20poly1305.NonceSizeX)
+			cipherdata := aead.Seal(nil, nonce, []byte(compressedChunk), nil)
+
+			aead.Open(nil, nonce, cipherdata, nil)
 
 			// erasure code
-			fmt.Println("start 3")
+			// todo
 
 			return ChunkData{
 				Hash: types.Hash(hashOfChunk[:]),
-				Data: compressedChunk,
+				Data: cipherdata,
 			}
 		})
 	}
-
-	fmt.Println("start 4")
 
 	chunkData, err := room.GetAsyncResults()
 	if err != nil {
@@ -68,10 +69,6 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 	for _, cd := range chunkData {
 		chunkResult = append(chunkResult, cd.(ChunkData))
 	}
-
-	fmt.Println("start 5")
-
-	fmt.Println(hex.EncodeToString(chunkResult[0].Data))
 
 	chunkMetas := make(types.ChunkMetaCollection, len(chunkData))
 	chunks := make(types.ChunkCollection, len(chunkData))

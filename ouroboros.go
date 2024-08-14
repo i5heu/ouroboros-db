@@ -88,7 +88,8 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		return nil, fmt.Errorf("error creating KeyValStore: %w", err)
 	}
 
-	ss := storage.NewStorage(kvStore)
+	wp := workerPool.NewWorkerPool(workerPool.Config{})
+	ss := storage.NewStorage(kvStore, wp)
 	index := index.NewIndex(ss)
 
 	ou := &OuroborosDB{
@@ -96,7 +97,7 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		Index:  index,
 		config: conf,
 		log:    conf.Logger,
-		wp:     workerPool.NewWorkerPool(workerPool.Config{}),
+		wp:     wp,
 	}
 
 	go ou.createGarbageCollection()

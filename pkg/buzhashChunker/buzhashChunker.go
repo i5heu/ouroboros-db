@@ -18,6 +18,8 @@ func ChunkBytes(data []byte) (chan ChunkInformation, chan error) {
 	return ChunkReader(reader)
 }
 
+// ChunkReader will chunk the data from the reader and return the chunks through a channel
+// The chunk size is minimum/maximum = 128K/512K
 func ChunkReader(reader io.Reader) (chan ChunkInformation, chan error) {
 	resultChan := make(chan ChunkInformation, 20)
 	errorChan := make(chan error)

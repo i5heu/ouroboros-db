@@ -14,6 +14,11 @@ const (
 )
 
 func (s *Storage) CreateRootEvent(title string) (types.Event, error) {
+	if s.wp == nil {
+		log.Fatalf("Error creating new root event: WorkerPool not initialized")
+		return types.Event{}, fmt.Errorf("Error creating new root event: WorkerPool not initialized")
+	}
+
 	// Create a new Event
 	item := types.Event{
 		EventIdentifier: types.EventIdentifier{

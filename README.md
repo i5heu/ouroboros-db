@@ -41,6 +41,7 @@ A embedded database built around the concept of event trees, emphasizing data de
   - [1.0.0 Features](#100-features)
   - [Future Features](#future-features)
   - [Current Problems and things to research:](#current-problems-and-things-to-research)
+  - [DB performance aims](#db-performance-aims)
   - [Name and Logo](#name-and-logo)
   - [License](#license)
 
@@ -276,6 +277,13 @@ geomean                                                                         
     - is it a new file that replaces the old one?
     - we already have the chunk system in place. But this seams to not be suitable for text files - so we would need a text based delta event?
 
+
+## DB performance aims
+| ID                            | Environment                                                                    | Requirements                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| #TARGET_Store-100TB           | simulated for each component (real tests cost a lot of money)                  | 🔜 Store 100TB of row data (400M Chunks)<br> 🔜 having retrieval times of random single chunks and events of under 10ms |
+| #TARGET_Retrieval-1GB-16s     | 10 nodes globally distributed with test chunks spread globally                 | 🔜 Retrieve 1GB of data in less than 16 seconds (This is a full 0.5GB/s retrieval speed of 40'000 250KB chunks)        |
+| #TARGET_SplitBrain-Resilience | 3 partitions, 3 nodes each, 100GB new raw data per partition and 1M new events | 🔜 Recover from a network partition in under 300 seconds                                                               |
 
 ## Name and Logo
 

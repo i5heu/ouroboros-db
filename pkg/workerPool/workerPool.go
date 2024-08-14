@@ -66,7 +66,13 @@ func NewWorkerPool(config Config) *WorkerPool {
 }
 
 func (wp *WorkerPool) Worker() {
-	for t := range wp.taskQueue {
+	for {
+		t, ok := <-wp.taskQueue
+		if !ok {
+			fmt.Println("Channel closed, worker shutting down")
+			return
+		}
+
 		t.room.resultChan <- TaskResult{
 			taskNumber: t.taskNumber,
 			result:     t.run(),

@@ -25,9 +25,10 @@ type StoreFileOptions struct {
 	WorkerPool      *workerPool.WorkerPool
 }
 
-func NewStorage(kv *keyValStore.KeyValStore) StorageService {
+func NewStorage(kv *keyValStore.KeyValStore, wp *workerPool.WorkerPool) StorageService {
 	return &Storage{
 		kv: kv,
+		wp: wp,
 	}
 }
 
