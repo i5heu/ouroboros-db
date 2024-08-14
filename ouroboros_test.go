@@ -291,26 +291,26 @@ func Test_DB_GetFile(t *testing.T) {
 		metadata []byte
 		file     []byte
 	}{
-		{[]byte(randomString(100)), []byte(randomString(100))},
-		{[]byte(randomString(100)), []byte(randomString(100))},
-		{[]byte(randomString(100)), []byte(randomString(100))},
-		{[]byte(randomString(100)), []byte(randomString(100))},
-		{[]byte(randomString(100)), []byte(randomString(100))},
+		{[]byte(randomString(100)), []byte(randomString(1000))},
+		{[]byte(randomString(100)), []byte(randomString(1000))},
+		{[]byte(randomString(100)), []byte(randomString(1000))},
+		{[]byte(randomString(100)), []byte(randomString(1000))},
+		{[]byte(randomString(100)), []byte(randomString(1000))},
 	}
 
-	type storageEvent struct {
-		ev       types.Event
-		metadata []byte
-		file     []byte
+	type testStorageEvent struct {
+		ev           types.Event
+		testMetadata []byte
+		testFile     []byte
 	}
 
-	storageEvnets := make([]storageEvent, 0)
+	storageEvnets := make([]testStorageEvent, 0)
 
-	for _, data := range testData {
+	for _, testDataItem := range testData {
 		sev, err := ou.DB.StoreFile(storage.StoreFileOptions{
 			EventToAppendTo: types.Event{EventIdentifier: types.EventIdentifier{EventHash: rootEv}},
-			Metadata:        data.metadata,
-			File:            data.file,
+			Metadata:        testDataItem.metadata,
+			File:            testDataItem.file,
 		})
 		if err != nil {
 			t.Errorf("StoreFile failed with error: %v", err)
@@ -320,14 +320,18 @@ func Test_DB_GetFile(t *testing.T) {
 			t.Errorf("StoreFile failed, expected non-nil, got nil")
 		}
 
-		storageEvnets = append(storageEvnets, storageEvent{
-			ev:       sev,
-			metadata: data.metadata,
-			file:     data.file,
+		fmt.Println(".....>", sev.Content.Hash().String())
+
+		storageEvnets = append(storageEvnets, testStorageEvent{
+			ev:           sev,
+			testMetadata: testDataItem.metadata,
+			testFile:     testDataItem.file,
 		})
 	}
 
 	for _, storEvent := range storageEvnets {
+		fmt.Println(storEvent.ev.Content)
+
 		file, err := ou.DB.GetFile(storEvent.ev)
 		if err != nil {
 			t.Errorf("GetFile failed with error: %v", err)
@@ -336,8 +340,8 @@ func Test_DB_GetFile(t *testing.T) {
 			t.Errorf("GetFile failed, expected non-zero length, got %d", len(file))
 		}
 
-		if string(file) != string(storEvent.file) {
-			t.Errorf("GetFile failed, expected %s, got %s", storEvent.file, file)
+		if string(file) != string(storEvent.testFile) {
+			t.Errorf("GetFile failed, expected %s, got %s", storEvent.testFile, file)
 		}
 	}
 }

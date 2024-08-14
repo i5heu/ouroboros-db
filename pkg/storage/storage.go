@@ -1,6 +1,9 @@
 package storage
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"sync"
@@ -127,33 +130,61 @@ func (options *StoreFileOptions) ValidateOptions() error {
 }
 
 func (s *Storage) GetFile(eventOfFile types.Event) ([]byte, error) {
-	file := []byte{}
+	data, err := s.getData(eventOfFile.Content)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting File: %v", err)
+	}
 
-	for _, chunk := range eventOfFile.Content {
+	return data, nil
+}
+
+func (s *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
+
+	data, err := s.getData(eventOfFile.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting Metadata: %v", err)
+	}
+
+	return data, nil
+}
+
+func (s *Storage) getData(chunkCollection types.ChunkMetaCollection) ([]byte, error) {
+	data := []byte{}
+
+	pass := "HelloWorld"
+	key := sha256.Sum256([]byte(pass))
+	c, err := aes.NewCipher(key[:32])
+	if err != nil {
+		return nil, fmt.Errorf("Error creating cipher: %v", err)
+	}
+
+	gcm, err := cipher.NewGCM(c)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, chunk := range chunkCollection {
 		chunkData, err := s.kv.Read(chunk.Hash.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetFile: %v", err)
 		}
 
-		file = append(file, chunkData...)
-	}
+		iv := chunk.Hash.Bytes()[:gcm.NonceSize()]
 
-	return file, nil
-}
-
-func (s *Storage) GetMetadata(eventOfFile types.Event) ([]byte, error) {
-	metadata := []byte{}
-
-	for _, chunk := range eventOfFile.Metadata {
-		chunkData, err := s.kv.Read(chunk.Hash.Bytes())
+		encryptedCompressed, err := gcm.Open(nil, iv, chunkData, nil)
 		if err != nil {
-			return nil, fmt.Errorf("Error reading chunk from GetMetadata: %v", err)
+			return nil, fmt.Errorf("Error decrypting chunk: %v", err)
 		}
 
-		metadata = append(metadata, chunkData...)
+		decompressed, err := decompressWithLzma(encryptedCompressed)
+		if err != nil {
+			return nil, fmt.Errorf("Error decompressing chunk: %v", err)
+		}
+
+		data = append(data, decompressed...)
 	}
 
-	return metadata, nil
+	return data, nil
 }
 
 func (s *Storage) storeDataInChunkStore(data []byte) (types.ChunkMetaCollection, error) {
@@ -161,16 +192,10 @@ func (s *Storage) storeDataInChunkStore(data []byte) (types.ChunkMetaCollection,
 		return nil, fmt.Errorf("Error storing data: Data is empty")
 	}
 
-	chunks, _, err := s.StoreDataPipeline(data)
+	chunks, chunkMetaCollection, err := s.StoreDataPipeline(data)
 	if err != nil {
 		log.Fatalf("Error chunking data: %v", err)
 		return nil, err
-	}
-
-	var keys types.ChunkMetaCollection
-
-	for _, chunk := range chunks {
-		keys = append(keys, chunk.ChunkMeta)
 	}
 
 	err = s.kv.BatchWriteNonExistingChunks(chunks)
@@ -179,7 +204,7 @@ func (s *Storage) storeDataInChunkStore(data []byte) (types.ChunkMetaCollection,
 		return nil, err
 	}
 
-	return keys, nil
+	return chunkMetaCollection, nil
 }
 
 func (s *Storage) GarbageCollection() error {
