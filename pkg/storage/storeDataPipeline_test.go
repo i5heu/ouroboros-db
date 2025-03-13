@@ -13,7 +13,7 @@ func TestStoreDataPipeline(t *testing.T) {
 		wp: workerPool.NewWorkerPool(workerPool.Config{GlobalBuffer: 1000}),
 	}
 
-	_, _, err := s.StoreDataPipeline(b)
+	_, _, err := s.StoreDataPipeline(b, 6, 3)
 	if err != nil {
 		t.Errorf("Error: %v", err)
 	}
@@ -38,7 +38,7 @@ func BenchmarkStoreDataPipeline(b *testing.B) {
 
 	// Perform the operation b.N times
 	for i := 0; i < b.N; i++ {
-		_, _, err := storage.StoreDataPipeline(data)
+		_, _, err := storage.StoreDataPipeline(data, 6, 3)
 		if err != nil {
 			b.Errorf("Error: %v", err)
 		}

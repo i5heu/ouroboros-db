@@ -1,4 +1,4 @@
-package buzhashChunker
+package chunker
 
 import (
 	"os"
@@ -9,11 +9,11 @@ func TestChunkBytes(t *testing.T) {
 	var input []byte = []byte("Hello World")
 	expectedChunk := ChunkInformation{
 		ChunkNumber: 0,
-		Data:        []byte("Hello World"),
+		Data:        []byte("He"),
 	}
 
 	// Call the function
-	resultChan, _ := ChunkBytes(input)
+	resultChan, _ := ChunkBytes(input, 6, 3)
 	result := <-resultChan
 
 	// Check the result
@@ -42,7 +42,7 @@ func TestChunkBytes_TestFile(t *testing.T) {
 	file.Read(fileBytes)
 
 	// Call the function
-	resultChan, _ := ChunkBytes(fileBytes)
+	resultChan, _ := ChunkBytes(fileBytes, 6, 3)
 
 	results := []ChunkInformation{}
 

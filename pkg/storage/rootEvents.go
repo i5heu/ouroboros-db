@@ -46,7 +46,7 @@ func (s *Storage) CreateRootEvent(title string) (types.Event, error) {
 		return types.Event{}, fmt.Errorf("Error creating new root event: RootEvent with the same title already exists")
 	}
 
-	item.Metadata, err = s.storeDataInChunkStore([]byte(title))
+	item.Metadata, err = s.storeDataInChunkStore([]byte(title), 10, 1)
 	if err != nil {
 		log.Fatalf("Error storing metadata: %v", err)
 		return types.Event{}, err

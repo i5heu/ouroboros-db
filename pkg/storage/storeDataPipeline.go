@@ -7,17 +7,20 @@ import (
 	"crypto/cipher"
 	"crypto/sha512"
 
-	"github.com/i5heu/ouroboros-db/pkg/buzhashChunker"
+	"github.com/i5heu/ouroboros-db/pkg/chunker"
 	"github.com/i5heu/ouroboros-db/pkg/types"
 	"github.com/ulikunitz/xz/lzma"
 )
 
 type ChunkData struct {
-	Hash types.Hash
-	Data []byte
+	Hash                    types.Hash
+	ReedSolomonDataChunks   uint8
+	ReedSolomonParityChunks uint8
+	ReedSolomonParityShard  uint64
+	Data                    []byte
 }
 
-func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.ChunkMetaCollection, error) {
+func (s *Storage) StoreDataPipeline(data []byte, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8) (types.ChunkCollection, types.ChunkMetaCollection, error) {
 	room := s.wp.CreateRoom(100)
 	room.AsyncCollector()
 
@@ -31,7 +34,7 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 		return nil, nil, err
 	}
 
-	chunkResults, _ := buzhashChunker.ChunkBytes(data)
+	chunkResults, _ := chunker.ChunkBytes(data, reedSolomonDataChunks, reedSolomonParityChunks)
 
 	for chunkTmp := range chunkResults {
 		chunk := chunkTmp
@@ -45,7 +48,7 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 				return err
 			}
 
-			// iv
+			// initialization vector (iv)
 			iv := hashOfChunk[:gcm.NonceSize()]
 
 			// encrypt
@@ -58,8 +61,11 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 			}
 
 			return ChunkData{
-				Hash: types.Hash(hashOfChunk[:]),
-				Data: cipherdata,
+				Hash:                    types.Hash(hashOfChunk[:]),
+				ReedSolomonDataChunks:   chunk.ReedSolomonDataChunks,
+				ReedSolomonParityChunks: chunk.ReedSolomonParityChunks,
+				ReedSolomonParityShard:  chunk.ReedSolomonParityShard,
+				Data:                    cipherdata,
 			}
 		})
 	}
@@ -77,8 +83,11 @@ func (s *Storage) StoreDataPipeline(data []byte) (types.ChunkCollection, types.C
 		hash := chunk.(ChunkData).Hash
 
 		chunkMeta := types.ChunkMeta{
-			Hash:       hash,
-			DataLength: uint32(len(data)),
+			Hash:                    hash,
+			ReedSolomonDataChunks:   chunk.(ChunkData).ReedSolomonDataChunks,
+			ReedSolomonParityChunks: chunk.(ChunkData).ReedSolomonParityChunks,
+			ReedSolomonParityShard:  chunk.(ChunkData).ReedSolomonParityShard,
+			DataLength:              uint32(len(data)),
 		}
 		chunkMetaCollection[i] = chunkMeta
 

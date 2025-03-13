@@ -19,13 +19,15 @@ type Storage struct {
 }
 
 type StoreFileOptions struct {
-	EventToAppendTo types.Event
-	FastMeta        types.FastMeta
-	Metadata        []byte
-	File            []byte
-	Temporary       types.Binary
-	FullTextSearch  types.Binary
-	WorkerPool      *workerPool.WorkerPool
+	EventToAppendTo         types.Event
+	FastMeta                types.FastMeta
+	Metadata                []byte
+	File                    []byte
+	ReedSolomonDataChunks   uint8
+	ReedSolomonParityChunks uint8
+	Temporary               types.Binary
+	FullTextSearch          types.Binary
+	WorkerPool              *workerPool.WorkerPool
 }
 
 func NewStorage(kv *keyValStore.KeyValStore, wp *workerPool.WorkerPool, dataEncryptionKey [32]byte) StorageService {
@@ -60,7 +62,7 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 	// Store file data in chunk store asynchronously
 	go func() {
 		defer wg.Done()
-		keys, err := s.storeDataInChunkStore(options.File)
+		keys, err := s.storeDataInChunkStore(options.File, options.ReedSolomonDataChunks, options.ReedSolomonParityChunks)
 		if err != nil {
 			errorChan <- err
 			return
@@ -73,7 +75,7 @@ func (s *Storage) StoreFile(options StoreFileOptions) (types.Event, error) {
 		// Store metadata in chunk store asynchronously
 		go func() {
 			defer wg.Done()
-			keys, err := s.storeDataInChunkStore(options.Metadata)
+			keys, err := s.storeDataInChunkStore(options.Metadata, options.ReedSolomonDataChunks, options.ReedSolomonParityChunks)
 			if err != nil {
 				errorChan <- err
 				return
@@ -189,12 +191,12 @@ func (s *Storage) getData(chunkCollection types.ChunkMetaCollection) ([]byte, er
 	return data, nil
 }
 
-func (s *Storage) storeDataInChunkStore(data []byte) (types.ChunkMetaCollection, error) {
+func (s *Storage) storeDataInChunkStore(data []byte, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8) (types.ChunkMetaCollection, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("Error storing data: Data is empty")
 	}
 
-	chunks, chunkMetaCollection, err := s.StoreDataPipeline(data)
+	chunks, chunkMetaCollection, err := s.StoreDataPipeline(data, reedSolomonDataChunks, reedSolomonParityChunks)
 	if err != nil {
 		log.Fatalf("Error chunking data: %v", err)
 		return nil, err
