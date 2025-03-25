@@ -7,9 +7,9 @@ import (
 
 func TestChunkBytes(t *testing.T) {
 	var input []byte = []byte("Hello World")
-	expectedChunk := ChunkInformation{
-		ChunkNumber: 0,
-		Data:        []byte("He"),
+	expectedChunk := ECChunk{
+		BuzChunkNumber: 0,
+		Data:           []byte("He"),
 	}
 
 	// Call the function
@@ -17,8 +17,8 @@ func TestChunkBytes(t *testing.T) {
 	result := <-resultChan
 
 	// Check the result
-	if result.ChunkNumber != expectedChunk.ChunkNumber {
-		t.Errorf("Expected chunk number %d, got %d", expectedChunk.ChunkNumber, result.ChunkNumber)
+	if result.BuzChunkNumber != expectedChunk.BuzChunkNumber {
+		t.Errorf("Expected chunk number %d, got %d", expectedChunk.BuzChunkNumber, result.BuzChunkNumber)
 	}
 
 	if string(result.Data) != string(expectedChunk.Data) {
@@ -44,7 +44,7 @@ func TestChunkBytes_TestFile(t *testing.T) {
 	// Call the function
 	resultChan, _ := ChunkBytes(fileBytes, 6, 3)
 
-	results := []ChunkInformation{}
+	results := []ECChunk{}
 
 	for result := range resultChan {
 		results = append(results, result)

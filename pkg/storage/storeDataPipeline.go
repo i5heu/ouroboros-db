@@ -12,14 +12,6 @@ import (
 	"github.com/ulikunitz/xz/lzma"
 )
 
-type ChunkData struct {
-	Hash                    types.Hash
-	ReedSolomonDataChunks   uint8
-	ReedSolomonParityChunks uint8
-	ReedSolomonParityShard  uint64
-	Data                    []byte
-}
-
 func (s *Storage) StoreDataPipeline(data []byte, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8) (types.ChunkCollection, types.ChunkMetaCollection, error) {
 	room := s.wp.CreateRoom(100)
 	room.AsyncCollector()
@@ -54,17 +46,17 @@ func (s *Storage) StoreDataPipeline(data []byte, reedSolomonDataChunks uint8, re
 			// encrypt
 			cipherdata := gcm.Seal(nil, iv, []byte(compressedChunk), nil)
 
-			// decrypt
-			_, err = gcm.Open(nil, iv, cipherdata, nil)
-			if err != nil {
-				return err
-			}
+			// // decrypt
+			// _, err = gcm.Open(nil, iv, cipherdata, nil)
+			// if err != nil {
+			// 	return err
+			// }
 
-			return ChunkData{
+			return chunker.ECChunk{
 				Hash:                    types.Hash(hashOfChunk[:]),
-				ReedSolomonDataChunks:   chunk.ReedSolomonDataChunks,
-				ReedSolomonParityChunks: chunk.ReedSolomonParityChunks,
-				ReedSolomonParityShard:  chunk.ReedSolomonParityShard,
+				ReedSolomonDataChunks:   chunk.ECCNumber,
+				ReedSolomonParityChunks: chunk.ECC_k,
+				ReedSolomonParityShard:  chunk.ECC_n,
 				Data:                    cipherdata,
 			}
 		})
@@ -79,14 +71,14 @@ func (s *Storage) StoreDataPipeline(data []byte, reedSolomonDataChunks uint8, re
 	chunkMetaCollection := make(types.ChunkMetaCollection, len(chunkData))
 
 	for i, chunk := range chunkData {
-		data := chunk.(ChunkData).Data
-		hash := chunk.(ChunkData).Hash
+		data := chunk.(chunker.ECChunk).Data
+		hash := chunk.(chunker.ECChunk).Hash
 
 		chunkMeta := types.ChunkMeta{
 			Hash:                    hash,
-			ReedSolomonDataChunks:   chunk.(ChunkData).ReedSolomonDataChunks,
-			ReedSolomonParityChunks: chunk.(ChunkData).ReedSolomonParityChunks,
-			ReedSolomonParityShard:  chunk.(ChunkData).ReedSolomonParityShard,
+			ReedSolomonDataChunks:   chunk.(chunker.ECChunk).ReedSolomonDataChunks,
+			ReedSolomonParityChunks: chunk.(chunker.ECChunk).ReedSolomonParityChunks,
+			ReedSolomonParityShard:  chunk.(chunker.ECChunk).ReedSolomonParityShard,
 			DataLength:              uint32(len(data)),
 		}
 		chunkMetaCollection[i] = chunkMeta
