@@ -1,9 +1,8 @@
 module github.com/i5heu/ouroboros-db
 
-go 1.21.5
+go 1.22.0
 
 require (
-	github.com/cloudflare/circl v1.3.8
 	github.com/ipfs/boxo v0.19.0
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.9.0
