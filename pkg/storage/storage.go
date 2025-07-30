@@ -168,6 +168,7 @@ func (s *Storage) getData(chunkCollection types.ChunkMetaCollection) ([]byte, er
 	}
 
 	for _, chunk := range chunkCollection {
+		for _, ecc := range chunk.
 		chunkData, err := s.kv.Read(chunk.Hash.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("Error reading chunk from GetFile: %v", err)

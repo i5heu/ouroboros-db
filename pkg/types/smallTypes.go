@@ -212,13 +212,31 @@ func (f *FastMeta) FromBytes(data FastMetaBytesSerialized) error {
 
 type ChunkMeta struct {
 	Hash       Hash   // SHA-512 hash
-	ReedSolomonDataChunks   uint8
-	ReedSolomonParityChunks uint8
-	ReedSolomonParityShard  uint64
 	DataLength uint32 // The length of the data chunk
 }
 
 type Chunk struct {
 	ChunkMeta
-	Data []byte // The actual data chunk
+	Data ECCCollection
+}
+
+type ECCMetaCollection []ECCMeta
+type ECCMeta struct {
+	ECChunkHash    Hash
+	OtherECCHashes []Hash
+
+	BuzChunkNumber uint32
+	BuzChunkHash   Hash
+
+	ECCNumber           uint8
+	ECC_k               uint8
+	ECC_n               uint8
+	EncryptedDataLength uint32
+}
+
+type ECCCollection []ECChunk
+
+type ECChunk struct {
+	ECCMeta
+	EncryptedData []byte
 }

@@ -2,6 +2,8 @@ package chunker
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha512"
 	"fmt"
 	"io"
@@ -9,32 +11,30 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/types"
 	chunker "github.com/ipfs/boxo/chunker"
 	"github.com/klauspost/reedsolomon"
+	"github.com/ulikunitz/xz/lzma"
 )
 
-type ECChunk struct {
-	ECChunkHash    types.Hash
-	OtherECCHashes []types.Hash
-
-	BuzChunkNumber uint32
-	BuzChunkHash   types.Hash
-
-	ECCNumber uint8
-	ECC_k     uint8
-	ECC_n     uint8
-	Data      []byte
-}
-
-func ChunkBytes(data []byte, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8) (chan ECChunk, chan error) {
+func ChunkBytes(data []byte, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8, dataEncryptionKey [32]byte) (chan types.Chunk, chan error) {
 	reader := bytes.NewReader(data)
-	return ChunkReader(reader, reedSolomonDataChunks, reedSolomonParityChunks)
+	return ChunkReader(reader, reedSolomonDataChunks, reedSolomonParityChunks, dataEncryptionKey)
 }
 
 // ChunkReader will chunk the data from the reader and return the chunks through a channel
 // The chunk size is minimum/maximum = 128K/512K
-func ChunkReader(reader io.Reader, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8) (chan ECChunk, chan error) {
-	resultChan := make(chan ECChunk, 20)
+func ChunkReader(reader io.Reader, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8, dataEncryptionKey [32]byte) (chan types.Chunk, chan error) {
+	resultChan := make(chan types.Chunk, 20)
 	errorChan := make(chan error)
 	bz := chunker.NewBuzhash(reader)
+
+	c, err := aes.NewCipher(dataEncryptionKey[:])
+	if err != nil {
+		errorChan <- fmt.Errorf("error creating cipher: %w", err)
+		return nil, errorChan
+	}
+
+	gcm, err := cipher.NewGCM(c)
+	if err != nil {
+	}
 
 	go func() {
 		defer close(resultChan)
@@ -57,7 +57,13 @@ func ChunkReader(reader io.Reader, reedSolomonDataChunks uint8, reedSolomonParit
 				return
 			}
 
-			shards, err := enc.Split(buzChunk)
+			compressedBuzChunk, err := compressWithLzma(buzChunk)
+			if err != nil {
+				errorChan <- fmt.Errorf("error compressing chunk: %w", err)
+				return
+			}
+
+			shards, err := enc.Split(compressedBuzChunk)
 			if err != nil {
 				errorChan <- fmt.Errorf("error splitting chunk: %w", err)
 				return
@@ -76,23 +82,46 @@ func ChunkReader(reader io.Reader, reedSolomonDataChunks uint8, reedSolomonParit
 				eccHashes[i] = types.Hash(sha512.Sum512(shards[i]))
 			}
 
+			var chunkShards types.ECCCollection
+
 			for i := range shards {
-				chunkData := ECChunk{
-					ECChunkHash:    types.Hash(sha512.Sum512(shards[i])),
-					OtherECCHashes: filterOutCurrentECCHash(eccHashes, uint8(i)),
 
-					BuzChunkHash:   buzChunkHash,
-					BuzChunkNumber: uint32(chunkIndex),
+				eccChunkHash := sha512.Sum512(shards[i])
 
-					ECCNumber: reedSolomonDataChunks,
-					ECC_k:     reedSolomonParityChunks,
-					ECC_n:     uint8(i),
-					Data:      shards[i],
+				// initialization vector (iv)
+				iv := eccChunkHash[:gcm.NonceSize()]
+
+				// encrypt
+				encryptedShard := gcm.Seal(nil, iv, []byte(shards[i]), nil)
+
+				chunkData := types.ECChunk{
+					ECCMeta: types.ECCMeta{
+						ECChunkHash:    eccChunkHash,
+						OtherECCHashes: filterOutCurrentECCHash(eccHashes, uint8(i)),
+
+						BuzChunkHash:   buzChunkHash,
+						BuzChunkNumber: uint32(chunkIndex),
+
+						ECCNumber:           reedSolomonDataChunks,
+						ECC_k:               reedSolomonParityChunks,
+						ECC_n:               uint8(i),
+						EncryptedDataLength: uint32(len(encryptedShard)),
+					},
+					EncryptedData: encryptedShard,
 				}
 
-				resultChan <- chunkData
+				chunkShards = append(chunkShards, chunkData)
 			}
 
+			result := types.Chunk{
+				ChunkMeta: types.ChunkMeta{
+					Hash:       buzChunkHash,
+					DataLength: uint32(len(buzChunk)),
+				},
+				Data: chunkShards,
+			}
+
+			resultChan <- result
 		}
 	}()
 
@@ -107,4 +136,23 @@ func filterOutCurrentECCHash(eccHashes []types.Hash, currentECCNumber uint8) []t
 		}
 	}
 	return filteredHashes
+}
+
+func compressWithLzma(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w, err := lzma.NewWriter(&buf)
+	if err != nil {
+		return nil, err
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = w.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

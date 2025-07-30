@@ -1,8 +1,6 @@
 package keyValStore
 
 import (
-	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"runtime"
@@ -181,32 +179,14 @@ func (k *KeyValStore) BatchWriteChunk(chunks types.ChunkCollection) error {
 	for _, chunk := range chunks {
 		chunk := chunk
 
-		atomic.AddUint64(&k.writeCounter, 1)
+		for _, ecc := range chunk.Data {
+			atomic.AddUint64(&k.writeCounter, 1)
 
-		var prefixBuffer bytes.Buffer
-		// Write ReedSolomonDataChunks: occupies 1 byte (offset 0)
-		if err := binary.Write(&prefixBuffer, binary.BigEndian, chunk.ReedSolomonDataChunks); err != nil {
-			log.Fatal("Error writing ReedSolomonDataChunks: ", err)
-			return err
-		}
-		// Write ReedSolomonParityChunks: occupies next 1 byte (offset 1)
-		if err := binary.Write(&prefixBuffer, binary.BigEndian, chunk.ReedSolomonParityChunks); err != nil {
-			log.Fatal("Error writing ReedSolomonParityChunks: ", err)
-			return err
-		}
-		// Write ReedSolomonParityShard: occupies following 8 bytes (offset 2)
-		if err := binary.Write(&prefixBuffer, binary.BigEndian, chunk.ReedSolomonParityShard); err != nil {
-			log.Fatal("Error writing ReedSolomonParityShard: ", err)
-			return err
-		}
-
-		// Prepend prefixBuffer.Bytes() to chunk.Data
-		newData := append(prefixBuffer.Bytes(), chunk.Data...)
-
-		err := wb.Set(chunk.Hash[:], newData)
-		if err != nil {
-			log.Fatal("Error writing chunk: ", err)
-			return err
+			err := wb.Set([]byte(string(chunk.Hash[:])+":"+string(ecc.ECChunkHash[:])), ecc.EncryptedData)
+			if err != nil {
+				log.Fatal("Error writing chunk: ", err)
+				return err
+			}
 		}
 	}
 

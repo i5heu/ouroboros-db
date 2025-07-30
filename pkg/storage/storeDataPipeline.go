@@ -2,10 +2,7 @@ package storage
 
 import (
 	"bytes"
-
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/sha512"
+	"fmt"
 
 	"github.com/i5heu/ouroboros-db/pkg/chunker"
 	"github.com/i5heu/ouroboros-db/pkg/types"
@@ -13,79 +10,30 @@ import (
 )
 
 func (s *Storage) StoreDataPipeline(data []byte, reedSolomonDataChunks uint8, reedSolomonParityChunks uint8) (types.ChunkCollection, types.ChunkMetaCollection, error) {
-	room := s.wp.CreateRoom(100)
-	room.AsyncCollector()
+	chunkResults, _ := chunker.ChunkBytes(data, reedSolomonDataChunks, reedSolomonParityChunks, s.dataEncryptionKey)
 
-	c, err := aes.NewCipher(s.dataEncryptionKey[:])
-	if err != nil {
-		return nil, nil, err
+	var chunkData []types.Chunk
+
+	for chunk := range chunkResults {
+		chunkData = append(chunkData, chunk)
 	}
-
-	gcm, err := cipher.NewGCM(c)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	chunkResults, _ := chunker.ChunkBytes(data, reedSolomonDataChunks, reedSolomonParityChunks)
-
-	for chunkTmp := range chunkResults {
-		chunk := chunkTmp
-		room.NewTaskWaitForFreeSlot(func() interface{} {
-			// sha512
-			hashOfChunk := sha512.Sum512(chunk.Data)
-
-			// compress use xz
-			compressedChunk, err := compressWithLzma(chunk.Data)
-			if err != nil {
-				return err
-			}
-
-			// initialization vector (iv)
-			iv := hashOfChunk[:gcm.NonceSize()]
-
-			// encrypt
-			cipherdata := gcm.Seal(nil, iv, []byte(compressedChunk), nil)
-
-			// // decrypt
-			// _, err = gcm.Open(nil, iv, cipherdata, nil)
-			// if err != nil {
-			// 	return err
-			// }
-
-			return chunker.ECChunk{
-				Hash:                    types.Hash(hashOfChunk[:]),
-				ReedSolomonDataChunks:   chunk.ECCNumber,
-				ReedSolomonParityChunks: chunk.ECC_k,
-				ReedSolomonParityShard:  chunk.ECC_n,
-				Data:                    cipherdata,
-			}
-		})
-	}
-
-	chunkData, err := room.GetAsyncResults()
-	if err != nil {
-		return nil, nil, err
+	if len(chunkData) == 0 {
+		return nil, nil, fmt.Errorf("Error chunking data: No chunks created")
 	}
 
 	var chunks types.ChunkCollection
 	chunkMetaCollection := make(types.ChunkMetaCollection, len(chunkData))
 
 	for i, chunk := range chunkData {
-		data := chunk.(chunker.ECChunk).Data
-		hash := chunk.(chunker.ECChunk).Hash
-
 		chunkMeta := types.ChunkMeta{
-			Hash:                    hash,
-			ReedSolomonDataChunks:   chunk.(chunker.ECChunk).ReedSolomonDataChunks,
-			ReedSolomonParityChunks: chunk.(chunker.ECChunk).ReedSolomonParityChunks,
-			ReedSolomonParityShard:  chunk.(chunker.ECChunk).ReedSolomonParityShard,
-			DataLength:              uint32(len(data)),
+			Hash: chunk.Hash,
+			DataLength: 0,
 		}
 		chunkMetaCollection[i] = chunkMeta
 
 		chunks = append(chunks, types.Chunk{
 			ChunkMeta: chunkMeta,
-			Data:      data,
+			Data:      chunk.Data,
 		})
 	}
 
