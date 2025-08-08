@@ -6,7 +6,10 @@ package ouroboros
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	crypt "github.com/i5heu/ouroboros-crypt"
+	ouroboroskv "github.com/i5heu/ouroboros-kv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -15,6 +18,8 @@ var log *logrus.Logger
 type OuroborosDB struct {
 	log    *logrus.Logger
 	config Config
+	crypt  *crypt.Crypt
+	kv     *ouroboroskv.KV
 }
 
 type Config struct {
@@ -47,9 +52,33 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		log = conf.Logger
 	}
 
+	if len(conf.Paths) == 0 {
+		return nil, fmt.Errorf("at least one path must be provided in config")
+	}
+
+	// Initialize ouroboros-crypt with key from Paths[0]/ouroboros.key
+	cryptKeyPath := filepath.Join(conf.Paths[0], "ouroboros.key")
+	cryptInstance, err := crypt.NewFromFile(cryptKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize ouroboros-crypt: %v", err)
+	}
+
+	// Initialize ouroboros-kv with Paths[0]/kv
+	kvConfig := &ouroboroskv.Config{
+		Paths:            []string{filepath.Join(conf.Paths[0], "kv")},
+		MinimumFreeSpace: int(conf.MinimumFreeGB),
+		Logger:           conf.Logger,
+	}
+	kvInstance, err := ouroboroskv.Init(cryptInstance, kvConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize ouroboros-kv: %v", err)
+	}
+
 	ou := &OuroborosDB{
 		log:    conf.Logger,
 		config: conf,
+		crypt:  cryptInstance,
+		kv:     kvInstance,
 	}
 
 	return ou, nil
@@ -65,5 +94,9 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 //	}
 //	defer ou.Close()
 func (ou *OuroborosDB) Close() {
-	return
+	if ou.kv != nil {
+		if err := ou.kv.Close(); err != nil {
+			ou.log.Errorf("failed to close KV store: %v", err)
+		}
+	}
 }
