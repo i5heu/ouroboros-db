@@ -1,3 +1,0 @@
-# .mockery.yaml configuration file
-recursive: true
-name: StorageService

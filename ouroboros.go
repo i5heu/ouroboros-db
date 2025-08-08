@@ -18,37 +18,23 @@ There are in the moment two main components in the database
 package ouroboros
 
 import (
-	"crypto/rand"
 	"fmt"
 	"os"
-	"time"
-
-	"github.com/i5heu/ouroboros-db/internal/keyValStore"
-	"github.com/i5heu/ouroboros-db/pkg/index"
-	"github.com/i5heu/ouroboros-db/pkg/storage"
-	"github.com/i5heu/ouroboros-db/pkg/workerPool"
 
 	"github.com/sirupsen/logrus"
-
-	"github.com/dgraph-io/badger/v4"
 )
 
 var log *logrus.Logger
 
 type OuroborosDB struct {
-	DB     storage.StorageService
-	Index  *index.Index
 	log    *logrus.Logger
 	config Config
-	wp     *workerPool.WorkerPool
 }
 
 type Config struct {
-	DataEncryptionKey         [32]byte
-	Paths                     []string // Paths to store the data, currently only the first path is used
-	MinimumFreeGB             int
-	GarbageCollectionInterval time.Duration
-	Logger                    *logrus.Logger
+	Paths         []string // Paths to store the data, currently only the first path is used
+	MinimumFreeGB uint
+	Logger        *logrus.Logger
 }
 
 func initializeLogger() *logrus.Logger {
@@ -75,44 +61,10 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 		log = conf.Logger
 	}
 
-	if conf.DataEncryptionKey == [32]byte{} {
-		conf.Logger.Info("DataEncryptionKey is empty; generating a new one")
-		_, err := rand.Read(conf.DataEncryptionKey[:])
-		if err != nil {
-			return nil, fmt.Errorf("error generating DataEncryptionKey: %w", err)
-		}
-
-		conf.Logger.Infof("Generated DataEncryptionKey Hex: %x", conf.DataEncryptionKey)
-	}
-
-	if conf.GarbageCollectionInterval < 2*time.Minute {
-		conf.Logger.Warn("GarbageCollectionInterval is smaller then 2 Min; setting to default 5 minutes")
-		conf.GarbageCollectionInterval = 5 * time.Minute
-	}
-
-	kvStore, err := keyValStore.NewKeyValStore(
-		keyValStore.StoreConfig{
-			Paths:            conf.Paths,
-			MinimumFreeSpace: conf.MinimumFreeGB,
-			Logger:           conf.Logger,
-		})
-	if err != nil {
-		return nil, fmt.Errorf("error creating KeyValStore: %w", err)
-	}
-
-	wp := workerPool.NewWorkerPool(workerPool.Config{})
-	ss := storage.NewStorage(kvStore, wp, conf.DataEncryptionKey)
-	index := index.NewIndex(ss)
-
 	ou := &OuroborosDB{
-		DB:     ss,
-		Index:  index,
-		config: conf,
 		log:    conf.Logger,
-		wp:     wp,
+		config: conf,
 	}
-
-	go ou.createGarbageCollection()
 
 	return ou, nil
 }
@@ -127,16 +79,5 @@ func NewOuroborosDB(conf Config) (*OuroborosDB, error) {
 //	}
 //	defer ou.Close()
 func (ou *OuroborosDB) Close() {
-	ou.DB.Close()
-}
-
-func (ou *OuroborosDB) createGarbageCollection() {
-	ticker := time.NewTicker(ou.config.GarbageCollectionInterval)
-	for range ticker.C {
-		err := ou.DB.GarbageCollection()
-		log.Info("Garbage Collection", badger.ErrNoRewrite)
-		if err != nil && err != badger.ErrNoRewrite {
-			log.Fatal("Error during garbage collection: ", err) // maybe we have to rework this here a bit
-		}
-	}
+	return
 }
