@@ -301,19 +301,8 @@ func encodeContent(content []byte, mimeType string) ([]byte, error) {
 	header := make([]byte, payloadHeaderSize)
 
 	trimmed := strings.TrimSpace(mimeType)
-
-	if trimmed == "" {
-		header[0] = payloadHeaderText
-	} else {
-		mimeBytes := []byte(trimmed)
-		if len(mimeBytes) > payloadHeaderMIMELen {
-			mimeBytes = mimeBytes[:payloadHeaderMIMELen]
-		}
-		copy(header[1:], mimeBytes)
-
-		if isTextLikeMIME(trimmed) {
-			header[0] = header[0] | payloadHeaderText
-		}
+	if trimmed == "" || isTextLikeMIME(trimmed) {
+		header[0] = header[0] | payloadHeaderText
 	}
 
 	encoded := make([]byte, len(header)+len(content))

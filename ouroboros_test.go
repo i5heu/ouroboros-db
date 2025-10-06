@@ -348,8 +348,8 @@ func TestStoreAndGetData_Binary(t *testing.T) {
 	if retrieved.IsText {
 		t.Fatalf("expected binary data to be marked as non-text")
 	}
-	if retrieved.MimeType != mimeType {
-		t.Fatalf("expected mime type %q, got %q", mimeType, retrieved.MimeType)
+	if retrieved.MimeType != "" {
+		t.Fatalf("expected empty mime type, got %q", retrieved.MimeType)
 	}
 	if !bytes.Equal(retrieved.Content, content) {
 		t.Fatalf("expected retrieved content to match original")

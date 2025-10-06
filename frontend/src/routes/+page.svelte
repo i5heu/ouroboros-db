@@ -46,30 +46,15 @@
 	};
 
 	const formatPersistedContent = (record: PersistedRecord): string => {
-		const textLikeMime = (value?: string) => {
-			if (!value) return false;
-			const lower = value.toLowerCase();
-			return (
-				lower.startsWith('text/') ||
-				lower.includes('json') ||
-				lower.includes('xml') ||
-				lower.includes('yaml') ||
-				lower.includes('csv')
-			);
-		};
-
 		try {
 			const bytes = decodeBase64ToUint8(record.content);
-			if (record.isText || textLikeMime(record.mimeType)) {
+			if (record.isText) {
 				return new TextDecoder().decode(bytes);
 			}
 			const mime = record.mimeType?.trim() || 'binary';
 			return `[${mime} payload • ${bytes.length} bytes]`;
 		} catch (error) {
-			if (
-				(record.isText || textLikeMime(record.mimeType)) &&
-				typeof globalThis.atob === 'function'
-			) {
+			if (record.isText && typeof globalThis.atob === 'function') {
 				try {
 					return globalThis.atob(record.content);
 				} catch (innerError) {

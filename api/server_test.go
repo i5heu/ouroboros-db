@@ -172,8 +172,8 @@ func TestGetBinaryData(t *testing.T) {
 		t.Fatalf("failed to decode data response: %v", err)
 	}
 
-	if data.MimeType != "application/octet-stream" {
-		t.Fatalf("expected mime type to round-trip, got %q", data.MimeType)
+	if data.MimeType != "" {
+		t.Fatalf("expected mime type header to be empty, got %q", data.MimeType)
 	}
 	if data.IsText {
 		t.Fatalf("expected binary payload to be marked as non-text")
@@ -240,8 +240,8 @@ func TestCreateTextWithExplicitMIME(t *testing.T) {
 	if !data.IsText {
 		t.Fatalf("expected text payload to be marked as text")
 	}
-	if data.MimeType != "text/plain; charset=utf-8" {
-		t.Fatalf("expected mime type to round-trip, got %q", data.MimeType)
+	if data.MimeType != "" {
+		t.Fatalf("expected mime type header to be empty, got %q", data.MimeType)
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(data.Content)
