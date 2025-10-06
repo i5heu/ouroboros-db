@@ -25,6 +25,22 @@ npm run dev
 npm run dev -- --open
 ```
 
+### Chat prototype
+
+The default route (`/`) now renders a simple threaded chat sandbox. Every message you submit becomes a child of the previously submitted message, producing a cascading conversation tree. Use the textarea at the bottom of the page and press `Enter` (or click **Send**) to append a reply. Hold `Shift + Enter` to insert newlines without sending.
+
+### Backend integration
+
+The chat client persists every message to the Ouroboros API via the `/data` endpoint. While a message is being written, the UI shows a **Saving…** badge next to the entry and disables the send button. Once the backend acknowledges the write, the saved hash appears alongside the message and a success banner confirms the operation. Network or server failures surface inline errors.
+
+By default the client targets `http://localhost:8083`. Override the destination by setting `VITE_OUROBOROS_API` before starting the dev server:
+
+```sh
+VITE_OUROBOROS_API="http://your-api-host:8083" npm run dev
+```
+
+Ensure the Go server is running before interacting with the chat UI so saves can complete successfully.
+
 ## Building
 
 To create a production version of your app:

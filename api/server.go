@@ -57,6 +57,29 @@ func (s *Server) routes() {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = "*"
+	} else {
+		w.Header().Set("Vary", "Origin")
+	}
+
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+
+	allowedHeaders := r.Header.Get("Access-Control-Request-Headers")
+	if allowedHeaders == "" {
+		allowedHeaders = "Content-Type, Accept"
+	}
+	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
+	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -78,10 +101,12 @@ type listResponse struct {
 }
 
 type dataResponse struct {
-	Key      string `json:"key"`
-	Content  string `json:"content"`
-	MimeType string `json:"mime_type,omitempty"`
-	IsText   bool   `json:"is_text"`
+	Key      string   `json:"key"`
+	Content  string   `json:"content"`
+	MimeType string   `json:"mime_type,omitempty"`
+	IsText   bool     `json:"is_text"`
+	Parent   string   `json:"parent,omitempty"`
+	Children []string `json:"children,omitempty"`
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +248,17 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if data.MimeType != "" {
 		response.MimeType = data.MimeType
+	}
+	if !data.Parent.IsZero() {
+		response.Parent = data.Parent.String()
+	}
+	if len(data.Children) > 0 {
+		for _, child := range data.Children {
+			if child.IsZero() {
+				continue
+			}
+			response.Children = append(response.Children, child.String())
+		}
 	}
 
 	writeJSON(w, http.StatusOK, response)

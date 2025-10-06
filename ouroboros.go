@@ -263,6 +263,8 @@ type RetrievedData struct {
 	Content  []byte
 	MimeType string
 	IsText   bool
+	Parent   hash.Hash
+	Children []hash.Hash
 }
 
 func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) {
@@ -290,6 +292,8 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		Content:  content,
 		MimeType: mime,
 		IsText:   isText,
+		Parent:   data.Parent,
+		Children: data.Children,
 	}, nil
 }
 
@@ -297,6 +301,7 @@ func encodeContent(content []byte, mimeType string) ([]byte, error) {
 	header := make([]byte, payloadHeaderSize)
 
 	trimmed := strings.TrimSpace(mimeType)
+
 	if trimmed == "" {
 		header[0] = payloadHeaderText
 	} else {
@@ -305,6 +310,10 @@ func encodeContent(content []byte, mimeType string) ([]byte, error) {
 			mimeBytes = mimeBytes[:payloadHeaderMIMELen]
 		}
 		copy(header[1:], mimeBytes)
+
+		if isTextLikeMIME(trimmed) {
+			header[0] = header[0] | payloadHeaderText
+		}
 	}
 
 	encoded := make([]byte, len(header)+len(content))
@@ -321,13 +330,24 @@ func decodeContent(payload []byte) ([]byte, string, bool, error) {
 	flag := payload[0]
 	isText := flag&payloadHeaderText != 0
 
-	var mime string
-	if !isText {
-		raw := bytes.TrimRight(payload[1:payloadHeaderSize], "\x00")
-		mime = strings.TrimSpace(string(raw))
-	}
+	raw := bytes.TrimRight(payload[1:payloadHeaderSize], "\x00")
+	mime := strings.TrimSpace(string(raw))
 
 	content := make([]byte, len(payload)-payloadHeaderSize)
 	copy(content, payload[payloadHeaderSize:])
 	return content, mime, isText, nil
+}
+
+func isTextLikeMIME(value string) bool {
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "text/") {
+		return true
+	}
+
+	switch {
+	case strings.Contains(lower, "json"), strings.Contains(lower, "xml"), strings.Contains(lower, "yaml"), strings.Contains(lower, "csv"):
+		return true
+	default:
+		return false
+	}
 }
