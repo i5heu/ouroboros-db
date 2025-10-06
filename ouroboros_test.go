@@ -1,6 +1,7 @@
 package ouroboros
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -277,6 +278,81 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	// Verify content
 	if string(readData.Content) != string(testData.Content) {
 		t.Errorf("Expected content '%s', got '%s'", string(testData.Content), string(readData.Content))
+	}
+}
+
+func TestStoreAndGetData_Text(t *testing.T) {
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	config := Config{
+		Paths:         []string{testDir},
+		MinimumFreeGB: 1,
+		Logger:        testLogger(),
+	}
+
+	db := newStartedDB(t, config)
+
+	content := []byte("hello mime aware world")
+
+	key, err := db.StoreData(context.Background(), content, StoreOptions{})
+	if err != nil {
+		t.Fatalf("StoreData failed: %v", err)
+	}
+
+	retrieved, err := db.GetData(context.Background(), key)
+	if err != nil {
+		t.Fatalf("GetData failed: %v", err)
+	}
+
+	if !retrieved.IsText {
+		t.Fatalf("expected retrieved data to be marked as text")
+	}
+	if retrieved.MimeType != "" {
+		t.Fatalf("expected empty mime type for text data, got %q", retrieved.MimeType)
+	}
+	if !bytes.Equal(retrieved.Content, content) {
+		t.Fatalf("expected content to match original")
+	}
+}
+
+func TestStoreAndGetData_Binary(t *testing.T) {
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	config := Config{
+		Paths:         []string{testDir},
+		MinimumFreeGB: 1,
+		Logger:        testLogger(),
+	}
+
+	db := newStartedDB(t, config)
+
+	content := []byte{0xde, 0xad, 0xbe, 0xef}
+	mimeType := "application/octet-stream"
+
+	key, err := db.StoreData(context.Background(), content, StoreOptions{MimeType: mimeType})
+	if err != nil {
+		t.Fatalf("StoreData failed: %v", err)
+	}
+
+	retrieved, err := db.GetData(context.Background(), key)
+	if err != nil {
+		t.Fatalf("GetData failed: %v", err)
+	}
+
+	if retrieved.IsText {
+		t.Fatalf("expected binary data to be marked as non-text")
+	}
+	if retrieved.MimeType != mimeType {
+		t.Fatalf("expected mime type %q, got %q", mimeType, retrieved.MimeType)
+	}
+	if !bytes.Equal(retrieved.Content, content) {
+		t.Fatalf("expected retrieved content to match original")
 	}
 }
 

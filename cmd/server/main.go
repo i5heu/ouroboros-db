@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,10 +14,10 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
+	api "github.com/i5heu/ouroboros-db/api"
 )
 
 func main() {
-
 	cfg := ouroboros.Config{
 		Paths:         []string{"./data"},
 		MinimumFreeGB: 1,
@@ -31,13 +32,11 @@ func main() {
 	if *create {
 		slog.Info("creating new keypair...")
 
-		// Generate a new key pair
 		ac, err := keys.NewAsyncCrypt()
 		if err != nil {
 			panic(err)
 		}
 
-		// Save keys to a file
 		err = ac.SaveToFile(cfg.Paths[0] + "/ouroboros.key")
 		if err != nil {
 			panic(err)
@@ -46,29 +45,61 @@ func main() {
 		return
 	}
 
-	// Create a context that is canceled on Ctrl+C or SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Construct the DB (no heavy side effects here).
 	db, err := ouroboros.New(cfg)
 	if err != nil {
 		slog.Error("failed to construct DB", "error", err)
 		os.Exit(1)
 	}
 
-	// Start the DB and its subsystems.
 	if err := db.Start(ctx); err != nil {
 		slog.Error("failed to start DB", "error", err)
 		os.Exit(1)
 	}
 
-	// Block until a shutdown signal is received.
-	<-ctx.Done()
+	httpServer := &http.Server{
+		Addr:    ":8083",
+		Handler: api.New(db, api.WithLogger(logger)),
+	}
 
-	// Attempt a graceful shutdown with a timeout.
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("starting API server", "addr", "http://localhost"+httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil {
+			if !errors.Is(err, http.ErrServerClosed) {
+				serverErr <- err
+				return
+			}
+		}
+		serverErr <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+	case err := <-serverErr:
+		if err != nil {
+			slog.Error("API server encountered an error", "error", err)
+			stop()
+		}
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Warn("API server shutdown error", "error", err)
+	}
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			slog.Error("API server encountered an error", "error", err)
+		}
+	default:
+	}
+
 	if err := db.Close(shutdownCtx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Warn("graceful shutdown error", "error", err)
 	}

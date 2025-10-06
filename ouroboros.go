@@ -4,17 +4,20 @@
 package ouroboros
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	crypt "github.com/i5heu/ouroboros-crypt"
+	"github.com/i5heu/ouroboros-crypt/hash"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
@@ -32,6 +35,12 @@ type OuroborosDB struct {
 	closeOnce sync.Once
 	mu        sync.Mutex
 }
+
+var (
+	ErrNotStarted  = errors.New("ouroboros: database not started")
+	ErrClosed      = errors.New("ouroboros: database closed")
+	ErrInvalidData = errors.New("ouroboros: invalid stored data")
+)
 
 // Config configures the database instance. Only Paths[0] is used at the
 // moment; future versions may use multiple paths for sharding or tiering.
@@ -147,4 +156,178 @@ func (ou *OuroborosDB) Close(ctx context.Context) error {
 // Prefer Close(ctx) to enforce an application-specific shutdown deadline.
 func (ou *OuroborosDB) CloseWithoutContext() error {
 	return ou.Close(context.Background())
+}
+
+const (
+	payloadHeaderSize    = 256
+	payloadHeaderText    = 0x80
+	payloadHeaderMIMELen = payloadHeaderSize - 1
+)
+
+type StoreOptions struct {
+	Parent                  hash.Hash
+	Children                []hash.Hash
+	ReedSolomonShards       uint8
+	ReedSolomonParityShards uint8
+	MimeType                string
+}
+
+func (opts *StoreOptions) applyDefaults() {
+	if opts.ReedSolomonShards == 0 {
+		opts.ReedSolomonShards = 4
+	}
+	if opts.ReedSolomonParityShards == 0 {
+		opts.ReedSolomonParityShards = 2
+	}
+}
+
+func (ou *OuroborosDB) getComponents() (*ouroboroskv.KV, *crypt.Crypt, error) {
+	if !ou.started.Load() {
+		return nil, nil, ErrNotStarted
+	}
+
+	ou.mu.Lock()
+	kv := ou.kv
+	c := ou.crypt
+	ou.mu.Unlock()
+
+	if kv == nil || c == nil {
+		return nil, nil, ErrClosed
+	}
+
+	return kv, c, nil
+}
+
+func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) {
+	if err := ctx.Err(); err != nil {
+		return hash.Hash{}, err
+	}
+
+	kv, cryptLayer, err := ou.getComponents()
+	if err != nil {
+		return hash.Hash{}, err
+	}
+
+	opts.applyDefaults()
+
+	encodedContent, err := encodeContent(content, opts.MimeType)
+	if err != nil {
+		return hash.Hash{}, err
+	}
+
+	key := cryptLayer.HashBytes(encodedContent)
+
+	data := ouroboroskv.Data{
+		Key:                     key,
+		Content:                 encodedContent,
+		ReedSolomonShards:       opts.ReedSolomonShards,
+		ReedSolomonParityShards: opts.ReedSolomonParityShards,
+	}
+
+	if !opts.Parent.IsZero() {
+		data.Parent = opts.Parent
+	}
+	for _, child := range opts.Children {
+		if !child.IsZero() {
+			data.Children = append(data.Children, child)
+		}
+	}
+
+	if err := kv.WriteData(data); err != nil {
+		return hash.Hash{}, err
+	}
+
+	return key, nil
+}
+
+func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	kv, _, err := ou.getComponents()
+	if err != nil {
+		return nil, err
+	}
+
+	keys, err := kv.ListKeys()
+	if err != nil {
+		return nil, err
+	}
+
+	return keys, nil
+}
+
+type RetrievedData struct {
+	Key      hash.Hash
+	Content  []byte
+	MimeType string
+	IsText   bool
+}
+
+func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) {
+	if err := ctx.Err(); err != nil {
+		return RetrievedData{}, err
+	}
+
+	kv, _, err := ou.getComponents()
+	if err != nil {
+		return RetrievedData{}, err
+	}
+
+	data, err := kv.ReadData(key)
+	if err != nil {
+		return RetrievedData{}, err
+	}
+
+	content, mime, isText, err := decodeContent(data.Content)
+	if err != nil {
+		return RetrievedData{}, err
+	}
+
+	return RetrievedData{
+		Key:      key,
+		Content:  content,
+		MimeType: mime,
+		IsText:   isText,
+	}, nil
+}
+
+func encodeContent(content []byte, mimeType string) ([]byte, error) {
+	header := make([]byte, payloadHeaderSize)
+
+	trimmed := strings.TrimSpace(mimeType)
+	if trimmed == "" {
+		header[0] = payloadHeaderText
+	} else {
+		mimeBytes := []byte(trimmed)
+		if len(mimeBytes) > payloadHeaderMIMELen {
+			mimeBytes = mimeBytes[:payloadHeaderMIMELen]
+		}
+		copy(header[1:], mimeBytes)
+	}
+
+	encoded := make([]byte, len(header)+len(content))
+	copy(encoded, header)
+	copy(encoded[len(header):], content)
+	return encoded, nil
+}
+
+func decodeContent(payload []byte) ([]byte, string, bool, error) {
+	if len(payload) < payloadHeaderSize {
+		return nil, "", false, ErrInvalidData
+	}
+
+	flag := payload[0]
+	isText := flag&payloadHeaderText != 0
+
+	var mime string
+	if !isText {
+		raw := bytes.TrimRight(payload[1:payloadHeaderSize], "\x00")
+		mime = strings.TrimSpace(string(raw))
+	}
+
+	content := make([]byte, len(payload)-payloadHeaderSize)
+	copy(content, payload[payloadHeaderSize:])
+	return content, mime, isText, nil
 }
