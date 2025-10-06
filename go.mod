@@ -4,7 +4,7 @@ go 1.24.5
 
 require (
 	github.com/i5heu/ouroboros-crypt v1.1.0
-	github.com/i5heu/ouroboros-kv v1.2.0
+	github.com/i5heu/ouroboros-kv v1.2.2
 )
 
 require (
