@@ -3,8 +3,17 @@
 
 	export let message: Message;
 	export let level = 0;
+	export let path: number[] = [];
+	export let selectedPath: number[] | null = null;
+	export let selectMessage: (path: number[]) => void = () => {};
 
 	const levelClass = `level-${Math.min(level, 5)}`;
+
+	const pathsEqual = (a: number[] | null, b: number[] | null) => {
+		if (!a || !b) return false;
+		if (a.length !== b.length) return false;
+		return a.every((value, index) => value === b[index]);
+	};
 
 	$: statusText =
 		message.status === 'pending'
@@ -16,15 +25,40 @@
 					: 'Saved locally';
 
 	$: statusClass = `status-${message.status}`;
+	$: isSelected = pathsEqual(selectedPath, path);
+
+	const handleSelect = (event: MouseEvent) => {
+		event.stopPropagation();
+		selectMessage(path);
+	};
+
+	const handleKeydown = (event: KeyboardEvent) => {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			selectMessage(path);
+		}
+	};
 </script>
 
-<div class={`message ${levelClass}`}>
+<div
+	class={`message ${levelClass} ${isSelected ? 'selected' : ''}`}
+	tabindex="0"
+	role="button"
+	on:click={handleSelect}
+	on:keydown={handleKeydown}
+>
 	<p>{message.content}</p>
 	<div class={`status ${statusClass}`}>{statusText}</div>
 	{#if message.children.length > 0}
 		<div class="children">
-			{#each message.children as child (child.id)}
-				<svelte:self message={child} level={level + 1} />
+			{#each message.children as child, index (child.id)}
+				<svelte:self
+					message={child}
+					level={level + 1}
+					path={[...path, index]}
+					{selectedPath}
+					{selectMessage}
+				/>
 			{/each}
 		</div>
 	{/if}
@@ -86,5 +120,16 @@
 	.level-4,
 	.level-5 {
 		border-left: 4px solid #8b5cf6;
+	}
+
+	.message:focus {
+		outline: none;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+	}
+
+	.message.selected {
+		border-color: #2563eb;
+		box-shadow: 0 12px 28px rgba(37, 99, 235, 0.25);
+		transform: translateY(-1px);
 	}
 </style>

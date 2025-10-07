@@ -17,7 +17,8 @@
 	let messages: Message[] = [];
 	let inputValue = '';
 	let nextId = 1;
-	let lastPath: number[] = [];
+	let selectedPath: number[] | null = null;
+	let selectedMessage: Message | null = null;
 	let activeSaves = 0;
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
 	let statusText = '';
@@ -64,6 +65,11 @@
 			const fallbackMime = record.mimeType?.trim() || 'binary';
 			return `[${fallbackMime} payload]`;
 		}
+	};
+
+	const truncate = (value: string, length = 80): string => {
+		const trimmed = value.trim();
+		return trimmed.length <= length ? trimmed : `${trimmed.slice(0, length)}…`;
 	};
 
 	const buildMessageTree = (records: PersistedRecord[]) => {
@@ -177,6 +183,33 @@
 		return current ?? null;
 	};
 
+	const setSelectedPath = (path: number[] | null) => {
+		selectedPath = path ? [...path] : null;
+		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+		if (message?.key) {
+			rememberLastKey(message.key);
+		} else if (!selectedPath) {
+			forgetLastKey();
+		}
+	};
+
+	const handleSelectMessage = (path: number[]) => {
+		setSelectedPath(path);
+	};
+
+	const clearSelection = () => {
+		setSelectedPath(null);
+	};
+
+	$: {
+		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+		selectedMessage = message;
+		if (selectedPath && !message) {
+			selectedPath = null;
+			forgetLastKey();
+		}
+	}
+
 	const updateMessageAtPath = (path: number[], updater: (message: Message) => void) => {
 		if (path.length === 0) {
 			return;
@@ -251,8 +284,7 @@
 				messages = [];
 				keyToPath = new Map();
 				nextId = 1;
-				lastPath = [];
-				forgetLastKey();
+				setSelectedPath(null);
 				return;
 			}
 
@@ -281,10 +313,8 @@
 			messages = roots;
 			nextId = Math.max(computedNextId, roots.length + 1);
 			keyToPath = buildKeyPathMap(roots);
-			lastPath = resolveInitialPath(roots, keyToPath);
-			if (lastPath.length === 0) {
-				forgetLastKey();
-			}
+			const initialPath = resolveInitialPath(roots, keyToPath);
+			setSelectedPath(initialPath.length > 0 ? initialPath : null);
 			statusState = 'idle';
 			statusText = '';
 			if (errors.length > 0) {
@@ -296,8 +326,7 @@
 			messages = [];
 			keyToPath = new Map();
 			nextId = 1;
-			lastPath = [];
-			forgetLastKey();
+			setSelectedPath(null);
 		} finally {
 			loading = false;
 		}
@@ -376,7 +405,7 @@
 		const trimmed = inputValue.trim();
 		if (!trimmed) return;
 
-		const parentPath = messages.length === 0 ? null : [...lastPath];
+		const parentPath = selectedPath ? [...selectedPath] : null;
 		const parentKeyValue = parentPath ? (getMessageAtPath(messages, parentPath)?.key ?? '') : '';
 		const newMessage: Message = {
 			id: nextId++,
@@ -389,10 +418,7 @@
 
 		let newPath: number[];
 
-		if (messages.length === 0) {
-			messages = [newMessage];
-			newPath = [0];
-		} else if (parentPath) {
+		if (parentPath) {
 			const cloned = deepClone(messages);
 			let target = cloned[parentPath[0]];
 			for (let i = 1; i < parentPath.length; i += 1) {
@@ -402,12 +428,13 @@
 			newPath = [...parentPath, target.children.length - 1];
 			messages = cloned;
 		} else {
-			newPath = [0];
-			messages = [newMessage];
+			const rootIndex = messages.length;
+			messages = [...messages, newMessage];
+			newPath = [rootIndex];
 		}
 
 		keyToPath = buildKeyPathMap(messages);
-		lastPath = newPath;
+		setSelectedPath(newPath);
 		inputValue = '';
 
 		void persistMessage(newPath, trimmed, parentKeyValue);
@@ -431,9 +458,28 @@
 		{:else if messages.length === 0}
 			<p class="placeholder">Type a message to start the conversation.</p>
 		{:else}
-			{#each messages as message (message.id)}
-				<MessageNode {message} level={0} />
+			{#each messages as message, index (message.id)}
+				<MessageNode
+					{message}
+					level={0}
+					path={[index]}
+					{selectedPath}
+					selectMessage={handleSelectMessage}
+				/>
 			{/each}
+		{/if}
+	</div>
+
+	<div class="selection-info">
+		{#if selectedMessage}
+			<div class="info-text">
+				Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+			</div>
+			<button type="button" class="clear-selection" on:click={clearSelection}>
+				Start new thread
+			</button>
+		{:else}
+			<div class="info-text">Starting a new thread</div>
 		{/if}
 	</div>
 
@@ -495,6 +541,45 @@
 		background: #f8fafc;
 	}
 
+	.selection-info {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 1rem;
+		padding: 0.75rem 1rem;
+		border-radius: 0.75rem;
+		background: #eef2ff;
+		color: #3730a3;
+		font-weight: 500;
+		box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.1);
+	}
+
+	.selection-info .snippet {
+		font-weight: 600;
+	}
+
+	.selection-info .clear-selection {
+		background: transparent;
+		border: none;
+		color: #6366f1;
+		font-weight: 600;
+		cursor: pointer;
+		padding: 0.35rem 0.75rem;
+		border-radius: 0.5rem;
+		transition:
+			background-color 0.15s ease,
+			color 0.15s ease;
+	}
+
+	.selection-info .clear-selection:hover {
+		background: rgba(99, 102, 241, 0.12);
+	}
+
+	.selection-info .clear-selection:focus {
+		outline: none;
+		box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.35);
+	}
+
 	.placeholder {
 		text-align: center;
 		color: #6b7280;
@@ -506,7 +591,7 @@
 	}
 
 	.input-area {
-		margin-top: 1.5rem;
+		margin-top: 1.25rem;
 		display: grid;
 		grid-template-columns: 1fr auto;
 		gap: 0.75rem;
@@ -588,6 +673,12 @@
 
 		.chat-window {
 			height: 320px;
+		}
+
+		.selection-info {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.5rem;
 		}
 
 		.input-area {
