@@ -3,15 +3,19 @@ package ouroboros_test
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"log/slog"
 
 	"github.com/i5heu/ouroboros-crypt/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
@@ -96,24 +100,14 @@ func newAPIHarness(t *testing.T, auth api.AuthFunc, opts ...api.Option) *apiHarn
 	}
 }
 
-func (h *apiHarness) request(method, target string, body any, headers map[string]string) *httptest.ResponseRecorder {
+func (h *apiHarness) request(method, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder {
 	h.t.Helper()
 
-	var reader io.Reader
-	if body != nil {
-		payload, err := json.Marshal(body)
-		if err != nil {
-			h.t.Fatalf("failed to marshal request body: %v", err)
-		}
-		reader = bytes.NewReader(payload)
-	}
-
-	req := httptest.NewRequest(method, target, reader)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
+	req := httptest.NewRequest(method, target, body)
 	for key, value := range headers {
+		if value == "" {
+			continue
+		}
 		req.Header.Set(key, value)
 	}
 
@@ -136,10 +130,10 @@ func (h *apiHarness) requireStatus(rec *httptest.ResponseRecorder, expected int)
 	}
 }
 
-func (h *apiHarness) decode(rec *httptest.ResponseRecorder, target any) {
-	h.t.Helper()
-	if err := json.NewDecoder(rec.Body).Decode(target); err != nil {
-		h.t.Fatalf("failed to decode response: %v (body: %s)", err, rec.Body.String())
+func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, target any) {
+	t.Helper()
+	if err := json.Unmarshal(rec.Body.Bytes(), target); err != nil {
+		t.Fatalf("failed to decode response: %v (body: %s)", err, rec.Body.String())
 	}
 }
 
@@ -149,6 +143,7 @@ type createConfig struct {
 	children []string
 	shards   uint8
 	parity   uint8
+	filename string
 }
 
 type CreateOption func(*createConfig)
@@ -178,6 +173,12 @@ func WithReedSolomon(shards, parity uint8) CreateOption {
 	}
 }
 
+func WithFilename(name string) CreateOption {
+	return func(cfg *createConfig) {
+		cfg.filename = name
+	}
+}
+
 func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
 	h.t.Helper()
 
@@ -186,32 +187,41 @@ func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
 		opt(&cfg)
 	}
 
-	body := map[string]any{
-		"content": base64.StdEncoding.EncodeToString(content),
-	}
-	if cfg.mimeType != "" {
-		body["mime_type"] = cfg.mimeType
-	}
-	if cfg.parent != "" {
-		body["parent"] = cfg.parent
-	}
-	if len(cfg.children) > 0 {
-		body["children"] = cfg.children
-	}
-	if cfg.shards != 0 {
-		body["reed_solomon_shards"] = cfg.shards
-	}
-	if cfg.parity != 0 {
-		body["reed_solomon_parity_shards"] = cfg.parity
+	filename := cfg.filename
+	if filename == "" {
+		if strings.HasPrefix(strings.ToLower(cfg.mimeType), "text/") {
+			filename = "payload.txt"
+		} else {
+			filename = "payload.bin"
+		}
 	}
 
-	rec := h.request(http.MethodPost, "/data", body, nil)
+	metadata := map[string]any{}
+	if cfg.mimeType != "" {
+		metadata["mime_type"] = cfg.mimeType
+	}
+	if cfg.parent != "" {
+		metadata["parent"] = cfg.parent
+	}
+	if len(cfg.children) > 0 {
+		metadata["children"] = append([]string{}, cfg.children...)
+	}
+	if cfg.shards != 0 {
+		metadata["reed_solomon_shards"] = cfg.shards
+	}
+	if cfg.parity != 0 {
+		metadata["reed_solomon_parity_shards"] = cfg.parity
+	}
+
+	req := newMultipartRequest(h.t, http.MethodPost, "/data", content, filename, cfg.mimeType, metadata)
+	rec := httptest.NewRecorder()
+	h.server.ServeHTTP(rec, req)
 	h.requireStatus(rec, http.StatusCreated)
 
 	var resp struct {
 		Key string `json:"key"`
 	}
-	h.decode(rec, &resp)
+	decodeJSONResponse(h.t, rec, &resp)
 	if resp.Key == "" {
 		h.t.Fatalf("expected create response to include key")
 	}
@@ -225,32 +235,73 @@ func (h *apiHarness) list() []string {
 	var resp struct {
 		Keys []string `json:"keys"`
 	}
-	h.decode(rec, &resp)
+	decodeJSONResponse(h.t, rec, &resp)
 	return resp.Keys
 }
 
-func (h *apiHarness) get(key string) (string, string, bool) {
+func (h *apiHarness) get(key string) ([]byte, http.Header) {
 	rec := h.request(http.MethodGet, "/data/"+key, nil, nil)
 	h.requireStatus(rec, http.StatusOK)
 
-	var resp struct {
-		Key     string `json:"key"`
-		Content string `json:"content"`
-		IsText  bool   `json:"is_text"`
-		Mime    string `json:"mime_type"`
-	}
-	h.decode(rec, &resp)
-	return resp.Content, resp.Mime, resp.IsText
+	res := rec.Result()
+	defer res.Body.Close()
+
+	body := append([]byte(nil), rec.Body.Bytes()...)
+	header := res.Header.Clone()
+	return body, header
 }
 
 func (h *apiHarness) options(path string, headers map[string]string) *httptest.ResponseRecorder {
 	return h.request(http.MethodOptions, path, nil, headers)
 }
 
+func newMultipartRequest(t *testing.T, method, target string, payload []byte, filename, mimeType string, metadata map[string]any) *http.Request {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	if filename != "" {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		header.Set("Content-Type", mimeType)
+
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			t.Fatalf("failed to create file part: %v", err)
+		}
+		if _, err := part.Write(payload); err != nil {
+			t.Fatalf("failed to write payload: %v", err)
+		}
+	}
+
+	if len(metadata) > 0 {
+		metaJSON, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatalf("failed to marshal metadata: %v", err)
+		}
+		if err := writer.WriteField("metadata", string(metaJSON)); err != nil {
+			t.Fatalf("failed to write metadata field: %v", err)
+		}
+	}
+
+	contentType := writer.FormDataContentType()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(method, target, bytes.NewReader(body.Bytes()))
+	req.Header.Set("Content-Type", contentType)
+	return req
+}
+
 func TestAPIServerCreate(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
-	key := h.create([]byte("hello ouroboros api"))
+	key := h.create([]byte("hello ouroboros api"), WithMimeType("text/plain; charset=utf-8"))
 	if key == "" {
 		t.Fatalf("expected key to be returned")
 	}
@@ -263,7 +314,7 @@ func TestAPIServerCreate(t *testing.T) {
 func TestAPIServerListAfterCreate(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
-	key := h.create([]byte("list me"))
+	key := h.create([]byte("list me"), WithMimeType("text/plain; charset=utf-8"))
 	keys := h.list()
 
 	if len(keys) != 1 || keys[0] != key {
@@ -279,22 +330,20 @@ func TestAPIServerGetAfterCreate(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
 	payload := []byte("fetch me")
-	key := h.create(payload)
+	key := h.create(payload, WithMimeType("text/plain; charset=utf-8"))
 
-	contentBase64, mimeType, isText := h.get(key)
-	if !isText {
+	content, header := h.get(key)
+	if string(content) != string(payload) {
+		t.Fatalf("expected retrieved content to match original")
+	}
+	if header.Get("X-Ouroboros-Is-Text") != "true" {
 		t.Fatalf("expected retrieved data to be marked as text")
 	}
-	if mimeType != "" {
-		t.Fatalf("expected mime type to be empty, got %q", mimeType)
+	if header.Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Fatalf("expected content type to be text/plain, got %q", header.Get("Content-Type"))
 	}
-
-	decoded, err := base64.StdEncoding.DecodeString(contentBase64)
-	if err != nil {
-		t.Fatalf("failed to decode response content: %v", err)
-	}
-	if !bytes.Equal(decoded, payload) {
-		t.Fatalf("expected retrieved content to match original")
+	if header.Get("X-Ouroboros-Mime") != "text/plain; charset=utf-8" {
+		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", header.Get("X-Ouroboros-Mime"))
 	}
 
 	if h.authCount() != 2 {

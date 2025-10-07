@@ -271,6 +271,14 @@ func encodeContent(content []byte, mimeType string) ([]byte, error) {
 		header[0] = header[0] | payloadHeaderText
 	}
 
+	if trimmed != "" {
+		mimeBytes := []byte(trimmed)
+		if len(mimeBytes) > payloadHeaderMIMELen {
+			mimeBytes = mimeBytes[:payloadHeaderMIMELen]
+		}
+		copy(header[1:], mimeBytes)
+	}
+
 	encoded := make([]byte, len(header)+len(content))
 	copy(encoded, header)
 	copy(encoded[len(header):], content)

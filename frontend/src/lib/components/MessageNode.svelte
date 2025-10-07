@@ -15,6 +15,31 @@
 		return a.every((value, index) => value === b[index]);
 	};
 
+	const formatBytes = (size?: number): string | null => {
+		if (!size || size <= 0) return null;
+		if (size < 1024) return `${size} B`;
+		const units = ['KB', 'MB', 'GB', 'TB'];
+		let value = size / 1024;
+		let unitIndex = 0;
+		while (value >= 1024 && unitIndex < units.length - 1) {
+			value /= 1024;
+			unitIndex += 1;
+		}
+		return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+	};
+
+	const mime = () => message.mimeType?.trim().toLowerCase() ?? '';
+
+	const buildDownloadName = (): string => {
+		if (message.attachmentName && message.attachmentName.trim().length > 0) {
+			return message.attachmentName;
+		}
+		if (message.key) {
+			return message.key;
+		}
+		return 'attachment';
+	};
+
 	$: statusText =
 		message.status === 'pending'
 			? 'Saving to Ouroboros…'
@@ -26,6 +51,17 @@
 
 	$: statusClass = `status-${message.status}`;
 	$: isSelected = pathsEqual(selectedPath, path);
+	$: normalizedMime = mime();
+	$: isAttachment =
+		message.isText === false || (!!normalizedMime && !normalizedMime.startsWith('text/'));
+	$: dataUrl =
+		isAttachment && message.encodedContent
+			? `data:${normalizedMime || 'application/octet-stream'};base64,${message.encodedContent}`
+			: null;
+	$: isImage = Boolean(dataUrl && normalizedMime.startsWith('image/'));
+	$: isVideo = Boolean(dataUrl && normalizedMime.startsWith('video/'));
+	$: sizeLabel = formatBytes(message.sizeBytes ?? undefined);
+	$: downloadName = buildDownloadName();
 
 	const handleSelect = (event: MouseEvent) => {
 		event.stopPropagation();
@@ -47,7 +83,38 @@
 	on:click={handleSelect}
 	on:keydown={handleKeydown}
 >
-	<p>{message.content}</p>
+	{#if isAttachment}
+		<div class="attachment">
+			<div class="attachment-meta">
+				<span class="attachment-name">{message.content}</span>
+				{#if sizeLabel}
+					<span class="attachment-size">{sizeLabel}</span>
+				{/if}
+				{#if normalizedMime}
+					<span class="attachment-mime">{normalizedMime}</span>
+				{/if}
+			</div>
+			{#if isImage && dataUrl}
+				<img class="attachment-image" src={dataUrl} alt={message.content} loading="lazy" />
+			{:else if isVideo && dataUrl}
+				<!-- svelte-ignore a11y-media-has-caption -->
+				<video
+					class="attachment-video"
+					controls
+					src={dataUrl}
+					aria-label={`Video attachment${message.content ? `: ${message.content}` : ''}`}
+				></video>
+			{:else if dataUrl}
+				<a class="attachment-download" href={dataUrl} download={downloadName} rel="noopener">
+					Download file
+				</a>
+			{:else}
+				<p class="attachment-placeholder">Attachment unavailable</p>
+			{/if}
+		</div>
+	{:else}
+		<p>{message.content}</p>
+	{/if}
 	<div class={`status ${statusClass}`}>{statusText}</div>
 	{#if message.children.length > 0}
 		<div class="children">
@@ -76,6 +143,60 @@
 	.message p {
 		margin: 0;
 		line-height: 1.5;
+	}
+
+	.attachment {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.attachment-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: baseline;
+		margin: 0;
+	}
+
+	.attachment-name {
+		font-weight: 600;
+	}
+
+	.attachment-size,
+	.attachment-mime {
+		font-size: 0.85rem;
+		color: #6b7280;
+	}
+
+	.attachment-image {
+		max-width: 100%;
+		border-radius: 0.5rem;
+		box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+	}
+
+	.attachment-video {
+		width: 100%;
+		border-radius: 0.5rem;
+		background: #0f172a;
+	}
+
+	.attachment-download {
+		align-self: flex-start;
+		color: #2563eb;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.attachment-download:hover {
+		text-decoration: underline;
+	}
+
+	.attachment-placeholder {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.9rem;
+		font-style: italic;
 	}
 
 	.status {

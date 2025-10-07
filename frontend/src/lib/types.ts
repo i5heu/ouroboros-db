@@ -8,4 +8,9 @@ export type Message = {
     key?: string;
     error?: string;
     parentKey?: string;
+    encodedContent?: string;
+    mimeType?: string;
+    isText?: boolean;
+    sizeBytes?: number;
+    attachmentName?: string;
 };

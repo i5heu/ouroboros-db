@@ -19,6 +19,7 @@
 	let nextId = 1;
 	let selectedPath: number[] | null = null;
 	let selectedMessage: Message | null = null;
+	let fileInput: HTMLInputElement | null = null;
 	let activeSaves = 0;
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
 	let statusText = '';
@@ -46,6 +47,31 @@
 		return bytes;
 	};
 
+	const encodeBytesToBase64 = (bytes: Uint8Array): string => {
+		let binary = '';
+		bytes.forEach((byte) => {
+			binary += String.fromCharCode(byte);
+		});
+
+		if (typeof globalThis.btoa === 'function') {
+			return globalThis.btoa(binary);
+		}
+
+		throw new Error('Base64 encoding unavailable in this environment.');
+	};
+
+	const formatBytes = (size: number): string => {
+		if (size < 1024) return `${size} B`;
+		const units = ['KB', 'MB', 'GB', 'TB'];
+		let value = size / 1024;
+		let unitIndex = 0;
+		while (value >= 1024 && unitIndex < units.length - 1) {
+			value /= 1024;
+			unitIndex += 1;
+		}
+		return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+	};
+
 	const formatPersistedContent = (record: PersistedRecord): string => {
 		try {
 			const bytes = decodeBase64ToUint8(record.content);
@@ -53,7 +79,7 @@
 				return new TextDecoder().decode(bytes);
 			}
 			const mime = record.mimeType?.trim() || 'binary';
-			return `[${mime} payload • ${bytes.length} bytes]`;
+			return `[${mime} • ${formatBytes(bytes.length)}]`;
 		} catch (error) {
 			if (record.isText && typeof globalThis.atob === 'function') {
 				try {
@@ -63,9 +89,33 @@
 				}
 			}
 			const fallbackMime = record.mimeType?.trim() || 'binary';
-			return `[${fallbackMime} payload]`;
+			return `[${fallbackMime} attachment]`;
 		}
 	};
+
+	const calculateBase64Size = (value: string): number => {
+		if (!value.length) return 0;
+		const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+		return Math.floor((value.length * 3) / 4) - padding;
+	};
+
+	const readFileAsBase64 = (file: File): Promise<string> =>
+		new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onerror = () => reject(reader.error ?? new Error('Failed to read file.'));
+			reader.onload = () => {
+				const result = reader.result;
+				if (result instanceof ArrayBuffer) {
+					resolve(encodeBytesToBase64(new Uint8Array(result)));
+				} else if (typeof result === 'string') {
+					const base64Index = result.indexOf('base64,');
+					resolve(base64Index >= 0 ? result.slice(base64Index + 7) : result);
+				} else {
+					reject(new Error('Unsupported file reader result.'));
+				}
+			};
+			reader.readAsArrayBuffer(file);
+		});
 
 	const truncate = (value: string, length = 80): string => {
 		const trimmed = value.trim();
@@ -77,14 +127,21 @@
 		let idCounter = 1;
 
 		for (const record of records) {
+			const messageSize = calculateBase64Size(record.content);
+			const displayContent = formatPersistedContent(record);
 			const message: Message = {
 				id: idCounter++,
-				content: formatPersistedContent(record),
+				content: displayContent,
 				children: [],
 				status: 'saved',
 				key: record.key,
 				error: undefined,
-				parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined
+				parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined,
+				encodedContent: record.content,
+				mimeType: record.mimeType,
+				isText: record.isText,
+				sizeBytes: messageSize,
+				attachmentName: !record.isText ? record.key : undefined
 			};
 			messageMap.set(record.key, message);
 		}
@@ -230,20 +287,8 @@
 		keyToPath = buildKeyPathMap(cloned);
 	};
 
-	const encodeToBase64 = (text: string): string => {
-		const encoder = new TextEncoder();
-		const bytes = encoder.encode(text);
-		let binary = '';
-		for (const byte of bytes) {
-			binary += String.fromCharCode(byte);
-		}
-
-		if (typeof globalThis.btoa === 'function') {
-			return globalThis.btoa(binary);
-		}
-
-		throw new Error('Base64 encoding unavailable in this environment.');
-	};
+	const encodeToBase64 = (text: string): string =>
+		encodeBytesToBase64(new TextEncoder().encode(text));
 
 	const fetchMessageRecord = async (key: string): Promise<PersistedRecord> => {
 		const response = await fetch(`${API_BASE_URL}/data/${key}`);
@@ -251,20 +296,23 @@
 			const message = (await response.text()) || `Request failed with status ${response.status}`;
 			throw new Error(message);
 		}
-		const body: {
-			key?: string;
-			content?: string;
-			is_text?: boolean;
-			mime_type?: string;
-			parent?: string;
-		} = await response.json();
+
+		const headers = response.headers;
+		const headerKey = (headers.get('X-Ouroboros-Key') ?? '').trim();
+		const parentHeader = (headers.get('X-Ouroboros-Parent') ?? '').trim();
+		const isTextHeader = (headers.get('X-Ouroboros-Is-Text') ?? '').trim().toLowerCase();
+		const mimeHeader = (headers.get('X-Ouroboros-Mime') ?? '').trim();
+
+		const buffer = await response.arrayBuffer();
+		const bytes = new Uint8Array(buffer);
+		const base64Content = encodeBytesToBase64(bytes);
 
 		return {
-			key: body.key ?? key,
-			content: body.content ?? '',
-			isText: Boolean(body.is_text),
-			mimeType: body.mime_type,
-			parent: body.parent && body.parent.trim().length > 0 ? body.parent : undefined
+			key: headerKey || key,
+			content: base64Content,
+			isText: isTextHeader === 'true',
+			mimeType: mimeHeader || undefined,
+			parent: parentHeader.length > 0 ? parentHeader : undefined
 		};
 	};
 
@@ -336,7 +384,65 @@
 		void restoreConversation();
 	});
 
-	const persistMessage = async (path: number[], content: string, parentKey: string) => {
+	const insertMessage = (newMessage: Message, parentPath: number[] | null): number[] => {
+		if (parentPath && parentPath.length > 0) {
+			const cloned = deepClone(messages);
+			let parentNode: Message | undefined = cloned[parentPath[0]];
+			for (let i = 1; i < parentPath.length && parentNode; i += 1) {
+				parentNode = parentNode.children[parentPath[i]];
+			}
+
+			if (!parentNode) {
+				const fallback = [...cloned, newMessage];
+				messages = fallback;
+				keyToPath = buildKeyPathMap(fallback);
+				const fallbackPath = [fallback.length - 1];
+				setSelectedPath(fallbackPath);
+				return fallbackPath;
+			}
+
+			parentNode.children = [...parentNode.children, newMessage];
+			messages = cloned;
+			const newPath = [...parentPath, parentNode.children.length - 1];
+			keyToPath = buildKeyPathMap(cloned);
+			setSelectedPath(newPath);
+			return newPath;
+		}
+
+		const cloned = deepClone(messages);
+		cloned.push(newMessage);
+		messages = cloned;
+		const path = [cloned.length - 1];
+		keyToPath = buildKeyPathMap(cloned);
+		setSelectedPath(path);
+		return path;
+	};
+
+	const persistMessage = async (path: number[]) => {
+		const snapshot = getMessageAtPath(messages, path);
+		if (!snapshot) {
+			return;
+		}
+
+		const parentKey = snapshot.parentKey?.trim() ?? '';
+		const base64Content = snapshot.encodedContent ?? encodeToBase64(snapshot.content);
+		const inferredIsText =
+			snapshot.isText !== undefined
+				? snapshot.isText
+				: (() => {
+						const mime = snapshot.mimeType?.toLowerCase() ?? '';
+						return (
+							mime.startsWith('text/') ||
+							mime.includes('json') ||
+							mime.includes('xml') ||
+							mime.includes('yaml')
+						);
+					})();
+		const mimeType =
+			snapshot.mimeType?.trim() ||
+			(inferredIsText ? 'text/plain; charset=utf-8' : 'application/octet-stream');
+		const sizeBytes = snapshot.sizeBytes ?? calculateBase64Size(base64Content);
+
 		activeSaves += 1;
 		statusState = 'sending';
 		statusText = 'Saving message to Ouroboros…';
@@ -344,25 +450,42 @@
 		updateMessageAtPath(path, (message) => {
 			message.status = 'pending';
 			delete message.error;
-			message.parentKey = parentKey?.trim() || undefined;
+			message.parentKey = parentKey || undefined;
+			message.encodedContent = base64Content;
+			message.mimeType = mimeType;
+			message.isText = inferredIsText;
+			message.sizeBytes = sizeBytes;
 		});
 
-		const payload = {
-			content: encodeToBase64(content),
+		const filename = snapshot.attachmentName?.trim()
+			? snapshot.attachmentName.trim()
+			: inferredIsText
+				? 'message.txt'
+				: `attachment-${crypto.randomUUID?.() ?? Date.now()}`;
+
+		const metadata: Record<string, unknown> = {
 			reed_solomon_shards: 0,
 			reed_solomon_parity_shards: 0,
-			parent: parentKey?.trim() ?? '',
-			children: [] as string[],
-			mime_type: 'text/plain; charset=utf-8'
+			mime_type: mimeType,
+			is_text: inferredIsText,
+			filename
 		};
+		if (parentKey) {
+			metadata.parent = parentKey;
+		}
+
+		const sourceBytes = decodeBase64ToUint8(base64Content);
+		const contentBytes = new Uint8Array(sourceBytes.length);
+		contentBytes.set(sourceBytes);
+		const blob = new Blob([contentBytes], { type: mimeType });
+		const formData = new FormData();
+		formData.append('file', blob, filename);
+		formData.append('metadata', JSON.stringify(metadata));
 
 		try {
 			const response = await fetch(`${API_BASE_URL}/data`, {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify(payload)
+				body: formData
 			});
 
 			if (!response.ok) {
@@ -407,37 +530,74 @@
 
 		const parentPath = selectedPath ? [...selectedPath] : null;
 		const parentKeyValue = parentPath ? (getMessageAtPath(messages, parentPath)?.key ?? '') : '';
+		const textBytes = new TextEncoder().encode(trimmed);
+		const base64Content = encodeBytesToBase64(textBytes);
 		const newMessage: Message = {
 			id: nextId++,
 			content: trimmed,
 			children: [],
 			status: 'pending',
 			error: undefined,
-			parentKey: parentKeyValue || undefined
+			parentKey: parentKeyValue || undefined,
+			encodedContent: base64Content,
+			mimeType: 'text/plain; charset=utf-8',
+			isText: true,
+			sizeBytes: textBytes.length
 		};
 
-		let newPath: number[];
-
-		if (parentPath) {
-			const cloned = deepClone(messages);
-			let target = cloned[parentPath[0]];
-			for (let i = 1; i < parentPath.length; i += 1) {
-				target = target.children[parentPath[i]];
-			}
-			target.children = [...target.children, newMessage];
-			newPath = [...parentPath, target.children.length - 1];
-			messages = cloned;
-		} else {
-			const rootIndex = messages.length;
-			messages = [...messages, newMessage];
-			newPath = [rootIndex];
-		}
-
-		keyToPath = buildKeyPathMap(messages);
-		setSelectedPath(newPath);
+		const newPath = insertMessage(newMessage, parentPath);
 		inputValue = '';
 
-		void persistMessage(newPath, trimmed, parentKeyValue);
+		void persistMessage(newPath);
+	};
+
+	const openFilePicker = () => {
+		fileInput?.click();
+	};
+
+	const handleFileSelection = async (event: Event) => {
+		const input = event.target as HTMLInputElement | null;
+		const files = input?.files;
+		if (!files || files.length === 0) {
+			return;
+		}
+
+		const parentPath = selectedPath ? [...selectedPath] : null;
+		const parentKeyValue = parentPath ? (getMessageAtPath(messages, parentPath)?.key ?? '') : '';
+
+		for (const file of Array.from(files)) {
+			try {
+				const base64 = await readFileAsBase64(file);
+				const mimeType = file.type || 'application/octet-stream';
+				const labelName = file.name && file.name.trim().length > 0 ? file.name : mimeType;
+				const display = `${labelName} (${formatBytes(file.size)})`;
+
+				const newMessage: Message = {
+					id: nextId++,
+					content: display,
+					children: [],
+					status: 'pending',
+					error: undefined,
+					parentKey: parentKeyValue || undefined,
+					encodedContent: base64,
+					mimeType,
+					isText: false,
+					sizeBytes: file.size,
+					attachmentName: file.name || undefined
+				};
+
+				const newPath = insertMessage(newMessage, parentPath);
+				await persistMessage(newPath);
+			} catch (error) {
+				console.error('Failed to attach file', error);
+				statusState = 'error';
+				statusText = `Failed to attach file: ${error instanceof Error ? error.message : 'Unknown error'}`;
+			}
+		}
+
+		if (input) {
+			input.value = '';
+		}
 	};
 
 	const handleKeydown = (event: KeyboardEvent) => {
@@ -492,11 +652,27 @@
 		></textarea>
 		<button
 			type="button"
+			class="attach-button"
+			on:click={openFilePicker}
+			disabled={statusState === 'sending'}
+		>
+			Attach
+		</button>
+		<button
+			type="button"
 			on:click={addMessage}
 			disabled={!inputValue.trim().length || statusState === 'sending'}
 		>
 			{statusState === 'sending' ? 'Sending…' : 'Send'}
 		</button>
+		<input
+			type="file"
+			class="file-input"
+			bind:this={fileInput}
+			on:change={handleFileSelection}
+			multiple
+			hidden
+		/>
 	</div>
 
 	{#if loadError && messages.length > 0}
@@ -593,8 +769,9 @@
 	.input-area {
 		margin-top: 1.25rem;
 		display: grid;
-		grid-template-columns: 1fr auto;
+		grid-template-columns: 1fr auto auto;
 		gap: 0.75rem;
+		align-items: start;
 	}
 
 	textarea {
@@ -625,6 +802,25 @@
 		transition:
 			transform 0.15s ease,
 			box-shadow 0.15s ease;
+	}
+
+	.attach-button {
+		background: #ffffff;
+		color: #2563eb;
+		border: 1px solid #93c5fd;
+		box-shadow: none;
+		padding: 0.75rem 1.25rem;
+	}
+
+	.attach-button:hover:enabled {
+		transform: none;
+		box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.6);
+		background: #eff6ff;
+	}
+
+	.attach-button:active:enabled {
+		transform: none;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
 	}
 
 	button:hover:enabled {
@@ -685,7 +881,11 @@
 			grid-template-columns: 1fr;
 		}
 
-		button {
+		.input-area textarea {
+			grid-column: 1 / -1;
+		}
+
+		.input-area button {
 			width: 100%;
 		}
 	}

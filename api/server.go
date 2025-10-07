@@ -1,13 +1,13 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	cryptHash "github.com/i5heu/ouroboros-crypt/hash"
@@ -90,6 +90,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+	w.Header().Set(
+		"Access-Control-Expose-Headers",
+		"Content-Type, Content-Length, X-Ouroboros-Key, X-Ouroboros-Mime, X-Ouroboros-Is-Text, X-Ouroboros-Parent, X-Ouroboros-Children",
+	)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -105,15 +109,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-type createRequest struct {
-	Content                 string   `json:"content"`
-	ReedSolomonShards       uint8    `json:"reed_solomon_shards"`
-	ReedSolomonParityShards uint8    `json:"reed_solomon_parity_shards"`
-	Parent                  string   `json:"parent"`
-	Children                []string `json:"children"`
-	MimeType                string   `json:"mime_type"`
-}
-
 type createResponse struct {
 	Key string `json:"key"`
 }
@@ -122,13 +117,14 @@ type listResponse struct {
 	Keys []string `json:"keys"`
 }
 
-type dataResponse struct {
-	Key      string   `json:"key"`
-	Content  string   `json:"content"`
-	MimeType string   `json:"mime_type,omitempty"`
-	IsText   bool     `json:"is_text"`
-	Parent   string   `json:"parent,omitempty"`
-	Children []string `json:"children,omitempty"`
+type createMetadata struct {
+	ReedSolomonShards       uint8    `json:"reed_solomon_shards"`
+	ReedSolomonParityShards uint8    `json:"reed_solomon_parity_shards"`
+	Parent                  string   `json:"parent"`
+	Children                []string `json:"children"`
+	MimeType                string   `json:"mime_type"`
+	IsText                  *bool    `json:"is_text"`
+	Filename                string   `json:"filename"`
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -137,37 +133,47 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	contentType := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(strings.ToLower(contentType), "multipart/form-data") {
+		http.Error(w, "expected multipart/form-data", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		http.Error(w, fmt.Sprintf("failed to parse multipart form: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusBadRequest)
+		http.Error(w, "file field is required", http.StatusBadRequest)
 		return
 	}
+	defer file.Close()
 
-	var req createRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, fmt.Sprintf("invalid json: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
-		return
-	}
-
-	payload, err := base64.StdEncoding.DecodeString(req.Content)
+	payload, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "content must be base64 encoded", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("failed to read file: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	parentHash, err := parseHash(req.Parent)
+	metaValue := r.FormValue("metadata")
+	var meta createMetadata
+	if strings.TrimSpace(metaValue) != "" {
+		if err := json.Unmarshal([]byte(metaValue), &meta); err != nil {
+			http.Error(w, fmt.Sprintf("invalid metadata: %v", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	parentHash, err := parseHash(meta.Parent)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("invalid parent hash: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	childrenHashes := make([]cryptHash.Hash, 0, len(req.Children))
-	for _, child := range req.Children {
+	childrenHashes := make([]cryptHash.Hash, 0, len(meta.Children))
+	for _, child := range meta.Children {
 		h, err := parseHash(child)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("invalid child hash: %v", err), http.StatusBadRequest)
@@ -178,16 +184,22 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	shards := req.ReedSolomonShards
+	shards := meta.ReedSolomonShards
 	if shards == 0 {
 		shards = defaultDataShards
 	}
-	parity := req.ReedSolomonParityShards
+	parity := meta.ReedSolomonParityShards
 	if parity == 0 {
 		parity = defaultParityShards
 	}
 
-	mimeType := strings.TrimSpace(req.MimeType)
+	mimeType := strings.TrimSpace(meta.MimeType)
+	if mimeType == "" {
+		mimeType = strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+	}
+	if meta.IsText != nil && *meta.IsText && mimeType == "" {
+		mimeType = "text/plain; charset=utf-8"
+	}
 
 	key, err := s.db.StoreData(r.Context(), payload, ouroboros.StoreOptions{
 		Parent:                  parentHash,
@@ -263,27 +275,40 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := dataResponse{
-		Key:     keyHex,
-		Content: base64.StdEncoding.EncodeToString(data.Content),
-		IsText:  data.IsText,
+	mimeType := strings.TrimSpace(data.MimeType)
+	if mimeType == "" {
+		if data.IsText {
+			mimeType = "text/plain; charset=utf-8"
+		} else {
+			mimeType = "application/octet-stream"
+		}
 	}
-	if data.MimeType != "" {
-		response.MimeType = data.MimeType
-	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data.Content)))
+	w.Header().Set("X-Ouroboros-Key", keyHex)
+	w.Header().Set("X-Ouroboros-Is-Text", strconv.FormatBool(data.IsText))
+	w.Header().Set("X-Ouroboros-Mime", mimeType)
 	if !data.Parent.IsZero() {
-		response.Parent = data.Parent.String()
+		w.Header().Set("X-Ouroboros-Parent", data.Parent.String())
 	}
 	if len(data.Children) > 0 {
+		children := make([]string, 0, len(data.Children))
 		for _, child := range data.Children {
 			if child.IsZero() {
 				continue
 			}
-			response.Children = append(response.Children, child.String())
+			children = append(children, child.String())
+		}
+		if len(children) > 0 {
+			w.Header().Set("X-Ouroboros-Children", strings.Join(children, ","))
 		}
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(data.Content); err != nil {
+		s.log.Error("failed to write response body", "error", err, "key", keyHex)
+	}
 }
 
 func parseHash(value string) (cryptHash.Hash, error) {

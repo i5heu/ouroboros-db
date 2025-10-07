@@ -3,13 +3,16 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"log/slog"
@@ -22,89 +25,62 @@ func TestCreateAndList(t *testing.T) {
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
 
-	server := New(db, WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	server := New(db, WithLogger(testLogger()))
 
 	payload := []byte("hello ouroboros")
-	reqBody := map[string]any{
-		"content": base64.StdEncoding.EncodeToString(payload),
+	metadata := map[string]any{
+		"mime_type": "text/plain; charset=utf-8",
 	}
 
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
+	req := newMultipartRequest(t, http.MethodPost, "/data", payload, "message.txt", "text/plain; charset=utf-8", metadata)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, rec.Code)
 	}
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/data", bytes.NewReader(body))
-	server.ServeHTTP(recorder, request)
-
-	if status := recorder.Result().StatusCode; status != http.StatusCreated {
-		t.Fatalf("expected status %d, got %d", http.StatusCreated, status)
-	}
-
-	var create struct {
+	var createResp struct {
 		Key string `json:"key"`
 	}
-	if err := json.NewDecoder(recorder.Result().Body).Decode(&create); err != nil {
-		t.Fatalf("failed to decode create response: %v", err)
-	}
-
-	if create.Key == "" {
+	decodeJSONResponse(t, rec, &createResp)
+	if createResp.Key == "" {
 		t.Fatalf("expected key in response")
 	}
 
-	listRecorder := httptest.NewRecorder()
-	listRequest := httptest.NewRequest(http.MethodGet, "/data", nil)
-	server.ServeHTTP(listRecorder, listRequest)
-
-	if status := listRecorder.Result().StatusCode; status != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, status)
+	listRec := httptest.NewRecorder()
+	server.ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/data", nil))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, listRec.Code)
 	}
 
 	var list listResponse
-	if err := json.NewDecoder(listRecorder.Result().Body).Decode(&list); err != nil {
-		t.Fatalf("failed to decode list response: %v", err)
-	}
-
+	decodeJSONResponse(t, listRec, &list)
 	if len(list.Keys) != 1 {
 		t.Fatalf("expected 1 key, got %d", len(list.Keys))
 	}
-
-	if list.Keys[0] != create.Key {
+	if list.Keys[0] != createResp.Key {
 		t.Fatalf("expected returned key to match create response")
 	}
 
-	dataRecorder := httptest.NewRecorder()
-	dataRequest := httptest.NewRequest(http.MethodGet, "/data/"+create.Key, nil)
-	server.ServeHTTP(dataRecorder, dataRequest)
-
-	if status := dataRecorder.Result().StatusCode; status != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, status)
+	getRec := httptest.NewRecorder()
+	server.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/data/"+createResp.Key, nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, getRec.Code)
 	}
 
-	var data struct {
-		Key      string `json:"key"`
-		Content  string `json:"content"`
-		MimeType string `json:"mime_type"`
-		IsText   bool   `json:"is_text"`
-	}
-	if err := json.NewDecoder(dataRecorder.Result().Body).Decode(&data); err != nil {
-		t.Fatalf("failed to decode data response: %v", err)
-	}
-
-	if !data.IsText {
-		t.Fatalf("expected data to be marked as text")
-	}
-	if data.MimeType != "" {
-		t.Fatalf("expected empty mime type for text data, got %q", data.MimeType)
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(data.Content)
-	if err != nil {
-		t.Fatalf("failed to decode content: %v", err)
-	}
-	if !bytes.Equal(decoded, payload) {
+	body := getRec.Body.Bytes()
+	if string(body) != string(payload) {
 		t.Fatalf("expected retrieved content to match original")
+	}
+	if ct := getRec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Fatalf("expected content type to be text/plain, got %q", ct)
+	}
+	if isText := getRec.Header().Get("X-Ouroboros-Is-Text"); isText != "true" {
+		t.Fatalf("expected is-text header to be true, got %q", isText)
+	}
+	if mime := getRec.Header().Get("X-Ouroboros-Mime"); mime != "text/plain; charset=utf-8" {
+		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", mime)
 	}
 }
 
@@ -114,12 +90,12 @@ func TestCreateValidation(t *testing.T) {
 
 	server := New(db)
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/data", bytes.NewReader([]byte(`{"content": ""}`)))
-	server.ServeHTTP(recorder, request)
+	req := newMultipartRequest(t, http.MethodPost, "/data", nil, "", "", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
 
-	if status := recorder.Result().StatusCode; status != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, status)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
 	}
 }
 
@@ -130,60 +106,43 @@ func TestGetBinaryData(t *testing.T) {
 	server := New(db)
 
 	payload := []byte{0xde, 0xad, 0xbe, 0xef}
-	reqBody := map[string]any{
-		"content":   base64.StdEncoding.EncodeToString(payload),
+	metadata := map[string]any{
 		"mime_type": "application/octet-stream",
 	}
 
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
+	req := newMultipartRequest(t, http.MethodPost, "/data", payload, "payload.bin", "application/octet-stream", metadata)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, rec.Code)
 	}
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/data", bytes.NewReader(body))
-	server.ServeHTTP(recorder, request)
-
-	if status := recorder.Result().StatusCode; status != http.StatusCreated {
-		t.Fatalf("expected status %d, got %d", http.StatusCreated, status)
-	}
-
-	var create struct {
+	var createResp struct {
 		Key string `json:"key"`
 	}
-	if err := json.NewDecoder(recorder.Result().Body).Decode(&create); err != nil {
-		t.Fatalf("failed to decode create response: %v", err)
+	decodeJSONResponse(t, rec, &createResp)
+	if createResp.Key == "" {
+		t.Fatalf("expected key in response")
 	}
 
-	dataRecorder := httptest.NewRecorder()
-	dataRequest := httptest.NewRequest(http.MethodGet, "/data/"+create.Key, nil)
-	server.ServeHTTP(dataRecorder, dataRequest)
-
-	if status := dataRecorder.Result().StatusCode; status != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, status)
+	getRec := httptest.NewRecorder()
+	server.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/data/"+createResp.Key, nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, getRec.Code)
 	}
 
-	var data struct {
-		Content  string `json:"content"`
-		MimeType string `json:"mime_type"`
-		IsText   bool   `json:"is_text"`
+	if ct := getRec.Header().Get("Content-Type"); ct != "application/octet-stream" {
+		t.Fatalf("expected binary content type, got %q", ct)
 	}
-	if err := json.NewDecoder(dataRecorder.Result().Body).Decode(&data); err != nil {
-		t.Fatalf("failed to decode data response: %v", err)
+	if isText := getRec.Header().Get("X-Ouroboros-Is-Text"); isText != "false" {
+		t.Fatalf("expected is-text header to be false, got %q", isText)
 	}
-
-	if data.MimeType != "" {
-		t.Fatalf("expected mime type header to be empty, got %q", data.MimeType)
-	}
-	if data.IsText {
-		t.Fatalf("expected binary payload to be marked as non-text")
+	if mime := getRec.Header().Get("X-Ouroboros-Mime"); mime != "application/octet-stream" {
+		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", mime)
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(data.Content)
-	if err != nil {
-		t.Fatalf("failed to decode content: %v", err)
-	}
-	if !bytes.Equal(decoded, payload) {
+	if !bytes.Equal(getRec.Body.Bytes(), payload) {
 		t.Fatalf("expected binary content to match original")
 	}
 }
@@ -195,62 +154,99 @@ func TestCreateTextWithExplicitMIME(t *testing.T) {
 	server := New(db)
 
 	payload := []byte("hello world")
-	reqBody := map[string]any{
-		"content":   base64.StdEncoding.EncodeToString(payload),
+	metadata := map[string]any{
 		"mime_type": "text/plain; charset=utf-8",
 	}
 
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
+	req := newMultipartRequest(t, http.MethodPost, "/data", payload, "note.txt", "text/plain; charset=utf-8", metadata)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, rec.Code)
 	}
 
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/data", bytes.NewReader(body))
-	server.ServeHTTP(recorder, request)
-
-	if status := recorder.Result().StatusCode; status != http.StatusCreated {
-		t.Fatalf("expected status %d, got %d", http.StatusCreated, status)
-	}
-
-	var create struct {
+	var createResp struct {
 		Key string `json:"key"`
 	}
-	if err := json.NewDecoder(recorder.Result().Body).Decode(&create); err != nil {
-		t.Fatalf("failed to decode create response: %v", err)
+	decodeJSONResponse(t, rec, &createResp)
+	if createResp.Key == "" {
+		t.Fatalf("expected key in response")
 	}
 
-	dataRecorder := httptest.NewRecorder()
-	dataRequest := httptest.NewRequest(http.MethodGet, "/data/"+create.Key, nil)
-	server.ServeHTTP(dataRecorder, dataRequest)
-
-	if status := dataRecorder.Result().StatusCode; status != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, status)
+	getRec := httptest.NewRecorder()
+	server.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/data/"+createResp.Key, nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, getRec.Code)
 	}
 
-	var data struct {
-		Content  string `json:"content"`
-		MimeType string `json:"mime_type"`
-		IsText   bool   `json:"is_text"`
+	if ct := getRec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Fatalf("expected text content type, got %q", ct)
 	}
-	if err := json.NewDecoder(dataRecorder.Result().Body).Decode(&data); err != nil {
-		t.Fatalf("failed to decode data response: %v", err)
+	if isText := getRec.Header().Get("X-Ouroboros-Is-Text"); isText != "true" {
+		t.Fatalf("expected is-text header to be true, got %q", isText)
 	}
-
-	if !data.IsText {
-		t.Fatalf("expected text payload to be marked as text")
-	}
-	if data.MimeType != "" {
-		t.Fatalf("expected mime type header to be empty, got %q", data.MimeType)
+	if mime := getRec.Header().Get("X-Ouroboros-Mime"); mime != "text/plain; charset=utf-8" {
+		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", mime)
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(data.Content)
-	if err != nil {
-		t.Fatalf("failed to decode content: %v", err)
-	}
-	if string(decoded) != string(payload) {
+	if string(getRec.Body.Bytes()) != string(payload) {
 		t.Fatalf("expected text content to match original")
 	}
+}
+
+func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, target any) {
+	t.Helper()
+	if err := json.Unmarshal(rec.Body.Bytes(), target); err != nil {
+		t.Fatalf("failed to decode response: %v (body: %s)", err, rec.Body.String())
+	}
+}
+
+func newMultipartRequest(t *testing.T, method, target string, payload []byte, filename, mimeType string, metadata map[string]any) *http.Request {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	if filename != "" {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		header.Set("Content-Type", mimeType)
+
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			t.Fatalf("failed to create file part: %v", err)
+		}
+		if _, err := part.Write(payload); err != nil {
+			t.Fatalf("failed to write payload: %v", err)
+		}
+	}
+
+	if len(metadata) > 0 {
+		metaJSON, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatalf("failed to marshal metadata: %v", err)
+		}
+		if err := writer.WriteField("metadata", string(metaJSON)); err != nil {
+			t.Fatalf("failed to write metadata field: %v", err)
+		}
+	}
+
+	contentType := writer.FormDataContentType()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(method, target, bytes.NewReader(body.Bytes()))
+	req.Header.Set("Content-Type", contentType)
+	return req
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func newTestDB(t *testing.T) (*ouroboros.OuroborosDB, func()) {
@@ -275,7 +271,7 @@ func newTestDB(t *testing.T) (*ouroboros.OuroborosDB, func()) {
 	cfg := ouroboros.Config{
 		Paths:         []string{dir},
 		MinimumFreeGB: 1,
-		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:        testLogger(),
 	}
 
 	db, err := ouroboros.New(cfg)
@@ -295,4 +291,270 @@ func newTestDB(t *testing.T) (*ouroboros.OuroborosDB, func()) {
 	}
 
 	return db, cleanup
+}
+
+type apiHarness struct {
+	t         *testing.T
+	server    http.Handler
+	authCalls *int
+}
+
+func newAPIHarness(t *testing.T, auth AuthFunc, opts ...Option) *apiHarness {
+	t.Helper()
+
+	db, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+
+	var counter int
+	baseOpts := []Option{
+		WithLogger(testLogger()),
+		WithAuth(func(r *http.Request) error {
+			counter++
+			if auth != nil {
+				return auth(r)
+			}
+			return nil
+		}),
+	}
+
+	baseOpts = append(baseOpts, opts...)
+
+	return &apiHarness{
+		t:         t,
+		server:    New(db, baseOpts...),
+		authCalls: &counter,
+	}
+}
+
+func (h *apiHarness) request(method, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder {
+	h.t.Helper()
+
+	req := httptest.NewRequest(method, target, body)
+	for key, value := range headers {
+		if value == "" {
+			continue
+		}
+		req.Header.Set(key, value)
+	}
+
+	recorder := httptest.NewRecorder()
+	h.server.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func (h *apiHarness) authCount() int {
+	if h.authCalls == nil {
+		return 0
+	}
+	return *h.authCalls
+}
+
+func (h *apiHarness) requireStatus(rec *httptest.ResponseRecorder, expected int) {
+	h.t.Helper()
+	if rec.Code != expected {
+		h.t.Fatalf("expected status %d, got %d, body: %s", expected, rec.Code, rec.Body.String())
+	}
+}
+
+type createConfig struct {
+	mimeType string
+	parent   string
+	children []string
+	shards   uint8
+	parity   uint8
+	filename string
+}
+
+type CreateOption func(*createConfig)
+
+func WithMimeType(mime string) CreateOption {
+	return func(cfg *createConfig) {
+		cfg.mimeType = mime
+	}
+}
+
+func WithParent(parent string) CreateOption {
+	return func(cfg *createConfig) {
+		cfg.parent = parent
+	}
+}
+
+func WithChildren(children ...string) CreateOption {
+	return func(cfg *createConfig) {
+		cfg.children = append([]string{}, children...)
+	}
+}
+
+func WithReedSolomon(shards, parity uint8) CreateOption {
+	return func(cfg *createConfig) {
+		cfg.shards = shards
+		cfg.parity = parity
+	}
+}
+
+func WithFilename(name string) CreateOption {
+	return func(cfg *createConfig) {
+		cfg.filename = name
+	}
+}
+
+func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
+	h.t.Helper()
+
+	cfg := createConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	filename := cfg.filename
+	if filename == "" {
+		if strings.HasPrefix(strings.ToLower(cfg.mimeType), "text/") {
+			filename = "payload.txt"
+		} else {
+			filename = "payload.bin"
+		}
+	}
+
+	metadata := map[string]any{}
+	if cfg.mimeType != "" {
+		metadata["mime_type"] = cfg.mimeType
+	}
+	if cfg.parent != "" {
+		metadata["parent"] = cfg.parent
+	}
+	if len(cfg.children) > 0 {
+		metadata["children"] = append([]string{}, cfg.children...)
+	}
+	if cfg.shards != 0 {
+		metadata["reed_solomon_shards"] = cfg.shards
+	}
+	if cfg.parity != 0 {
+		metadata["reed_solomon_parity_shards"] = cfg.parity
+	}
+
+	req := newMultipartRequest(h.t, http.MethodPost, "/data", content, filename, cfg.mimeType, metadata)
+	rec := httptest.NewRecorder()
+	h.server.ServeHTTP(rec, req)
+	h.requireStatus(rec, http.StatusCreated)
+
+	var resp struct {
+		Key string `json:"key"`
+	}
+	decodeJSONResponse(h.t, rec, &resp)
+	if resp.Key == "" {
+		h.t.Fatalf("expected create response to include key")
+	}
+	return resp.Key
+}
+
+func (h *apiHarness) list() []string {
+	rec := h.request(http.MethodGet, "/data", nil, nil)
+	h.requireStatus(rec, http.StatusOK)
+
+	var resp struct {
+		Keys []string `json:"keys"`
+	}
+	decodeJSONResponse(h.t, rec, &resp)
+	return resp.Keys
+}
+
+func (h *apiHarness) get(key string) ([]byte, http.Header) {
+	rec := h.request(http.MethodGet, "/data/"+key, nil, nil)
+	h.requireStatus(rec, http.StatusOK)
+
+	res := rec.Result()
+	defer res.Body.Close()
+
+	body := append([]byte(nil), rec.Body.Bytes()...)
+	header := res.Header.Clone()
+	return body, header
+}
+
+func (h *apiHarness) options(path string, headers map[string]string) *httptest.ResponseRecorder {
+	return h.request(http.MethodOptions, path, nil, headers)
+}
+
+func TestAPIServerCreate(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	key := h.create([]byte("hello ouroboros api"), WithMimeType("text/plain; charset=utf-8"))
+	if key == "" {
+		t.Fatalf("expected key to be returned")
+	}
+
+	if h.authCount() != 1 {
+		t.Fatalf("expected auth hook to run once, ran %d", h.authCount())
+	}
+}
+
+func TestAPIServerListAfterCreate(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	key := h.create([]byte("list me"), WithMimeType("text/plain; charset=utf-8"))
+	keys := h.list()
+
+	if len(keys) != 1 || keys[0] != key {
+		t.Fatalf("expected list to return created key, got %v", keys)
+	}
+
+	if h.authCount() != 2 {
+		t.Fatalf("expected auth hook to run twice, ran %d", h.authCount())
+	}
+}
+
+func TestAPIServerGetAfterCreate(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	payload := []byte("fetch me")
+	key := h.create(payload, WithMimeType("text/plain; charset=utf-8"))
+
+	content, header := h.get(key)
+	if string(content) != string(payload) {
+		t.Fatalf("expected retrieved content to match original")
+	}
+	if header.Get("X-Ouroboros-Is-Text") != "true" {
+		t.Fatalf("expected retrieved data to be marked as text")
+	}
+	if header.Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Fatalf("expected content type to be text/plain, got %q", header.Get("Content-Type"))
+	}
+	if header.Get("X-Ouroboros-Mime") != "text/plain; charset=utf-8" {
+		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", header.Get("X-Ouroboros-Mime"))
+	}
+
+	if h.authCount() != 2 {
+		t.Fatalf("expected auth hook to run twice, ran %d", h.authCount())
+	}
+}
+
+func TestAPIServerOptionsSkipsAuth(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	rec := h.options("/data", map[string]string{"Origin": "https://example.test"})
+
+	if status := rec.Code; status != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, status)
+	}
+	if allowOrigin := rec.Header().Get("Access-Control-Allow-Origin"); allowOrigin != "https://example.test" {
+		t.Fatalf("expected CORS header to echo origin, got %q", allowOrigin)
+	}
+
+	if h.authCount() != 0 {
+		t.Fatalf("expected auth hook to be skipped for OPTIONS, ran %d", h.authCount())
+	}
+}
+
+func TestAPIServerAuthFailure(t *testing.T) {
+	expectedErr := fmt.Errorf("no credentials")
+	h := newAPIHarness(t, func(r *http.Request) error { return expectedErr })
+
+	rec := h.request(http.MethodGet, "/data", nil, nil)
+
+	if status := rec.Code; status != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, status)
+	}
+
+	if h.authCount() != 1 {
+		t.Fatalf("expected auth hook to run once, ran %d", h.authCount())
+	}
 }
