@@ -246,22 +246,19 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	// Test basic KV operations
 	testContent := []byte("test content")
 	testData := ouroboroskv.Data{
-		Key:                     db.crypt.HashBytes(testContent),
 		Content:                 testContent,
 		ReedSolomonShards:       4,
 		ReedSolomonParityShards: 2,
 	}
 
 	// Write data
-	if err := db.kv.WriteData(testData); err != nil {
+	dataKey, err := db.kv.WriteData(testData)
+	if err != nil {
 		t.Fatalf("Failed to write data: %v", err)
 	}
 
-	// Use the key from the testData
-	key := testData.Key
-
 	// Check if data exists
-	exists, err := db.kv.DataExists(key)
+	exists, err := db.kv.DataExists(dataKey)
 	if err != nil {
 		t.Fatalf("Failed to check data existence: %v", err)
 	}
@@ -270,7 +267,7 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	}
 
 	// Read data back
-	readData, err := db.kv.ReadData(key)
+	readData, err := db.kv.ReadData(dataKey)
 	if err != nil {
 		t.Fatalf("Failed to read data: %v", err)
 	}

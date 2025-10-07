@@ -181,30 +181,8 @@ func (opts *StoreOptions) applyDefaults() {
 	}
 }
 
-func (ou *OuroborosDB) getComponents() (*ouroboroskv.KV, *crypt.Crypt, error) {
-	if !ou.started.Load() {
-		return nil, nil, ErrNotStarted
-	}
-
-	ou.mu.Lock()
-	kv := ou.kv
-	c := ou.crypt
-	ou.mu.Unlock()
-
-	if kv == nil || c == nil {
-		return nil, nil, ErrClosed
-	}
-
-	return kv, c, nil
-}
-
 func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) {
 	if err := ctx.Err(); err != nil {
-		return hash.Hash{}, err
-	}
-
-	kv, cryptLayer, err := ou.getComponents()
-	if err != nil {
 		return hash.Hash{}, err
 	}
 
@@ -215,10 +193,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		return hash.Hash{}, err
 	}
 
-	key := cryptLayer.HashBytes(encodedContent)
-
 	data := ouroboroskv.Data{
-		Key:                     key,
 		Content:                 encodedContent,
 		ReedSolomonShards:       opts.ReedSolomonShards,
 		ReedSolomonParityShards: opts.ReedSolomonParityShards,
@@ -233,11 +208,12 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		}
 	}
 
-	if err := kv.WriteData(data); err != nil {
+	dataHash, err := ou.kv.WriteData(data)
+	if err != nil {
 		return hash.Hash{}, err
 	}
 
-	return key, nil
+	return dataHash, nil
 }
 
 func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
@@ -245,12 +221,7 @@ func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
 		return nil, err
 	}
 
-	kv, _, err := ou.getComponents()
-	if err != nil {
-		return nil, err
-	}
-
-	keys, err := kv.ListKeys()
+	keys, err := ou.kv.ListKeys()
 	if err != nil {
 		return nil, err
 	}
@@ -272,12 +243,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
-	kv, _, err := ou.getComponents()
-	if err != nil {
-		return RetrievedData{}, err
-	}
-
-	data, err := kv.ReadData(key)
+	data, err := ou.kv.ReadData(key)
 	if err != nil {
 		return RetrievedData{}, err
 	}

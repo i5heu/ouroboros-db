@@ -20,9 +20,10 @@ const (
 )
 
 type Server struct {
-	mux *http.ServeMux
-	db  *ouroboros.OuroborosDB
-	log *slog.Logger
+	mux  *http.ServeMux
+	db   *ouroboros.OuroborosDB
+	log  *slog.Logger
+	auth AuthFunc
 }
 
 type Option func(*Server)
@@ -35,11 +36,26 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+type AuthFunc func(*http.Request) error
+
+func WithAuth(auth AuthFunc) Option {
+	return func(s *Server) {
+		if auth != nil {
+			s.auth = auth
+		}
+	}
+}
+
+func defaultAuth(*http.Request) error {
+	return nil
+}
+
 func New(db *ouroboros.OuroborosDB, opts ...Option) *Server {
 	s := &Server{
-		mux: http.NewServeMux(),
-		db:  db,
-		log: slog.Default(),
+		mux:  http.NewServeMux(),
+		db:   db,
+		log:  slog.Default(),
+		auth: defaultAuth,
 	}
 
 	for _, opt := range opts {
@@ -77,6 +93,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if err := s.auth(r); err != nil {
+		s.log.Warn("authentication failed", "error", err)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 

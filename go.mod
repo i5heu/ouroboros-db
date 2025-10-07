@@ -37,3 +37,5 @@ require (
 	golang.org/x/sys v0.34.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
+
+replace github.com/i5heu/ouroboros-kv => ../ouroboros-kv
