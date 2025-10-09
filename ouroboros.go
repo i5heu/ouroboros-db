@@ -6,11 +6,13 @@ package ouroboros
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,12 +30,11 @@ type OuroborosDB struct {
 	config Config
 
 	crypt *crypt.Crypt
-	kv    *ouroboroskv.KV
+	kv    atomic.Pointer[ouroboroskv.KV]
 
 	started   atomic.Bool
 	startOnce sync.Once
 	closeOnce sync.Once
-	mu        sync.Mutex
 }
 
 var (
@@ -108,10 +109,8 @@ func (ou *OuroborosDB) Start(ctx context.Context) error {
 			return
 		}
 
-		ou.mu.Lock()
 		ou.crypt = c
-		ou.kv = kv
-		ou.mu.Unlock()
+		ou.kv.Store(kv)
 
 		ou.started.Store(true)
 		ou.log.Info("OuroborosDB started", "path", dataRoot)
@@ -136,14 +135,10 @@ func (ou *OuroborosDB) Run(ctx context.Context) error {
 func (ou *OuroborosDB) Close(ctx context.Context) error {
 	var closeErr error
 	ou.closeOnce.Do(func() {
-		ou.mu.Lock()
-		defer ou.mu.Unlock()
-
-		if ou.kv != nil {
-			if err := ou.kv.Close(); err != nil {
+		if kv := ou.kv.Swap(nil); kv != nil {
+			if err := kv.Close(); err != nil {
 				closeErr = errors.Join(closeErr, fmt.Errorf("close kv: %w", err))
 			}
-			ou.kv = nil
 		}
 		// Add crypt teardown here if the crypt package provides one.
 
@@ -156,6 +151,50 @@ func (ou *OuroborosDB) Close(ctx context.Context) error {
 // Prefer Close(ctx) to enforce an application-specific shutdown deadline.
 func (ou *OuroborosDB) CloseWithoutContext() error {
 	return ou.Close(context.Background())
+}
+
+func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) {
+	if !ou.started.Load() {
+		return nil, ErrNotStarted
+	}
+
+	kv := ou.kv.Load()
+	if kv == nil {
+		return nil, ErrClosed
+	}
+
+	return kv, nil
+}
+
+func mergeHashSets(groups ...[]hash.Hash) []hash.Hash {
+	if len(groups) == 0 {
+		return nil
+	}
+
+	seen := make(map[hash.Hash]struct{})
+	for _, list := range groups {
+		for _, h := range list {
+			if h.IsZero() {
+				continue
+			}
+			seen[h] = struct{}{}
+		}
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	merged := make([]hash.Hash, 0, len(seen))
+	for h := range seen {
+		merged = append(merged, h)
+	}
+
+	sort.Slice(merged, func(i, j int) bool {
+		return bytes.Compare(merged[i][:], merged[j][:]) < 0
+	})
+
+	return merged
 }
 
 const (
@@ -186,6 +225,11 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		return hash.Hash{}, err
 	}
 
+	kv, err := ou.kvHandle()
+	if err != nil {
+		return hash.Hash{}, err
+	}
+
 	opts.applyDefaults()
 
 	encodedContent, err := encodeContent(content, opts.MimeType)
@@ -193,7 +237,13 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		return hash.Hash{}, err
 	}
 
+	metaBytes, err := encodeMetadata(storedMetadata{CreatedAt: time.Now().UTC()})
+	if err != nil {
+		return hash.Hash{}, fmt.Errorf("encode metadata: %w", err)
+	}
+
 	data := ouroboroskv.Data{
+		MetaData:                metaBytes,
 		Content:                 encodedContent,
 		ReedSolomonShards:       opts.ReedSolomonShards,
 		ReedSolomonParityShards: opts.ReedSolomonParityShards,
@@ -208,7 +258,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		}
 	}
 
-	dataHash, err := ou.kv.WriteData(data)
+	dataHash, err := kv.WriteData(data)
 	if err != nil {
 		return hash.Hash{}, err
 	}
@@ -221,7 +271,12 @@ func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
 		return nil, err
 	}
 
-	keys, err := ou.kv.ListKeys()
+	kv, err := ou.kvHandle()
+	if err != nil {
+		return nil, err
+	}
+
+	keys, err := kv.ListRootKeys()
 	if err != nil {
 		return nil, err
 	}
@@ -229,13 +284,27 @@ func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
 	return keys, nil
 }
 
+func (ou *OuroborosDB) ListChildren(ctx context.Context, parent hash.Hash) ([]hash.Hash, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	kv, err := ou.kvHandle()
+	if err != nil {
+		return nil, err
+	}
+
+	return kv.GetChildren(parent)
+}
+
 type RetrievedData struct {
-	Key      hash.Hash
-	Content  []byte
-	MimeType string
-	IsText   bool
-	Parent   hash.Hash
-	Children []hash.Hash
+	Key       hash.Hash
+	Content   []byte
+	MimeType  string
+	IsText    bool
+	Parent    hash.Hash
+	Children  []hash.Hash
+	CreatedAt time.Time
 }
 
 func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) {
@@ -243,7 +312,12 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
-	data, err := ou.kv.ReadData(key)
+	kv, err := ou.kvHandle()
+	if err != nil {
+		return RetrievedData{}, err
+	}
+
+	data, err := kv.ReadData(key)
 	if err != nil {
 		return RetrievedData{}, err
 	}
@@ -253,14 +327,66 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
+	parent := data.Parent
+	if indexedParent, err := kv.GetParent(key); err == nil && !indexedParent.IsZero() {
+		parent = indexedParent
+	}
+
+	metadataChildren := make([]hash.Hash, 0, len(data.Children))
+	for _, child := range data.Children {
+		if !child.IsZero() {
+			metadataChildren = append(metadataChildren, child)
+		}
+	}
+
+	indexedChildren, err := kv.GetChildren(key)
+	if err != nil {
+		return RetrievedData{}, err
+	}
+
+	children := mergeHashSets(metadataChildren, indexedChildren)
+
+	var createdAt time.Time
+	if len(data.MetaData) > 0 {
+		meta, metaErr := decodeMetadata(data.MetaData)
+		if metaErr != nil {
+			if ou.log != nil {
+				ou.log.Warn("failed to decode metadata", "error", metaErr, "key", key.String())
+			}
+		} else {
+			createdAt = meta.CreatedAt
+		}
+	}
+
 	return RetrievedData{
-		Key:      key,
-		Content:  content,
-		MimeType: mime,
-		IsText:   isText,
-		Parent:   data.Parent,
-		Children: data.Children,
+		Key:       key,
+		Content:   content,
+		MimeType:  mime,
+		IsText:    isText,
+		Parent:    parent,
+		Children:  children,
+		CreatedAt: createdAt,
 	}, nil
+}
+
+type storedMetadata struct {
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func encodeMetadata(meta storedMetadata) ([]byte, error) {
+	return json.Marshal(meta)
+}
+
+func decodeMetadata(raw []byte) (storedMetadata, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return storedMetadata{}, nil
+	}
+
+	var meta storedMetadata
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return storedMetadata{}, fmt.Errorf("decode metadata: %w", err)
+	}
+	return meta, nil
 }
 
 func encodeContent(content []byte, mimeType string) ([]byte, error) {

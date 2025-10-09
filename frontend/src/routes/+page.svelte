@@ -12,6 +12,8 @@
 		isText: boolean;
 		mimeType?: string;
 		parent?: string;
+		createdAt?: string;
+		createdAtMs?: number;
 	};
 
 	let messages: Message[] = [];
@@ -131,12 +133,31 @@
 		return truncate(content, 60);
 	};
 
+	const formatTimestamp = (value?: string): string | null => {
+		if (!value) {
+			return null;
+		}
+
+		const date = new Date(value);
+		if (Number.isNaN(date.getTime())) {
+			return null;
+		}
+
+		return date.toLocaleString(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		});
+	};
+
 	const threadMeta = (message: Message): string => {
 		const replies = message.children.length;
-		if (!replies) {
-			return 'No replies yet';
+		const parts: string[] = [];
+		const createdLabel = formatTimestamp(message.createdAt);
+		if (createdLabel) {
+			parts.push(`Created ${createdLabel}`);
 		}
-		return `${replies} repl${replies === 1 ? 'y' : 'ies'}`;
+		parts.push(replies ? `${replies} repl${replies === 1 ? 'y' : 'ies'}` : 'No replies yet');
+		return parts.join(' · ');
 	};
 
 	const messageStatusLabel = (status: Message['status']): string => {
@@ -150,52 +171,93 @@
 		}
 	};
 
-	const buildMessageTree = (records: PersistedRecord[]) => {
-		const messageMap = new Map<string, Message>();
-		let idCounter = 1;
-
-		for (const record of records) {
-			const messageSize = calculateBase64Size(record.content);
-			const displayContent = formatPersistedContent(record);
-			const message: Message = {
-				id: idCounter++,
-				content: displayContent,
-				children: [],
-				status: 'saved',
-				key: record.key,
-				error: undefined,
-				parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined,
-				encodedContent: record.content,
-				mimeType: record.mimeType,
-				isText: record.isText,
-				sizeBytes: messageSize,
-				attachmentName: !record.isText ? record.key : undefined
-			};
-			messageMap.set(record.key, message);
+	const compareMessages = (a: Message, b: Message) => {
+		const aTime = a.createdAtMs ?? Number.POSITIVE_INFINITY;
+		const bTime = b.createdAtMs ?? Number.POSITIVE_INFINITY;
+		if (aTime !== bTime) {
+			return aTime - bTime;
 		}
-
-		const roots: Message[] = [];
-		for (const record of records) {
-			const node = messageMap.get(record.key);
-			if (!node) {
-				continue;
-			}
-
-			const parentKey = record.parent?.trim();
-			if (parentKey && messageMap.has(parentKey)) {
-				messageMap.get(parentKey)?.children.push(node);
-			} else {
-				roots.push(node);
-			}
+		if (
+			a.createdAtMs != null &&
+			b.createdAtMs != null &&
+			a.createdAt &&
+			b.createdAt &&
+			a.createdAt !== b.createdAt
+		) {
+			return a.createdAt < b.createdAt ? -1 : 1;
 		}
+		return a.id - b.id;
+	};
 
-		const sortById = (nodes: Message[]) => {
-			nodes.sort((a, b) => a.id - b.id);
-			nodes.forEach((child) => sortById(child.children));
+	const sortMessageTree = (nodes: Message[]) => {
+		nodes.sort(compareMessages);
+		nodes.forEach((child) => sortMessageTree(child.children));
+	};
+
+	const createMessageFromRecord = (record: PersistedRecord, id: number): Message => {
+		const messageSize = calculateBase64Size(record.content);
+		const displayContent = formatPersistedContent(record);
+		const createdAtMs =
+			typeof record.createdAtMs === 'number' && Number.isFinite(record.createdAtMs)
+				? record.createdAtMs
+				: undefined;
+		return {
+			id,
+			content: displayContent,
+			children: [],
+			status: 'saved',
+			key: record.key,
+			error: undefined,
+			parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined,
+			encodedContent: record.content,
+			mimeType: record.mimeType,
+			isText: record.isText,
+			sizeBytes: messageSize,
+			attachmentName: !record.isText ? record.key : undefined,
+			createdAt: record.createdAt,
+			createdAtMs
 		};
-		sortById(roots);
+	};
 
-		return { roots, nextId: idCounter };
+	const fetchThreadTree = async (
+		key: string,
+		state: { nextId: number },
+		errors: string[],
+		path: Set<string> = new Set<string>()
+	): Promise<Message | null> => {
+		const normalized = key.trim();
+		if (!normalized.length || path.has(normalized)) {
+			return null;
+		}
+
+		path.add(normalized);
+		try {
+			const record = await fetchMessageRecord(normalized);
+			const message = createMessageFromRecord(record, state.nextId++);
+
+			let childKeys: string[] = [];
+			try {
+				childKeys = await fetchChildKeys(normalized);
+			} catch (error) {
+				errors.push(error instanceof Error ? error.message : String(error));
+			}
+
+			for (const childKey of childKeys) {
+				try {
+					const child = await fetchThreadTree(childKey, state, errors, path);
+					if (child) {
+						message.children.push(child);
+					}
+				} catch (error) {
+					errors.push(error instanceof Error ? error.message : String(error));
+				}
+			}
+
+			sortMessageTree(message.children);
+			return message;
+		} finally {
+			path.delete(normalized);
+		}
 	};
 
 	const buildKeyPathMap = (nodes: Message[]): Map<string, number[]> => {
@@ -338,6 +400,9 @@
 		const parentHeader = (headers.get('X-Ouroboros-Parent') ?? '').trim();
 		const isTextHeader = (headers.get('X-Ouroboros-Is-Text') ?? '').trim().toLowerCase();
 		const mimeHeader = (headers.get('X-Ouroboros-Mime') ?? '').trim();
+		const createdAtHeader = (headers.get('X-Ouroboros-Created-At') ?? '').trim();
+		const parsedCreatedAt = createdAtHeader.length > 0 ? Date.parse(createdAtHeader) : Number.NaN;
+		const createdAtMs = Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : undefined;
 
 		const buffer = await response.arrayBuffer();
 		const bytes = new Uint8Array(buffer);
@@ -348,8 +413,27 @@
 			content: base64Content,
 			isText: isTextHeader === 'true',
 			mimeType: mimeHeader || undefined,
-			parent: parentHeader.length > 0 ? parentHeader : undefined
+			parent: parentHeader.length > 0 ? parentHeader : undefined,
+			createdAt: createdAtHeader || undefined,
+			createdAtMs
 		};
+	};
+
+	const fetchChildKeys = async (key: string): Promise<string[]> => {
+		const response = await fetch(`${API_BASE_URL}/data/${key}/children`);
+		if (!response.ok) {
+			const message = (await response.text()) || `Request failed with status ${response.status}`;
+			throw new Error(message);
+		}
+
+		const body: { keys?: string[] } = await response.json();
+		if (!Array.isArray(body.keys)) {
+			return [];
+		}
+
+		return body.keys.filter(
+			(childKey) => typeof childKey === 'string' && childKey.trim().length > 0
+		);
 	};
 
 	const restoreConversation = async () => {
@@ -372,32 +456,33 @@
 				return;
 			}
 
-			const detailResults = await Promise.allSettled(keys.map((key) => fetchMessageRecord(key)));
-			const records: PersistedRecord[] = [];
 			const errors: string[] = [];
-			detailResults.forEach((result) => {
-				if (result.status === 'fulfilled') {
-					records.push(result.value);
-				} else {
-					errors.push(
-						result.reason instanceof Error ? result.reason.message : String(result.reason)
-					);
+			const threads: Message[] = [];
+			const idState = { nextId: 1 };
+			for (const key of keys) {
+				const normalizedRoot = key.trim();
+				if (!normalizedRoot.length) {
+					continue;
 				}
-			});
+				try {
+					const thread = await fetchThreadTree(normalizedRoot, idState, errors, new Set<string>());
+					if (thread) {
+						threads.push(thread);
+					}
+				} catch (error) {
+					errors.push(error instanceof Error ? error.message : String(error));
+				}
+			}
 
-			if (records.length === 0) {
+			if (threads.length === 0) {
 				throw new Error(errors[0] ?? 'No messages available');
 			}
 
-			const orderedRecords = keys
-				.map((key) => records.find((record) => record.key === key))
-				.filter((record): record is PersistedRecord => Boolean(record));
-
-			const { roots, nextId: computedNextId } = buildMessageTree(orderedRecords);
-			messages = roots;
-			nextId = Math.max(computedNextId, roots.length + 1);
-			keyToPath = buildKeyPathMap(roots);
-			const initialPath = resolveInitialPath(roots, keyToPath);
+			sortMessageTree(threads);
+			messages = threads;
+			nextId = Math.max(idState.nextId, threads.length + 1);
+			keyToPath = buildKeyPathMap(threads);
+			const initialPath = resolveInitialPath(threads, keyToPath);
 			setSelectedPath(initialPath.length > 0 ? initialPath : null);
 			statusState = 'idle';
 			statusText = '';
@@ -698,14 +783,6 @@
 						{/if}
 					</p>
 				</div>
-				<button
-					type="button"
-					class="new-thread"
-					on:click={clearSelection}
-					disabled={statusState === 'sending'}
-				>
-					Start new thread
-				</button>
 			</header>
 
 			<div class="chat-window">

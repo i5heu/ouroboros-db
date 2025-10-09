@@ -28,6 +28,7 @@
 	let isVideo = false;
 	let sizeLabel: string | null = null;
 	let downloadName = 'attachment';
+	let createdAtLabel: string | null = null;
 
 	const closeModal = () => {
 		modalAttachment = null;
@@ -68,6 +69,18 @@
 		return 'attachment';
 	};
 
+	const formatTimestamp = (value?: string): string | null => {
+		if (!value) return null;
+		const date = new Date(value);
+		if (Number.isNaN(date.getTime())) {
+			return null;
+		}
+		return date.toLocaleString(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		});
+	};
+
 	$: statusText =
 		message.status === 'pending'
 			? 'Saving to Ouroboros…'
@@ -90,6 +103,7 @@
 	$: isVideo = Boolean(dataUrl && normalizedMime.startsWith('video/'));
 	$: sizeLabel = formatBytes(message.sizeBytes ?? undefined);
 	$: downloadName = buildDownloadName();
+	$: createdAtLabel = formatTimestamp(message.createdAt);
 
 	const openAttachment = async (type: 'image' | 'video') => {
 		if (!dataUrl) return;
@@ -200,10 +214,13 @@
 	{:else}
 		<p>{message.content}</p>
 	{/if}
+	{#if createdAtLabel}
+		<div class="timestamp">Created {createdAtLabel}</div>
+	{/if}
 	<div class={`status ${statusClass}`}>{statusText}</div>
 	{#if message.children.length > 0}
 		<div class="children">
-			{#each message.children as child, index (child.id)}
+			{#each message.children as child, index (`${child.id}-${index}-${child.key ?? ''}`)}
 				<svelte:self
 					message={child}
 					level={level + 1}
@@ -496,12 +513,18 @@
 	}
 
 	.status {
-		margin-top: 0.35rem;
+		margin-top: 0.25rem;
 		font-size: 0.875rem;
 		line-height: 1.4;
 		font-weight: 500;
 		text-overflow: ellipsis;
 		overflow: clip;
+	}
+
+	.timestamp {
+		margin-top: 0.3rem;
+		font-size: 0.8rem;
+		color: #94a3b8;
 	}
 
 	.status-pending {

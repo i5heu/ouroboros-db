@@ -116,8 +116,8 @@ func TestNewOuroborosDB_Success(t *testing.T) {
 	if db.crypt == nil {
 		t.Error("Expected crypt to be initialized after Start")
 	}
-	if db.kv == nil {
-		t.Error("Expected kv to be initialized after Start")
+	if _, err := db.kvHandle(); err != nil {
+		t.Errorf("Expected kv to be initialized after Start, got: %v", err)
 	}
 }
 
@@ -251,14 +251,19 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 		ReedSolomonParityShards: 2,
 	}
 
+	kv, err := db.kvHandle()
+	if err != nil {
+		t.Fatalf("failed to get kv handle: %v", err)
+	}
+
 	// Write data
-	dataKey, err := db.kv.WriteData(testData)
+	dataKey, err := kv.WriteData(testData)
 	if err != nil {
 		t.Fatalf("Failed to write data: %v", err)
 	}
 
 	// Check if data exists
-	exists, err := db.kv.DataExists(dataKey)
+	exists, err := kv.DataExists(dataKey)
 	if err != nil {
 		t.Fatalf("Failed to check data existence: %v", err)
 	}
@@ -267,7 +272,7 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	}
 
 	// Read data back
-	readData, err := db.kv.ReadData(dataKey)
+	readData, err := kv.ReadData(dataKey)
 	if err != nil {
 		t.Fatalf("Failed to read data: %v", err)
 	}
@@ -350,6 +355,78 @@ func TestStoreAndGetData_Binary(t *testing.T) {
 	}
 	if !bytes.Equal(retrieved.Content, content) {
 		t.Fatalf("expected retrieved content to match original")
+	}
+}
+
+func TestStoreDataParentChildRelationships(t *testing.T) {
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	config := Config{
+		Paths:         []string{testDir},
+		MinimumFreeGB: 1,
+		Logger:        testLogger(),
+	}
+
+	db := newStartedDB(t, config)
+
+	parentContent := []byte("parent payload")
+	parentKey, err := db.StoreData(context.Background(), parentContent, StoreOptions{})
+	if err != nil {
+		t.Fatalf("StoreData for parent failed: %v", err)
+	}
+
+	childContent := []byte("child payload")
+	childKey, err := db.StoreData(context.Background(), childContent, StoreOptions{Parent: parentKey})
+	if err != nil {
+		t.Fatalf("StoreData for child failed: %v", err)
+	}
+
+	parentRetrieved, err := db.GetData(context.Background(), parentKey)
+	if err != nil {
+		t.Fatalf("GetData for parent failed: %v", err)
+	}
+
+	if parentRetrieved.CreatedAt.IsZero() {
+		t.Fatal("expected parent data to include creation timestamp")
+	}
+
+	if len(parentRetrieved.Children) != 1 {
+		t.Fatalf("expected parent to have 1 child, got %d", len(parentRetrieved.Children))
+	}
+	if parentRetrieved.Children[0] != childKey {
+		t.Fatalf("expected parent child to be %s, got %s", childKey.String(), parentRetrieved.Children[0].String())
+	}
+
+	childRetrieved, err := db.GetData(context.Background(), childKey)
+	if err != nil {
+		t.Fatalf("GetData for child failed: %v", err)
+	}
+
+	if childRetrieved.CreatedAt.IsZero() {
+		t.Fatal("expected child data to include creation timestamp")
+	}
+
+	if childRetrieved.Parent != parentKey {
+		t.Fatalf("expected child parent to be %s, got %s", parentKey.String(), childRetrieved.Parent.String())
+	}
+
+	roots, err := db.ListData(context.Background())
+	if err != nil {
+		t.Fatalf("ListData failed: %v", err)
+	}
+	if len(roots) != 1 || roots[0] != parentKey {
+		t.Fatalf("expected ListData to return parent root key only, got %v", roots)
+	}
+
+	children, err := db.ListChildren(context.Background(), parentKey)
+	if err != nil {
+		t.Fatalf("ListChildren failed: %v", err)
+	}
+	if len(children) != 1 || children[0] != childKey {
+		t.Fatalf("expected ListChildren to return child key, got %v", children)
 	}
 }
 

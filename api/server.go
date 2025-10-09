@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	cryptHash "github.com/i5heu/ouroboros-crypt/hash"
 	ouroboros "github.com/i5heu/ouroboros-db"
@@ -69,6 +70,7 @@ func New(db *ouroboros.OuroborosDB, opts ...Option) *Server {
 func (s *Server) routes() {
 	s.mux.HandleFunc("POST /data", s.handleCreate)
 	s.mux.HandleFunc("GET /data/{key}", s.handleGet)
+	s.mux.HandleFunc("GET /data/{key}/children", s.handleChildren)
 	s.mux.HandleFunc("GET /data", s.handleList)
 }
 
@@ -92,7 +94,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 	w.Header().Set(
 		"Access-Control-Expose-Headers",
-		"Content-Type, Content-Length, X-Ouroboros-Key, X-Ouroboros-Mime, X-Ouroboros-Is-Text, X-Ouroboros-Parent, X-Ouroboros-Children",
+		"Content-Type, Content-Length, X-Ouroboros-Key, X-Ouroboros-Mime, X-Ouroboros-Is-Text, X-Ouroboros-Parent, X-Ouroboros-Children, X-Ouroboros-Created-At",
 	)
 
 	if r.Method == http.MethodOptions {
@@ -289,6 +291,9 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Ouroboros-Key", keyHex)
 	w.Header().Set("X-Ouroboros-Is-Text", strconv.FormatBool(data.IsText))
 	w.Header().Set("X-Ouroboros-Mime", mimeType)
+	if !data.CreatedAt.IsZero() {
+		w.Header().Set("X-Ouroboros-Created-At", data.CreatedAt.UTC().Format(time.RFC3339Nano))
+	}
 	if !data.Parent.IsZero() {
 		w.Header().Set("X-Ouroboros-Parent", data.Parent.String())
 	}
@@ -309,6 +314,46 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(data.Content); err != nil {
 		s.log.Error("failed to write response body", "error", err, "key", keyHex)
 	}
+}
+
+func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	keyHex := r.PathValue("key")
+	if keyHex == "" {
+		http.Error(w, "missing key", http.StatusBadRequest)
+		return
+	}
+
+	key, err := cryptHash.HashHexadecimal(keyHex)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid key: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	children, err := s.db.ListChildren(r.Context(), key)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, ouroboros.ErrNotStarted) || errors.Is(err, ouroboros.ErrClosed) {
+			status = http.StatusServiceUnavailable
+		}
+		s.log.Error("failed to list children", "error", err, "key", keyHex)
+		http.Error(w, http.StatusText(status), status)
+		return
+	}
+
+	response := listResponse{Keys: make([]string, 0, len(children))}
+	for _, child := range children {
+		if child.IsZero() {
+			continue
+		}
+		response.Keys = append(response.Keys, child.String())
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func parseHash(value string) (cryptHash.Hash, error) {

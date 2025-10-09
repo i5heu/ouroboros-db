@@ -13,4 +13,6 @@ export type Message = {
     isText?: boolean;
     sizeBytes?: number;
     attachmentName?: string;
+    createdAt?: string;
+    createdAtMs?: number;
 };

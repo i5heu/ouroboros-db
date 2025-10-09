@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"log/slog"
 
@@ -82,6 +83,13 @@ func TestCreateAndList(t *testing.T) {
 	if mime := getRec.Header().Get("X-Ouroboros-Mime"); mime != "text/plain; charset=utf-8" {
 		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", mime)
 	}
+	created := getRec.Header().Get("X-Ouroboros-Created-At")
+	if created == "" {
+		t.Fatal("expected created timestamp header to be set")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, created); err != nil {
+		t.Fatalf("expected created timestamp to parse, got %q: %v", created, err)
+	}
 }
 
 func TestCreateValidation(t *testing.T) {
@@ -141,6 +149,13 @@ func TestGetBinaryData(t *testing.T) {
 	if mime := getRec.Header().Get("X-Ouroboros-Mime"); mime != "application/octet-stream" {
 		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", mime)
 	}
+	created := getRec.Header().Get("X-Ouroboros-Created-At")
+	if created == "" {
+		t.Fatal("expected created timestamp header to be set for binary data")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, created); err != nil {
+		t.Fatalf("expected created timestamp to parse for binary data, got %q: %v", created, err)
+	}
 
 	if !bytes.Equal(getRec.Body.Bytes(), payload) {
 		t.Fatalf("expected binary content to match original")
@@ -190,7 +205,7 @@ func TestCreateTextWithExplicitMIME(t *testing.T) {
 		t.Fatalf("expected X-Ouroboros-Mime to match, got %q", mime)
 	}
 
-	if string(getRec.Body.Bytes()) != string(payload) {
+	if getRec.Body.String() != string(payload) {
 		t.Fatalf("expected text content to match original")
 	}
 }
@@ -556,5 +571,66 @@ func TestAPIServerAuthFailure(t *testing.T) {
 
 	if h.authCount() != 1 {
 		t.Fatalf("expected auth hook to run once, ran %d", h.authCount())
+	}
+}
+
+func TestAPIServerParentChildHeaders(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	parentKey := h.create([]byte("parent"), WithMimeType("text/plain; charset=utf-8"))
+	childKey := h.create([]byte("child"), WithMimeType("text/plain; charset=utf-8"), WithParent(parentKey))
+
+	_, childHeader := h.get(childKey)
+	if headerParent := childHeader.Get("X-Ouroboros-Parent"); headerParent != parentKey {
+		t.Fatalf("expected child header parent %s, got %s", parentKey, headerParent)
+	}
+
+	_, parentHeader := h.get(parentKey)
+	childrenHeader := parentHeader.Get("X-Ouroboros-Children")
+	if childrenHeader == "" {
+		t.Fatalf("expected parent header to include children")
+	}
+
+	hasChild := false
+	for _, value := range strings.Split(childrenHeader, ",") {
+		if strings.TrimSpace(value) == childKey {
+			hasChild = true
+			break
+		}
+	}
+
+	if !hasChild {
+		t.Fatalf("expected parent header children to contain %s, got %s", childKey, childrenHeader)
+	}
+
+	if h.authCount() != 4 {
+		t.Fatalf("expected auth hook to run four times, ran %d", h.authCount())
+	}
+}
+
+func TestAPIServerChildrenEndpoint(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	parentKey := h.create([]byte("parent"), WithMimeType("text/plain; charset=utf-8"))
+	childKey := h.create([]byte("child"), WithMimeType("text/plain; charset=utf-8"), WithParent(parentKey))
+
+	roots := h.list()
+	if len(roots) != 1 || roots[0] != parentKey {
+		t.Fatalf("expected list to return only parent root, got %v", roots)
+	}
+
+	rec := h.request(http.MethodGet, fmt.Sprintf("/data/%s/children", parentKey), nil, nil)
+	h.requireStatus(rec, http.StatusOK)
+
+	var resp struct {
+		Keys []string `json:"keys"`
+	}
+	decodeJSONResponse(t, rec, &resp)
+	if len(resp.Keys) != 1 || resp.Keys[0] != childKey {
+		t.Fatalf("expected children endpoint to return child key, got %v", resp.Keys)
+	}
+
+	if h.authCount() != 4 {
+		t.Fatalf("expected auth hook to run four times, ran %d", h.authCount())
 	}
 }
