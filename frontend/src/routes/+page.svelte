@@ -19,6 +19,7 @@
 	let nextId = 1;
 	let selectedPath: number[] | null = null;
 	let selectedMessage: Message | null = null;
+	let selectedThreadIndex: number | null = null;
 	let fileInput: HTMLInputElement | null = null;
 	let activeSaves = 0;
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
@@ -120,6 +121,33 @@
 	const truncate = (value: string, length = 80): string => {
 		const trimmed = value.trim();
 		return trimmed.length <= length ? trimmed : `${trimmed.slice(0, length)}…`;
+	};
+
+	const threadTitle = (message: Message): string => {
+		const content = message.content?.trim() ?? '';
+		if (!content.length) {
+			return '[untitled]';
+		}
+		return truncate(content, 60);
+	};
+
+	const threadMeta = (message: Message): string => {
+		const replies = message.children.length;
+		if (!replies) {
+			return 'No replies yet';
+		}
+		return `${replies} repl${replies === 1 ? 'y' : 'ies'}`;
+	};
+
+	const messageStatusLabel = (status: Message['status']): string => {
+		switch (status) {
+			case 'pending':
+				return 'pending';
+			case 'failed':
+				return 'failed';
+			default:
+				return '';
+		}
 	};
 
 	const buildMessageTree = (records: PersistedRecord[]) => {
@@ -254,6 +282,13 @@
 		setSelectedPath(path);
 	};
 
+	const handleSelectThread = (index: number) => {
+		if (index < 0 || index >= messages.length) {
+			return;
+		}
+		setSelectedPath([index]);
+	};
+
 	const clearSelection = () => {
 		setSelectedPath(null);
 	};
@@ -261,6 +296,7 @@
 	$: {
 		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
 		selectedMessage = message;
+		selectedThreadIndex = selectedPath && selectedPath.length > 0 ? selectedPath[0] : null;
 		if (selectedPath && !message) {
 			selectedPath = null;
 			forgetLastKey();
@@ -609,284 +645,496 @@
 </script>
 
 <main>
-	<h1>Threaded Chat</h1>
-	<div class="chat-window">
-		{#if loading}
-			<p class="placeholder">Loading conversation…</p>
-		{:else if loadError && messages.length === 0}
-			<p class="placeholder error">{loadError}</p>
-		{:else if messages.length === 0}
-			<p class="placeholder">Type a message to start the conversation.</p>
-		{:else}
-			{#each messages as message, index (message.id)}
-				<MessageNode
-					{message}
-					level={0}
-					path={[index]}
-					{selectedPath}
-					selectMessage={handleSelectMessage}
-				/>
-			{/each}
-		{/if}
-	</div>
-
-	<div class="selection-info">
-		{#if selectedMessage}
-			<div class="info-text">
-				Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+	<div class="app-shell">
+		<aside class="thread-sidebar">
+			<div class="sidebar-header">
+				<h2>Threads</h2>
+				<button
+					type="button"
+					class="new-thread"
+					on:click={clearSelection}
+					disabled={statusState === 'sending'}
+				>
+					New thread
+				</button>
 			</div>
-			<button type="button" class="clear-selection" on:click={clearSelection}>
-				Start new thread
-			</button>
-		{:else}
-			<div class="info-text">Starting a new thread</div>
-		{/if}
+			{#if loading && messages.length === 0}
+				<p class="thread-placeholder">Loading…</p>
+			{:else if messages.length === 0}
+				<p class="thread-placeholder">No threads yet. Start one!</p>
+			{:else}
+				<ul class="thread-list">
+					{#each messages as thread, index (thread.id)}
+						<li>
+							<button
+								type="button"
+								class="thread-item"
+								class:active={selectedThreadIndex === index}
+								class:unsaved={thread.status !== 'saved'}
+								on:click={() => handleSelectThread(index)}
+							>
+								<div class="thread-item-title">{threadTitle(thread)}</div>
+								<div class="thread-item-meta">
+									{threadMeta(thread)}
+									{#if thread.status !== 'saved'}
+										· {messageStatusLabel(thread.status)}
+									{/if}
+								</div>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</aside>
+		<section class="conversation-area">
+			<header class="conversation-header">
+				<div class="conversation-heading">
+					<h1>Threaded Chat</h1>
+					<p class="conversation-subtitle">
+						{#if selectedMessage}
+							Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+						{:else}
+							Starting a new conversation
+						{/if}
+					</p>
+				</div>
+				<button
+					type="button"
+					class="new-thread"
+					on:click={clearSelection}
+					disabled={statusState === 'sending'}
+				>
+					Start new thread
+				</button>
+			</header>
+
+			<div class="chat-window">
+				{#if loading && messages.length === 0}
+					<p class="placeholder">Loading conversation…</p>
+				{:else if loadError && messages.length === 0}
+					<p class="placeholder error">{loadError}</p>
+				{:else if messages.length === 0}
+					<p class="placeholder">Type a message to start the conversation.</p>
+				{:else if selectedThreadIndex == null || !messages[selectedThreadIndex]}
+					<p class="placeholder">Select a thread to view its messages.</p>
+				{:else}
+					{#key messages[selectedThreadIndex].id}
+						<MessageNode
+							message={messages[selectedThreadIndex]}
+							level={0}
+							path={[selectedThreadIndex]}
+							{selectedPath}
+							selectMessage={handleSelectMessage}
+						/>
+					{/key}
+				{/if}
+			</div>
+
+			<div class="input-area">
+				<textarea
+					bind:value={inputValue}
+					rows="3"
+					placeholder="Type a message and press Enter"
+					on:keydown={handleKeydown}
+				></textarea>
+				<button
+					type="button"
+					class="attach-button"
+					on:click={openFilePicker}
+					disabled={statusState === 'sending'}
+				>
+					Attach
+				</button>
+				<button
+					type="button"
+					on:click={addMessage}
+					disabled={!inputValue.trim().length || statusState === 'sending'}
+				>
+					{statusState === 'sending' ? 'Sending…' : 'Send'}
+				</button>
+				<input
+					type="file"
+					class="file-input"
+					bind:this={fileInput}
+					on:change={handleFileSelection}
+					multiple
+					hidden
+				/>
+			</div>
+
+			{#if loadError && messages.length > 0}
+				<div class="global-status error">
+					{loadError}
+				</div>
+			{/if}
+
+			{#if statusState !== 'idle'}
+				<div class={`global-status ${statusState}`}>
+					{statusText}
+				</div>
+			{/if}
+		</section>
 	</div>
-
-	<div class="input-area">
-		<textarea
-			bind:value={inputValue}
-			rows="3"
-			placeholder="Type a message and press Enter"
-			on:keydown={handleKeydown}
-		></textarea>
-		<button
-			type="button"
-			class="attach-button"
-			on:click={openFilePicker}
-			disabled={statusState === 'sending'}
-		>
-			Attach
-		</button>
-		<button
-			type="button"
-			on:click={addMessage}
-			disabled={!inputValue.trim().length || statusState === 'sending'}
-		>
-			{statusState === 'sending' ? 'Sending…' : 'Send'}
-		</button>
-		<input
-			type="file"
-			class="file-input"
-			bind:this={fileInput}
-			on:change={handleFileSelection}
-			multiple
-			hidden
-		/>
-	</div>
-
-	{#if loadError && messages.length > 0}
-		<div class="global-status error">
-			{loadError}
-		</div>
-	{/if}
-
-	{#if statusState !== 'idle'}
-		<div class={`global-status ${statusState}`}>
-			{statusText}
-		</div>
-	{/if}
 </main>
 
 <style>
-	main {
-		max-width: 640px;
-		margin: 0 auto;
-		padding: 2rem 1rem 4rem;
+	:global(:root) {
+		--surface: #111c2f;
+		--surface-raised: #15213a;
+		--surface-muted: #0b1528;
+		--border: #1f2a3d;
+		--border-strong: #2c3b55;
+		--accent: #3b82f6;
+		--accent-strong: #2563eb;
+		--accent-soft: rgba(37, 99, 235, 0.12);
+		--text-primary: #e2e8f0;
+		--text-muted: #94a3b8;
+		--status-success: #22c55e;
+		--status-error: #ef4444;
+		--status-info: #38bdf8;
+		--shadow-strong: 0 18px 38px rgba(2, 6, 23, 0.45);
+	}
+
+	:global(body) {
+		margin: 0;
+		background: #0f172a;
+		color: var(--text-primary);
 		font-family:
 			system-ui,
 			-apple-system,
 			BlinkMacSystemFont,
 			'Segoe UI',
 			sans-serif;
-		color: #1f2933;
 	}
 
-	h1 {
-		text-align: center;
-		margin-bottom: 1.5rem;
-		font-weight: 600;
+	main {
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 2.5rem 1.5rem 4rem;
 	}
 
-	.chat-window {
-		border: 1px solid #d1d5db;
-		border-radius: 0.75rem;
-		padding: 1rem;
-		height: 420px;
-		overflow-y: auto;
-		background: #f8fafc;
+	.app-shell {
+		display: grid;
+		grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+		gap: 1.75rem;
+		align-items: stretch;
 	}
 
-	.selection-info {
+	.thread-sidebar {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 1rem;
+		padding: 1.25rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		min-height: 560px;
+		box-shadow: var(--shadow-strong);
+	}
+
+	.sidebar-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-top: 1rem;
-		padding: 0.75rem 1rem;
-		border-radius: 0.75rem;
-		background: #eef2ff;
-		color: #3730a3;
-		font-weight: 500;
-		box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.1);
+		gap: 0.75rem;
 	}
 
-	.selection-info .snippet {
+	.sidebar-header h2 {
+		margin: 0;
+		font-size: 1.1rem;
 		font-weight: 600;
+		color: var(--text-primary);
 	}
 
-	.selection-info .clear-selection {
-		background: transparent;
+	.new-thread {
+		background: var(--accent);
 		border: none;
-		color: #6366f1;
+		color: #f8fafc;
+		border-radius: 999px;
+		padding: 0.5rem 1.1rem;
+		font-size: 0.9rem;
 		font-weight: 600;
 		cursor: pointer;
-		padding: 0.35rem 0.75rem;
-		border-radius: 0.5rem;
 		transition:
-			background-color 0.15s ease,
-			color 0.15s ease;
+			transform 0.2s ease,
+			box-shadow 0.2s ease,
+			filter 0.2s ease;
 	}
 
-	.selection-info .clear-selection:hover {
-		background: rgba(99, 102, 241, 0.12);
+	.new-thread:hover:enabled {
+		transform: translateY(-1px);
+		box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+		filter: brightness(1.06);
 	}
 
-	.selection-info .clear-selection:focus {
-		outline: none;
-		box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.35);
+	.new-thread:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.thread-placeholder {
+		margin: 0;
+		padding: 1.5rem 0.75rem;
+		text-align: center;
+		color: var(--text-muted);
+		background: rgba(15, 23, 42, 0.65);
+		border-radius: 0.85rem;
+	}
+
+	.thread-list {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		overflow-y: auto;
+	}
+
+	.thread-list li {
+		margin: 0;
+	}
+
+	.thread-item {
+		background: var(--surface-muted);
+		border: 1px solid transparent;
+		border-radius: 0.85rem;
+		padding: 0.75rem 0.9rem;
+		cursor: pointer;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		width: 100%;
+		text-align: left;
+		color: inherit;
+		transition:
+			transform 0.15s ease,
+			border-color 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.thread-item:hover {
+		transform: translateX(4px);
+		border-color: var(--accent);
+		background: var(--accent-soft);
+	}
+
+	.thread-item.active {
+		border-color: rgba(59, 130, 246, 0.8);
+		background: rgba(37, 99, 235, 0.2);
+		box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35);
+	}
+
+	.thread-item.unsaved {
+		border-color: rgba(234, 179, 8, 0.5);
+		background: rgba(234, 179, 8, 0.16);
+	}
+
+	.thread-item-title {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.thread-item-meta {
+		font-size: 0.8rem;
+		color: var(--text-muted);
+	}
+
+	.conversation-area {
+		background: var(--surface-raised);
+		border: 1px solid var(--border);
+		border-radius: 1rem;
+		padding: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+		box-shadow: 0 22px 42px rgba(8, 11, 32, 0.5);
+	}
+
+	.conversation-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.conversation-heading h1 {
+		margin: 0;
+		font-size: 1.6rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.conversation-subtitle {
+		margin: 0.35rem 0 0;
+		font-size: 0.9rem;
+		color: var(--text-muted);
+	}
+
+	.conversation-subtitle .snippet {
+		font-weight: 600;
+		color: var(--accent);
+	}
+
+	.chat-window {
+		border: 1px solid var(--border-strong);
+		border-radius: 0.9rem;
+		padding: 1.25rem;
+		min-height: 380px;
+		max-height: 520px;
+		overflow-y: auto;
+		background: var(--surface-muted);
+		box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.6);
 	}
 
 	.placeholder {
 		text-align: center;
-		color: #6b7280;
+		color: var(--text-muted);
 		margin-top: 3rem;
 	}
 
 	.placeholder.error {
-		color: #dc2626;
+		color: var(--status-error);
 	}
 
 	.input-area {
-		margin-top: 1.25rem;
 		display: grid;
-		grid-template-columns: 1fr auto auto;
-		gap: 0.75rem;
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		gap: 0.9rem;
 		align-items: start;
 	}
 
 	textarea {
-		border-radius: 0.75rem;
-		border: 1px solid #cbd5f5;
-		padding: 0.75rem;
+		border-radius: 0.85rem;
+		border: 1px solid var(--border);
+		padding: 0.85rem;
 		font-size: 1rem;
 		resize: none;
 		font-family: inherit;
+		background: var(--surface);
+		color: var(--text-primary);
+		box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.6);
+		caret-color: var(--accent);
+	}
+
+	textarea::placeholder {
+		color: rgba(148, 163, 184, 0.8);
 	}
 
 	textarea:focus {
 		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 	}
 
 	button {
-		background: linear-gradient(135deg, #3b82f6, #6366f1);
-		color: white;
-		border: none;
-		border-radius: 0.75rem;
+		border-radius: 0.85rem;
 		padding: 0.75rem 1.5rem;
 		font-size: 1rem;
-		cursor: pointer;
 		font-weight: 600;
-		box-shadow: 0 12px 24px rgba(79, 70, 229, 0.2);
+		cursor: pointer;
 		transition:
-			transform 0.15s ease,
-			box-shadow 0.15s ease;
-	}
-
-	.attach-button {
-		background: #ffffff;
-		color: #2563eb;
-		border: 1px solid #93c5fd;
-		box-shadow: none;
-		padding: 0.75rem 1.25rem;
-	}
-
-	.attach-button:hover:enabled {
-		transform: none;
-		box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.6);
-		background: #eff6ff;
-	}
-
-	.attach-button:active:enabled {
-		transform: none;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+			transform 0.2s ease,
+			box-shadow 0.2s ease,
+			filter 0.2s ease;
+		border: none;
 	}
 
 	button:hover:enabled {
 		transform: translateY(-1px);
-		box-shadow: 0 16px 26px rgba(79, 70, 229, 0.3);
+		filter: brightness(1.04);
 	}
 
 	button:active:enabled {
 		transform: translateY(0);
-		box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+		filter: brightness(0.98);
 	}
 
 	button:disabled {
-		opacity: 0.6;
+		opacity: 0.55;
 		cursor: not-allowed;
 	}
 
+	.attach-button {
+		background: var(--surface);
+		border: 1px solid var(--border-strong);
+		color: var(--text-muted);
+	}
+
+	.attach-button:hover:enabled {
+		box-shadow: 0 12px 24px rgba(15, 23, 42, 0.35);
+		filter: brightness(1.05);
+	}
+
+	.input-area button:last-of-type {
+		background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+		color: #f8fafc;
+		box-shadow: 0 16px 32px rgba(37, 99, 235, 0.35);
+	}
+
 	.global-status {
-		margin-top: 1rem;
+		margin-top: 0.5rem;
 		padding: 0.75rem 1rem;
-		border-radius: 0.75rem;
+		border-radius: 0.85rem;
 		font-weight: 500;
 		font-size: 0.95rem;
-		box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+		box-shadow: 0 18px 30px rgba(15, 23, 42, 0.45);
+		text-overflow: ellipsis;
+		overflow: clip;
 	}
 
 	.global-status.sending {
-		background: rgba(59, 130, 246, 0.12);
-		color: #1d4ed8;
+		background: rgba(59, 130, 246, 0.18);
+		color: #cbd5f5;
 	}
 
 	.global-status.success {
-		background: rgba(16, 185, 129, 0.12);
-		color: #047857;
+		background: rgba(34, 197, 94, 0.18);
+		color: #bbf7d0;
 	}
 
 	.global-status.error {
-		background: rgba(239, 68, 68, 0.12);
-		color: #b91c1c;
+		background: rgba(239, 68, 68, 0.22);
+		color: #fecaca;
+	}
+
+	@media (max-width: 960px) {
+		.app-shell {
+			grid-template-columns: 1fr;
+		}
+
+		.thread-sidebar {
+			flex-direction: column;
+			min-height: auto;
+		}
+
+		.conversation-area {
+			min-height: auto;
+		}
 	}
 
 	@media (max-width: 640px) {
 		main {
-			padding: 1.5rem 0.75rem 3rem;
+			padding: 1.75rem 1rem 3rem;
 		}
 
-		.chat-window {
-			height: 320px;
-		}
-
-		.selection-info {
-			flex-direction: column;
+		.conversation-header {
 			align-items: flex-start;
-			gap: 0.5rem;
 		}
 
 		.input-area {
 			grid-template-columns: 1fr;
 		}
 
-		.input-area textarea {
-			grid-column: 1 / -1;
-		}
-
 		.input-area button {
 			width: 100%;
+		}
+
+		.chat-window {
+			max-height: none;
+			min-height: 320px;
 		}
 	}
 </style>
