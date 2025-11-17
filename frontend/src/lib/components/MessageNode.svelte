@@ -255,12 +255,7 @@
 			tabindex="-1"
 		>
 			<header class="attachment-modal-header">
-				<div class="attachment-modal-details">
-					<h2 id={`attachment-modal-title-${message.id}`}>{modalAttachment.name}</h2>
-					{#if modalAttachment.mime}
-						<span class="attachment-modal-mime">{modalAttachment.mime}</span>
-					{/if}
-				</div>
+				<h2 id={`attachment-modal-title-${message.id}`}>{modalAttachment.name}</h2>
 				<button
 					class="attachment-modal-close"
 					type="button"
@@ -270,6 +265,9 @@
 				>
 					×
 				</button>
+				{#if modalAttachment.mime}
+					<span class="attachment-modal-mime">{modalAttachment.mime}</span>
+				{/if}
 			</header>
 			<div class="attachment-modal-body">
 				{#if modalAttachment.type === 'image'}
@@ -405,16 +403,22 @@
 	}
 
 	.attachment-modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 1rem;
+		display: grid;
+		grid-template-columns: 1fr max-content;
+		column-gap: 1rem;
+		row-gap: 0.2rem;
+		align-items: center;
+		width: 100%;
+		box-sizing: border-box;
 	}
 
-	.attachment-modal-details h2 {
+	.attachment-modal-header h2 {
 		margin: 0;
 		font-size: 1.15rem;
 		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.attachment-modal-mime {
@@ -431,8 +435,7 @@
 		font-size: 1.75rem;
 		line-height: 1;
 		cursor: pointer;
-		border-radius: 999px;
-		padding: 0.25rem 0.75rem;
+		border-radius: 0.75rem;
 	}
 
 	.attachment-modal-close:hover,
