@@ -23,6 +23,20 @@ type authProcessReq struct {
 	SHA512        string `json:"sha512"`
 }
 
+const base64HeaderPrefix = "b64:"
+
+func decodeStrictBase64(value string) ([]byte, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || !strings.HasPrefix(trimmed, base64HeaderPrefix) {
+		return nil, false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(trimmed[len(base64HeaderPrefix):])
+	if err != nil {
+		return nil, false
+	}
+	return decoded, true
+}
+
 func defaultAuth(req *http.Request, db *ouroboros.OuroborosDB) error { // PHC
 	reqToken := req.Header.Get("X-Auth-Token")
 	reqNonce := req.Header.Get("X-Auth-Nonce")
@@ -62,7 +76,16 @@ func defaultAuth(req *http.Request, db *ouroboros.OuroborosDB) error { // PHC
 	}
 
 	// check if reqToken matches browserKey.Key using AES-256-GCM
-	plaintext, err := browserAuth.DecryptWithAESGCM(browserKey.Key, []byte(reqNonce), []byte(reqToken))
+	tokenBytes, ok := decodeStrictBase64(reqToken)
+	if !ok {
+		tokenBytes = []byte(reqToken)
+	}
+	nonceBytes, ok := decodeStrictBase64(reqNonce)
+	if !ok {
+		nonceBytes = []byte(reqNonce)
+	}
+
+	plaintext, err := browserAuth.DecryptWithAESGCM(browserKey.Key, nonceBytes, tokenBytes)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt token: %w", err)
 	}
@@ -129,7 +152,12 @@ func (s *Server) authProcess(ctx context.Context, w http.ResponseWriter, req aut
 		panic(err.Error())
 	}
 
-	plaintext, err := aesgcm.Open(nil, otk.Nonce, []byte(req.EncryptedData), nil)
+	ciphertext, ok := decodeStrictBase64(req.EncryptedData)
+	if !ok {
+		ciphertext = []byte(req.EncryptedData)
+	}
+
+	plaintext, err := aesgcm.Open(nil, otk.Nonce, ciphertext, nil)
 	if err != nil {
 		panic(err.Error())
 	}

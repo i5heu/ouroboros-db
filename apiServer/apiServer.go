@@ -46,6 +46,7 @@ func (s *Server) routes() { // AC
 	s.mux.HandleFunc("GET /data/{key}/children", s.handleChildren)
 	s.mux.HandleFunc("GET /data", s.handleList)
 	s.mux.HandleFunc("GET /authProcess", s.handleAuthProcess)
+	s.mux.HandleFunc("POST /authProcess", s.handleAuthProcess)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC

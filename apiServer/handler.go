@@ -242,15 +242,26 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) { // A
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) handleAuthProcess(w http.ResponseWriter, r *http.Request) { // A
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20)) // limit to 1MB
-	dec.DisallowUnknownFields()
+func (s *Server) handleAuthProcess(w http.ResponseWriter, r *http.Request) { // AC
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
 
 	var req authProcessReq
+	useBody := r.Body != nil && r.Body != http.NoBody && (r.ContentLength > 0 || r.Method == http.MethodPost)
 
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
+	if useBody {
+		dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20)) // limit to 1MB
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+			return
+		}
+	} else {
+		query := r.URL.Query()
+		req.EncryptedData = query.Get("data")
+		req.SHA512 = query.Get("sha512")
 	}
 
 	s.authProcess(r.Context(), w, req)

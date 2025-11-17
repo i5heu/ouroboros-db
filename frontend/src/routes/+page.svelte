@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import MessageNode from '../lib/components/MessageNode.svelte';
 	import type { Message } from '../lib/types';
+	import { bootstrapAuthFromParams, buildAuthHeaders } from '../lib/auth';
 
 	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? 'http://localhost:8083';
 	const LAST_KEY_STORAGE = 'ouroboros:lastKey';
+	const AUTH_BANNER_TIMEOUT_MS = 5_000;
 
 	type PersistedRecord = {
 		key: string;
@@ -15,6 +17,8 @@
 		createdAt?: string;
 		createdAtMs?: number;
 	};
+
+	type AuthStatus = 'idle' | 'authenticating' | 'authenticated' | 'error';
 
 	let messages: Message[] = [];
 	let inputValue = '';
@@ -29,6 +33,11 @@
 	let loading = false;
 	let loadError = '';
 	let keyToPath = new Map<string, number[]>();
+	let authStatus: AuthStatus = 'idle';
+	let authStatusText = 'Authenticate with the one-time key link to unlock data access.';
+	let authBannerVisible = true;
+	let authBannerTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastAuthStatusText = '';
 
 	const deepClone = <T,>(value: T): T => {
 		if (typeof structuredClone === 'function') {
@@ -61,6 +70,11 @@
 		}
 
 		throw new Error('Base64 encoding unavailable in this environment.');
+	};
+
+	const withAuthHeaders = async (extras: Record<string, string> = {}) => {
+		const authHeaders = await buildAuthHeaders();
+		return { ...authHeaders, ...extras };
 	};
 
 	const formatBytes = (size: number): string => {
@@ -389,7 +403,9 @@
 		encodeBytesToBase64(new TextEncoder().encode(text));
 
 	const fetchMessageRecord = async (key: string): Promise<PersistedRecord> => {
-		const response = await fetch(`${API_BASE_URL}/data/${key}`);
+		const response = await fetch(`${API_BASE_URL}/data/${key}`, {
+			headers: await withAuthHeaders()
+		});
 		if (!response.ok) {
 			const message = (await response.text()) || `Request failed with status ${response.status}`;
 			throw new Error(message);
@@ -420,7 +436,9 @@
 	};
 
 	const fetchChildKeys = async (key: string): Promise<string[]> => {
-		const response = await fetch(`${API_BASE_URL}/data/${key}/children`);
+		const response = await fetch(`${API_BASE_URL}/data/${key}/children`, {
+			headers: await withAuthHeaders({ Accept: 'application/json' })
+		});
 		if (!response.ok) {
 			const message = (await response.text()) || `Request failed with status ${response.status}`;
 			throw new Error(message);
@@ -440,7 +458,9 @@
 		loading = true;
 		loadError = '';
 		try {
-			const response = await fetch(`${API_BASE_URL}/data`);
+			const response = await fetch(`${API_BASE_URL}/data`, {
+				headers: await withAuthHeaders({ Accept: 'application/json' })
+			});
 			if (!response.ok) {
 				const message = (await response.text()) || `Request failed with status ${response.status}`;
 				throw new Error(message);
@@ -502,8 +522,53 @@
 	};
 
 	onMount(() => {
-		void restoreConversation();
+		const params =
+			typeof window !== 'undefined'
+				? new URLSearchParams(window.location.search)
+				: new URLSearchParams();
+		authStatus = 'authenticating';
+		void (async () => {
+			try {
+				const result = await bootstrapAuthFromParams(params, API_BASE_URL);
+				authStatus = result.hasCredentials ? 'authenticated' : 'idle';
+				authStatusText =
+					result.message ??
+					(result.hasCredentials
+						? 'Authentication ready.'
+						: 'Provide ?base64Key=…&base64Nonce=… from the server output to authenticate.');
+			} catch (error) {
+				authStatus = 'error';
+				authStatusText = error instanceof Error ? error.message : String(error);
+			} finally {
+				void restoreConversation();
+			}
+		})();
 	});
+
+	onDestroy(() => {
+		if (authBannerTimer) {
+			clearTimeout(authBannerTimer);
+			authBannerTimer = null;
+		}
+	});
+
+	$: if (authStatusText !== lastAuthStatusText) {
+		lastAuthStatusText = authStatusText;
+		if (authBannerTimer) {
+			clearTimeout(authBannerTimer);
+			authBannerTimer = null;
+		}
+		const trimmed = authStatusText.trim();
+		if (trimmed) {
+			authBannerVisible = true;
+			authBannerTimer = setTimeout(() => {
+				authBannerVisible = false;
+				authBannerTimer = null;
+			}, AUTH_BANNER_TIMEOUT_MS);
+		} else {
+			authBannerVisible = false;
+		}
+	}
 
 	const insertMessage = (newMessage: Message, parentPath: number[] | null): number[] => {
 		if (parentPath && parentPath.length > 0) {
@@ -606,7 +671,8 @@
 		try {
 			const response = await fetch(`${API_BASE_URL}/data`, {
 				method: 'POST',
-				body: formData
+				body: formData,
+				headers: await withAuthHeaders()
 			});
 
 			if (!response.ok) {
@@ -730,6 +796,11 @@
 </script>
 
 <main>
+	{#if authBannerVisible && authStatusText}
+		<div class={`auth-banner ${authStatus}`}>
+			{authStatusText}
+		</div>
+	{/if}
 	<div class="app-shell">
 		<aside class="thread-sidebar">
 			<div class="sidebar-header">
@@ -888,6 +959,34 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 2.5rem 1.5rem 4rem;
+	}
+
+	.auth-banner {
+		margin-bottom: 1rem;
+		padding: 0.85rem 1.1rem;
+		border-radius: 0.85rem;
+		background: rgba(59, 130, 246, 0.15);
+		border: 1px solid rgba(59, 130, 246, 0.4);
+		color: #cbd5f5;
+		font-weight: 500;
+	}
+
+	.auth-banner.authenticated {
+		background: rgba(34, 197, 94, 0.18);
+		border-color: rgba(34, 197, 94, 0.4);
+		color: #bbf7d0;
+	}
+
+	.auth-banner.error {
+		background: rgba(239, 68, 68, 0.2);
+		border-color: rgba(239, 68, 68, 0.45);
+		color: #fecaca;
+	}
+
+	.auth-banner.idle {
+		background: rgba(234, 179, 8, 0.15);
+		border-color: rgba(234, 179, 8, 0.4);
+		color: #fef3c7;
 	}
 
 	.app-shell {
