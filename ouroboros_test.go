@@ -15,8 +15,7 @@ import (
 )
 
 // setupTestDir creates a temporary directory for testing
-// A
-func setupTestDir(tb testing.TB) string {
+func setupTestDir(tb testing.TB) string { // A
 	tb.Helper()
 	testDir, err := os.MkdirTemp("", "ouroboros_test_*")
 	if err != nil {
@@ -26,8 +25,7 @@ func setupTestDir(tb testing.TB) string {
 }
 
 // setupTestKeyFile creates a test key file for ouroboros-crypt
-// A
-func setupTestKeyFile(tb testing.TB, testDir string) string {
+func setupTestKeyFile(tb testing.TB, testDir string) string { // A
 	tb.Helper()
 	// Create a new crypto instance
 	asyncCrypt, err := keys.NewAsyncCrypt()
@@ -46,21 +44,18 @@ func setupTestKeyFile(tb testing.TB, testDir string) string {
 }
 
 // cleanupTestDir removes the test directory
-// A
-func cleanupTestDir(tb testing.TB, testDir string) {
+func cleanupTestDir(tb testing.TB, testDir string) { // A
 	tb.Helper()
 	if err := os.RemoveAll(testDir); err != nil {
 		tb.Errorf("Failed to cleanup test directory: %v", err)
 	}
 }
 
-// A
-func testLogger() *slog.Logger {
+func testLogger() *slog.Logger { // A
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// A
-func newStartedDB(t *testing.T, config Config) *OuroborosDB {
+func newStartedDB(t *testing.T, config Config) *OuroborosDB { // A
 	t.Helper()
 
 	db, err := New(config)
@@ -81,8 +76,7 @@ func newStartedDB(t *testing.T, config Config) *OuroborosDB {
 	return db
 }
 
-// A
-func TestNewOuroborosDB_Success(t *testing.T) {
+func TestNewOuroborosDB_Success(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -127,8 +121,7 @@ func TestNewOuroborosDB_Success(t *testing.T) {
 	}
 }
 
-// A
-func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
+func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -159,8 +152,7 @@ func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
 	}
 }
 
-// A
-func TestNewOuroborosDB_EmptyPaths(t *testing.T) {
+func TestNewOuroborosDB_EmptyPaths(t *testing.T) { // A
 	config := Config{
 		Paths:         []string{}, // Empty paths should cause error
 		MinimumFreeGB: 1,
@@ -181,8 +173,7 @@ func TestNewOuroborosDB_EmptyPaths(t *testing.T) {
 	}
 }
 
-// A
-func TestNewOuroborosDB_MissingKeyFile(t *testing.T) {
+func TestNewOuroborosDB_MissingKeyFile(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -212,8 +203,7 @@ func TestNewOuroborosDB_MissingKeyFile(t *testing.T) {
 	}
 }
 
-// A
-func TestNewOuroborosDB_InvalidPath(t *testing.T) {
+func TestNewOuroborosDB_InvalidPath(t *testing.T) { // A
 	// Use a path that doesn't exist and cannot be created
 	invalidPath := "/invalid/nonexistent/path"
 
@@ -238,8 +228,7 @@ func TestNewOuroborosDB_InvalidPath(t *testing.T) {
 	}
 }
 
-// A
-func TestOuroborosDB_BasicKVOperations(t *testing.T) {
+func TestOuroborosDB_BasicKVOperations(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -294,8 +283,7 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	}
 }
 
-// A
-func TestStoreAndGetData_Text(t *testing.T) {
+func TestStoreAndGetData_Text(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -332,8 +320,7 @@ func TestStoreAndGetData_Text(t *testing.T) {
 	}
 }
 
-// A
-func TestStoreAndGetData_Binary(t *testing.T) {
+func TestStoreAndGetData_Binary(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -371,8 +358,7 @@ func TestStoreAndGetData_Binary(t *testing.T) {
 	}
 }
 
-// A
-func TestStoreDataParentChildRelationships(t *testing.T) {
+func TestStoreDataParentChildRelationships(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -444,8 +430,7 @@ func TestStoreDataParentChildRelationships(t *testing.T) {
 	}
 }
 
-// A
-func TestOuroborosDB_CryptOperations(t *testing.T) {
+func TestOuroborosDB_CryptOperations(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -481,8 +466,7 @@ func TestOuroborosDB_CryptOperations(t *testing.T) {
 	}
 }
 
-// A
-func TestOuroborosDB_HashOperations(t *testing.T) {
+func TestOuroborosDB_HashOperations(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -515,8 +499,7 @@ func TestOuroborosDB_HashOperations(t *testing.T) {
 	}
 }
 
-// A
-func TestOuroborosDB_Close(t *testing.T) {
+func TestOuroborosDB_Close(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
@@ -548,16 +531,14 @@ func TestOuroborosDB_Close(t *testing.T) {
 }
 
 // testDB returns a minimal OuroborosDB instance for testing encode/decode functions
-// A
-func testDB(t *testing.T) *OuroborosDB {
+func testDB(t *testing.T) *OuroborosDB { // A
 	t.Helper()
 	return &OuroborosDB{
 		log: testLogger(),
 	}
 }
 
-// A
-func TestEncodeContentWithMimeType(t *testing.T) {
+func TestEncodeContentWithMimeType(t *testing.T) { // A
 	db := testDB(t)
 	content := []byte("sample payload")
 
@@ -652,8 +633,7 @@ func TestEncodeContentWithMimeType(t *testing.T) {
 	}
 }
 
-// A
-func TestDecodeContent(t *testing.T) {
+func TestDecodeContent(t *testing.T) { // A
 	db := testDB(t)
 	content := []byte("test payload data")
 
@@ -895,8 +875,7 @@ func TestDecodeContent(t *testing.T) {
 }
 
 // Benchmark test for database creation
-// A
-func BenchmarkNewOuroborosDB(b *testing.B) {
+func BenchmarkNewOuroborosDB(b *testing.B) { // A
 	testDir := setupTestDir(b)
 	b.Cleanup(func() { cleanupTestDir(b, testDir) })
 

@@ -90,7 +90,7 @@ This layout allows fast retrieval of text/binary hints without additional metada
 ### Legend
 
 #### Annotation legend for function comments:
-To indicate the correctness and safety of the logic of functions, the following annotations are used in the comments directly above the function definitions:
+To indicate the correctness and safety of the logic of functions, the following annotations are used in comments directly after the function definitions (See examples below):
 
 - `// A` - Function and was written by **AI** and was not reviewed by a **human**.
 - `// AP` - Function was written by **AI** and was reviewed but the **human** has found a potential issue which the **human** marked with a `// TODO ` comment.
@@ -103,30 +103,28 @@ If the function has a higher risk profile (e.g., involves complex algorithms, se
 
 **All `P` function must be brought to `PHC` status before a production release.**
 
+We add the indicators directly after the function declaration, although it is normally not common practice in Go, because it makes it easier to see the status of the function for most editors as they show use sticky function declaration.
+
 Examples:  
 ```go
 
 // This function does X, Y, and Z.
-// A
-func exampleFunction() {
+func exampleFunction() { // A
     // Function is low risk and was written by AI and not reviewed by a human.
 }
 
 // This function does X, Y, and Z.
-// HC
-func exampleFunction() {
+func exampleFunction() { // HC
     // Function is low risk and was comprehended by a human who is confident about its correctness and safety.
 }
 
 // This function performs critical operations X, Y, and Z has some funky stuff going on.
-// PAP
-func criticalFunction() {
+func criticalFunction() { // PAP
     // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
 }
 
 // This function performs critical operations X, Y, and Z.
-// PHC
-func criticalFunction() {
+func criticalFunction() { // PHC
     // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
 }
 ```

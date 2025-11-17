@@ -25,8 +25,7 @@ import (
 // newTempStartedDB creates and starts an OuroborosDB instance backed by a
 // temporary testing directory. The database is automatically closed when the
 // test finishes.
-// A
-func newTempStartedDB(t *testing.T) *ouroboros.OuroborosDB {
+func newTempStartedDB(t *testing.T) *ouroboros.OuroborosDB { // A
 	t.Helper()
 
 	dataDir := t.TempDir()
@@ -65,8 +64,7 @@ func newTempStartedDB(t *testing.T) *ouroboros.OuroborosDB {
 	return db
 }
 
-// A
-func testLogger() *slog.Logger {
+func testLogger() *slog.Logger { // A
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
@@ -76,8 +74,7 @@ type apiHarness struct {
 	authCalls *int
 }
 
-// A
-func newAPIHarness(t *testing.T, auth api.AuthFunc, opts ...api.Option) *apiHarness {
+func newAPIHarness(t *testing.T, auth api.AuthFunc, opts ...api.Option) *apiHarness { // A
 	t.Helper()
 
 	db := newTempStartedDB(t)
@@ -103,8 +100,7 @@ func newAPIHarness(t *testing.T, auth api.AuthFunc, opts ...api.Option) *apiHarn
 	}
 }
 
-// A
-func (h *apiHarness) request(method, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder {
+func (h *apiHarness) request(method, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder { // A
 	h.t.Helper()
 
 	req := httptest.NewRequest(method, target, body)
@@ -120,24 +116,21 @@ func (h *apiHarness) request(method, target string, body io.Reader, headers map[
 	return recorder
 }
 
-// A
-func (h *apiHarness) authCount() int {
+func (h *apiHarness) authCount() int { // A
 	if h.authCalls == nil {
 		return 0
 	}
 	return *h.authCalls
 }
 
-// A
-func (h *apiHarness) requireStatus(rec *httptest.ResponseRecorder, expected int) {
+func (h *apiHarness) requireStatus(rec *httptest.ResponseRecorder, expected int) { // A
 	h.t.Helper()
 	if rec.Code != expected {
 		h.t.Fatalf("expected status %d, got %d, body: %s", expected, rec.Code, rec.Body.String())
 	}
 }
 
-// A
-func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, target any) {
+func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, target any) { // A
 	t.Helper()
 	if err := json.Unmarshal(rec.Body.Bytes(), target); err != nil {
 		t.Fatalf("failed to decode response: %v (body: %s)", err, rec.Body.String())
@@ -155,44 +148,38 @@ type createConfig struct {
 
 type CreateOption func(*createConfig)
 
-// A
-func WithMimeType(mime string) CreateOption {
+func WithMimeType(mime string) CreateOption { // A
 	return func(cfg *createConfig) {
 		cfg.mimeType = mime
 	}
 }
 
-// A
-func WithParent(parent string) CreateOption {
+func WithParent(parent string) CreateOption { // A
 	return func(cfg *createConfig) {
 		cfg.parent = parent
 	}
 }
 
-// A
-func WithChildren(children ...string) CreateOption {
+func WithChildren(children ...string) CreateOption { // A
 	return func(cfg *createConfig) {
 		cfg.children = append([]string{}, children...)
 	}
 }
 
-// A
-func WithReedSolomon(shards, parity uint8) CreateOption {
+func WithReedSolomon(shards, parity uint8) CreateOption { // A
 	return func(cfg *createConfig) {
 		cfg.shards = shards
 		cfg.parity = parity
 	}
 }
 
-// A
-func WithFilename(name string) CreateOption {
+func WithFilename(name string) CreateOption { // A
 	return func(cfg *createConfig) {
 		cfg.filename = name
 	}
 }
 
-// A
-func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
+func (h *apiHarness) create(content []byte, opts ...CreateOption) string { // A
 	h.t.Helper()
 
 	cfg := createConfig{}
@@ -241,8 +228,7 @@ func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
 	return resp.Key
 }
 
-// A
-func (h *apiHarness) list() []string {
+func (h *apiHarness) list() []string { // A
 	rec := h.request(http.MethodGet, "/data", nil, nil)
 	h.requireStatus(rec, http.StatusOK)
 
@@ -253,8 +239,7 @@ func (h *apiHarness) list() []string {
 	return resp.Keys
 }
 
-// A
-func (h *apiHarness) get(key string) ([]byte, http.Header) {
+func (h *apiHarness) get(key string) ([]byte, http.Header) { // A
 	rec := h.request(http.MethodGet, "/data/"+key, nil, nil)
 	h.requireStatus(rec, http.StatusOK)
 
@@ -266,13 +251,11 @@ func (h *apiHarness) get(key string) ([]byte, http.Header) {
 	return body, header
 }
 
-// A
-func (h *apiHarness) options(path string, headers map[string]string) *httptest.ResponseRecorder {
+func (h *apiHarness) options(path string, headers map[string]string) *httptest.ResponseRecorder { // A
 	return h.request(http.MethodOptions, path, nil, headers)
 }
 
-// A
-func newMultipartRequest(t *testing.T, method, target string, payload []byte, filename, mimeType string, metadata map[string]any) *http.Request {
+func newMultipartRequest(t *testing.T, method, target string, payload []byte, filename, mimeType string, metadata map[string]any) *http.Request { // A
 	t.Helper()
 
 	var body bytes.Buffer
@@ -315,8 +298,7 @@ func newMultipartRequest(t *testing.T, method, target string, payload []byte, fi
 	return req
 }
 
-// A
-func TestAPIServerCreate(t *testing.T) {
+func TestAPIServerCreate(t *testing.T) { // A
 	h := newAPIHarness(t, nil)
 
 	key := h.create([]byte("hello ouroboros api"), WithMimeType("text/plain; charset=utf-8"))
@@ -329,8 +311,7 @@ func TestAPIServerCreate(t *testing.T) {
 	}
 }
 
-// A
-func TestAPIServerListAfterCreate(t *testing.T) {
+func TestAPIServerListAfterCreate(t *testing.T) { // A
 	h := newAPIHarness(t, nil)
 
 	key := h.create([]byte("list me"), WithMimeType("text/plain; charset=utf-8"))
@@ -345,8 +326,7 @@ func TestAPIServerListAfterCreate(t *testing.T) {
 	}
 }
 
-// A
-func TestAPIServerGetAfterCreate(t *testing.T) {
+func TestAPIServerGetAfterCreate(t *testing.T) { // A
 	h := newAPIHarness(t, nil)
 
 	payload := []byte("fetch me")
@@ -371,8 +351,7 @@ func TestAPIServerGetAfterCreate(t *testing.T) {
 	}
 }
 
-// A
-func TestAPIServerOptionsSkipsAuth(t *testing.T) {
+func TestAPIServerOptionsSkipsAuth(t *testing.T) { // A
 	h := newAPIHarness(t, nil)
 
 	rec := h.options("/data", map[string]string{"Origin": "https://example.test"})
@@ -389,8 +368,7 @@ func TestAPIServerOptionsSkipsAuth(t *testing.T) {
 	}
 }
 
-// A
-func TestAPIServerAuthFailure(t *testing.T) {
+func TestAPIServerAuthFailure(t *testing.T) { // A
 	expectedErr := errors.New("no credentials")
 	h := newAPIHarness(t, func(r *http.Request) error { return expectedErr })
 

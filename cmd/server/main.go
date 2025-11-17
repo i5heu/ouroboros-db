@@ -17,8 +17,7 @@ import (
 	api "github.com/i5heu/ouroboros-db/api"
 )
 
-// A
-func main() {
+func main() { // A
 	cfg := ouroboros.Config{
 		Paths:         []string{"./data"},
 		MinimumFreeGB: 1,

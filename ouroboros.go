@@ -86,8 +86,7 @@ type storedMetadata struct {
 
 // defaultLogger returns a logger that writes text logs to stderr at Info level.
 // Applications can inject their own slog.Logger for JSON, different levels, etc.
-// A
-func defaultLogger() *slog.Logger {
+func defaultLogger() *slog.Logger { // A
 	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
@@ -96,8 +95,7 @@ func defaultLogger() *slog.Logger {
 
 // New constructs a database handle. New does not perform heavy I/O or start
 // background goroutines. Call Start to initialize subsystems.
-// A
-func New(conf Config) (*OuroborosDB, error) {
+func New(conf Config) (*OuroborosDB, error) { // A
 	if len(conf.Paths) == 0 {
 		return nil, fmt.Errorf("at least one path must be provided in config")
 	}
@@ -112,8 +110,7 @@ func New(conf Config) (*OuroborosDB, error) {
 
 // Start initializes the crypt layer and KV store and marks the database as
 // ready. Start is safe to call multiple times; only the first call has effect.
-// A
-func (ou *OuroborosDB) Start(ctx context.Context) error {
+func (ou *OuroborosDB) Start(ctx context.Context) error { // A
 	var startErr error
 	ou.startOnce.Do(func() {
 		dataRoot := ou.config.Paths[0]
@@ -153,8 +150,7 @@ func (ou *OuroborosDB) Start(ctx context.Context) error {
 
 // Run starts the database, then blocks until ctx is canceled, and finally
 // performs a bounded graceful shutdown. It is a convenience for services.
-// A
-func (ou *OuroborosDB) Run(ctx context.Context) error {
+func (ou *OuroborosDB) Run(ctx context.Context) error { // A
 	if err := ou.Start(ctx); err != nil {
 		return err
 	}
@@ -166,8 +162,7 @@ func (ou *OuroborosDB) Run(ctx context.Context) error {
 
 // Close terminates background components and releases resources. Close is
 // idempotent and safe to call multiple times.
-// A
-func (ou *OuroborosDB) Close(ctx context.Context) error {
+func (ou *OuroborosDB) Close(ctx context.Context) error { // A
 	var closeErr error
 	ou.closeOnce.Do(func() {
 		if kv := ou.kv.Swap(nil); kv != nil {
@@ -184,13 +179,11 @@ func (ou *OuroborosDB) Close(ctx context.Context) error {
 
 // CloseWithoutContext closes the database using a background context.
 // Prefer Close(ctx) to enforce an application-specific shutdown deadline.
-// A
-func (ou *OuroborosDB) CloseWithoutContext() error {
+func (ou *OuroborosDB) CloseWithoutContext() error { // A
 	return ou.Close(context.Background())
 }
 
-// A
-func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) {
+func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) { // A
 	if !ou.started.Load() {
 		return nil, ErrNotStarted
 	}
@@ -203,8 +196,7 @@ func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) {
 	return kv, nil
 }
 
-// A
-func mergeHashSets(groups ...[]hash.Hash) []hash.Hash {
+func mergeHashSets(groups ...[]hash.Hash) []hash.Hash { // A
 	if len(groups) == 0 {
 		return nil
 	}
@@ -235,8 +227,7 @@ func mergeHashSets(groups ...[]hash.Hash) []hash.Hash {
 	return merged
 }
 
-// HC
-func (opts *StoreOptions) applyDefaults() {
+func (opts *StoreOptions) applyDefaults() { // HC
 	if opts.ReedSolomonShards == 0 {
 		opts.ReedSolomonShards = 4
 	}
@@ -245,8 +236,7 @@ func (opts *StoreOptions) applyDefaults() {
 	}
 }
 
-// AP
-func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) {
+func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) { // AP
 	if err := ctx.Err(); err != nil {
 		return hash.Hash{}, err
 	}
@@ -382,8 +372,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 	}, nil
 }
 
-// HC
-func encodeMetadata(meta storedMetadata) ([]byte, error) {
+func encodeMetadata(meta storedMetadata) ([]byte, error) { // HC
 	return json.Marshal(meta)
 }
 
@@ -391,8 +380,7 @@ func encodeMetadata(meta storedMetadata) ([]byte, error) {
 //
 // Empty or whitespace-only input is treated as absent metadata and results in a zero-value storedMetadata and a nil error.
 // On success it returns the decoded storedMetadata and a nil error; if JSON decoding fails the error is returned wrapped with context ("decode metadata:").
-// HC
-func decodeMetadata(raw []byte) (storedMetadata, error) {
+func decodeMetadata(raw []byte) (storedMetadata, error) { // HC
 	if len(raw) == 0 || len(bytes.TrimSpace(raw)) == 0 {
 		return storedMetadata{}, nil
 	}
@@ -416,8 +404,7 @@ func decodeMetadata(raw []byte) (storedMetadata, error) {
 // payload is the header concatenated with the content bytes.
 //
 // The function does not modify its input slices and returns either the encoded payload or an error.
-// HC
-func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) {
+func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) { // HC
 
 	// check if mimeType is empty before TrimSpace to avoid unnecessary processing
 	if mimeType == "" {
@@ -454,8 +441,7 @@ func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) 
 // an error is returned.
 //
 // The function does not modify its input slice and returns either the decoded content, header, MIME flag, or an error.
-// HC
-func (ou *OuroborosDB) decodeContent(payload []byte) (data []byte, payloadHeader []byte, isMime bool, err error) {
+func (ou *OuroborosDB) decodeContent(payload []byte) (data []byte, payloadHeader []byte, isMime bool, err error) { // HC
 	if len(payload) < 1 {
 		return nil, nil, false, errors.New("ouroboros: payload is impossible short, it must be at least 1 byte")
 	}
