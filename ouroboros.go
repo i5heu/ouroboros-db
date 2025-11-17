@@ -43,6 +43,22 @@ var (
 	ErrInvalidData = errors.New("ouroboros: invalid stored data")
 )
 
+const (
+	payloadHeaderSize           = 256
+	payloadHeaderNotExisting    = 0x00
+	payloadHeaderExisting       = 0x10
+	payloadHeaderIsMime         = 0x20
+	payloadHeaderContentSizeLen = payloadHeaderSize - 1
+)
+
+type StoreOptions struct {
+	Parent                  hash.Hash
+	Children                []hash.Hash
+	ReedSolomonShards       uint8
+	ReedSolomonParityShards uint8
+	MimeType                string
+}
+
 // Config configures the database instance. Only Paths[0] is used at the
 // moment; future versions may use multiple paths for sharding or tiering.
 type Config struct {
@@ -54,8 +70,23 @@ type Config struct {
 	Logger *slog.Logger
 }
 
+type RetrievedData struct {
+	Key       hash.Hash
+	Content   []byte
+	MimeType  string
+	IsText    bool
+	Parent    hash.Hash
+	Children  []hash.Hash
+	CreatedAt time.Time
+}
+
+type storedMetadata struct {
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // defaultLogger returns a logger that writes text logs to stderr at Info level.
 // Applications can inject their own slog.Logger for JSON, different levels, etc.
+// A
 func defaultLogger() *slog.Logger {
 	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -65,6 +96,7 @@ func defaultLogger() *slog.Logger {
 
 // New constructs a database handle. New does not perform heavy I/O or start
 // background goroutines. Call Start to initialize subsystems.
+// A
 func New(conf Config) (*OuroborosDB, error) {
 	if len(conf.Paths) == 0 {
 		return nil, fmt.Errorf("at least one path must be provided in config")
@@ -80,6 +112,7 @@ func New(conf Config) (*OuroborosDB, error) {
 
 // Start initializes the crypt layer and KV store and marks the database as
 // ready. Start is safe to call multiple times; only the first call has effect.
+// A
 func (ou *OuroborosDB) Start(ctx context.Context) error {
 	var startErr error
 	ou.startOnce.Do(func() {
@@ -120,6 +153,7 @@ func (ou *OuroborosDB) Start(ctx context.Context) error {
 
 // Run starts the database, then blocks until ctx is canceled, and finally
 // performs a bounded graceful shutdown. It is a convenience for services.
+// A
 func (ou *OuroborosDB) Run(ctx context.Context) error {
 	if err := ou.Start(ctx); err != nil {
 		return err
@@ -132,6 +166,7 @@ func (ou *OuroborosDB) Run(ctx context.Context) error {
 
 // Close terminates background components and releases resources. Close is
 // idempotent and safe to call multiple times.
+// A
 func (ou *OuroborosDB) Close(ctx context.Context) error {
 	var closeErr error
 	ou.closeOnce.Do(func() {
@@ -149,10 +184,12 @@ func (ou *OuroborosDB) Close(ctx context.Context) error {
 
 // CloseWithoutContext closes the database using a background context.
 // Prefer Close(ctx) to enforce an application-specific shutdown deadline.
+// A
 func (ou *OuroborosDB) CloseWithoutContext() error {
 	return ou.Close(context.Background())
 }
 
+// A
 func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) {
 	if !ou.started.Load() {
 		return nil, ErrNotStarted
@@ -166,18 +203,19 @@ func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) {
 	return kv, nil
 }
 
+// A
 func mergeHashSets(groups ...[]hash.Hash) []hash.Hash {
 	if len(groups) == 0 {
 		return nil
 	}
 
 	seen := make(map[hash.Hash]struct{})
-	for _, list := range groups {
-		for _, h := range list {
-			if h.IsZero() {
+	for _, slice := range groups {
+		for _, sliceItem := range slice {
+			if sliceItem.IsZero() {
 				continue
 			}
-			seen[h] = struct{}{}
+			seen[sliceItem] = struct{}{}
 		}
 	}
 
@@ -197,22 +235,7 @@ func mergeHashSets(groups ...[]hash.Hash) []hash.Hash {
 	return merged
 }
 
-const (
-	payloadHeaderSize           = 256
-	payloadHeaderNotExisting    = 0x00
-	payloadHeaderExisting       = 0x10
-	payloadHeaderIsMime         = 0x20
-	payloadHeaderContentSizeLen = payloadHeaderSize - 1
-)
-
-type StoreOptions struct {
-	Parent                  hash.Hash
-	Children                []hash.Hash
-	ReedSolomonShards       uint8
-	ReedSolomonParityShards uint8
-	MimeType                string
-}
-
+// HC
 func (opts *StoreOptions) applyDefaults() {
 	if opts.ReedSolomonShards == 0 {
 		opts.ReedSolomonShards = 4
@@ -222,6 +245,7 @@ func (opts *StoreOptions) applyDefaults() {
 	}
 }
 
+// AP
 func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) {
 	if err := ctx.Err(); err != nil {
 		return hash.Hash{}, err
@@ -239,6 +263,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		return hash.Hash{}, err
 	}
 
+	// TODO allow additional user-defined metadata but server set CreatedAt is mandatory
 	metaBytes, err := encodeMetadata(storedMetadata{CreatedAt: time.Now().UTC()})
 	if err != nil {
 		return hash.Hash{}, fmt.Errorf("encode metadata: %w", err)
@@ -268,7 +293,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	return dataHash, nil
 }
 
-func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
+func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) { //AC
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -286,7 +311,7 @@ func (ou *OuroborosDB) ListData(ctx context.Context) ([]hash.Hash, error) {
 	return keys, nil
 }
 
-func (ou *OuroborosDB) ListChildren(ctx context.Context, parent hash.Hash) ([]hash.Hash, error) {
+func (ou *OuroborosDB) ListChildren(ctx context.Context, parent hash.Hash) ([]hash.Hash, error) { //HC
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -299,17 +324,7 @@ func (ou *OuroborosDB) ListChildren(ctx context.Context, parent hash.Hash) ([]ha
 	return kv.GetChildren(parent)
 }
 
-type RetrievedData struct {
-	Key       hash.Hash
-	Content   []byte
-	MimeType  string
-	IsText    bool
-	Parent    hash.Hash
-	Children  []hash.Hash
-	CreatedAt time.Time
-}
-
-func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) {
+func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) { //AC
 	if err := ctx.Err(); err != nil {
 		return RetrievedData{}, err
 	}
@@ -344,20 +359,6 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		parent = indexedParent
 	}
 
-	metadataChildren := make([]hash.Hash, 0, len(data.Children))
-	for _, child := range data.Children {
-		if !child.IsZero() {
-			metadataChildren = append(metadataChildren, child)
-		}
-	}
-
-	indexedChildren, err := kv.GetChildren(key)
-	if err != nil {
-		return RetrievedData{}, err
-	}
-
-	children := mergeHashSets(metadataChildren, indexedChildren)
-
 	var createdAt time.Time
 	if len(data.MetaData) > 0 {
 		meta, metaErr := decodeMetadata(data.MetaData)
@@ -376,21 +377,23 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		MimeType:  returnedMime,
 		IsText:    isText,
 		Parent:    parent,
-		Children:  children,
+		Children:  data.Children,
 		CreatedAt: createdAt,
 	}, nil
 }
 
-type storedMetadata struct {
-	CreatedAt time.Time `json:"created_at"`
-}
-
+// HC
 func encodeMetadata(meta storedMetadata) ([]byte, error) {
 	return json.Marshal(meta)
 }
 
+// decodeMetadata parses JSON-encoded metadata from the given raw bytes into a storedMetadata value.
+//
+// Empty or whitespace-only input is treated as absent metadata and results in a zero-value storedMetadata and a nil error.
+// On success it returns the decoded storedMetadata and a nil error; if JSON decoding fails the error is returned wrapped with context ("decode metadata:").
+// HC
 func decodeMetadata(raw []byte) (storedMetadata, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
+	if len(raw) == 0 || len(bytes.TrimSpace(raw)) == 0 {
 		return storedMetadata{}, nil
 	}
 
@@ -413,6 +416,7 @@ func decodeMetadata(raw []byte) (storedMetadata, error) {
 // payload is the header concatenated with the content bytes.
 //
 // The function does not modify its input slices and returns either the encoded payload or an error.
+// HC
 func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) {
 
 	// check if mimeType is empty before TrimSpace to avoid unnecessary processing
@@ -450,6 +454,7 @@ func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) 
 // an error is returned.
 //
 // The function does not modify its input slice and returns either the decoded content, header, MIME flag, or an error.
+// HC
 func (ou *OuroborosDB) decodeContent(payload []byte) (data []byte, payloadHeader []byte, isMime bool, err error) {
 	if len(payload) < 1 {
 		return nil, nil, false, errors.New("ouroboros: payload is impossible short, it must be at least 1 byte")

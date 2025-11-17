@@ -83,3 +83,50 @@ Stored objects reserve the first 256 bytes for metadata:
 - Remaining bytes: the original payload content.
 
 This layout allows fast retrieval of text/binary hints without additional metadata calls.
+
+
+## Development Notes
+
+### Legend
+
+#### Annotation legend for function comments:
+To indicate the correctness and safety of the logic of functions, the following annotations are used in the comments directly above the function definitions:
+
+- `// A` - Function and was written by **AI** and was not reviewed by a **human**.
+- `// AP` - Function was written by **AI** and was reviewed but the **human** has found a potential issue which the **human** marked with a `// TODO ` comment.
+- `// AC` - Function was written by **AI** and was reviewed and approved by a **human** that has medium confidence in the correctness and safety of the logic.
+- `// H` - Function was written by a **human**
+- `// HP` - Function was written by a **human** but the **human** has found a potential issue which the **human** marked with a `// TODO ` comment.
+- `// HC` - A **human** comprehended the logic of th function in all its dimensions and is confident about its correctness and safety.
+
+If the function has a higher risk profile (e.g., involves complex algorithms, security-sensitive operations, or critical data handling), a `P` prefix is added for `Priority`:
+
+**All `P` function must be brought to `PHC` status before a production release.**
+
+Examples:  
+```go
+
+// This function does X, Y, and Z.
+// A
+func exampleFunction() {
+    // Function is low risk and was written by AI and not reviewed by a human.
+}
+
+// This function does X, Y, and Z.
+// HC
+func exampleFunction() {
+    // Function is low risk and was comprehended by a human who is confident about its correctness and safety.
+}
+
+// This function performs critical operations X, Y, and Z has some funky stuff going on.
+// PAP
+func criticalFunction() {
+    // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
+}
+
+// This function performs critical operations X, Y, and Z.
+// PHC
+func criticalFunction() {
+    // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
+}
+```

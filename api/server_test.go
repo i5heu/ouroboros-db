@@ -22,6 +22,7 @@ import (
 	ouroboros "github.com/i5heu/ouroboros-db"
 )
 
+// A
 func TestCreateAndList(t *testing.T) {
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
@@ -92,6 +93,7 @@ func TestCreateAndList(t *testing.T) {
 	}
 }
 
+// A
 func TestCreateValidation(t *testing.T) {
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
@@ -107,6 +109,7 @@ func TestCreateValidation(t *testing.T) {
 	}
 }
 
+// A
 func TestGetBinaryData(t *testing.T) {
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
@@ -162,6 +165,7 @@ func TestGetBinaryData(t *testing.T) {
 	}
 }
 
+// A
 func TestCreateTextWithExplicitMIME(t *testing.T) {
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
@@ -210,6 +214,7 @@ func TestCreateTextWithExplicitMIME(t *testing.T) {
 	}
 }
 
+// A
 func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, target any) {
 	t.Helper()
 	if err := json.Unmarshal(rec.Body.Bytes(), target); err != nil {
@@ -217,6 +222,7 @@ func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder, target any
 	}
 }
 
+// A
 func newMultipartRequest(t *testing.T, method, target string, payload []byte, filename, mimeType string, metadata map[string]any) *http.Request {
 	t.Helper()
 
@@ -260,10 +266,12 @@ func newMultipartRequest(t *testing.T, method, target string, payload []byte, fi
 	return req
 }
 
+// A
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// A
 func newTestDB(t *testing.T) (*ouroboros.OuroborosDB, func()) {
 	t.Helper()
 
@@ -314,6 +322,7 @@ type apiHarness struct {
 	authCalls *int
 }
 
+// A
 func newAPIHarness(t *testing.T, auth AuthFunc, opts ...Option) *apiHarness {
 	t.Helper()
 
@@ -341,6 +350,7 @@ func newAPIHarness(t *testing.T, auth AuthFunc, opts ...Option) *apiHarness {
 	}
 }
 
+// A
 func (h *apiHarness) request(method, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder {
 	h.t.Helper()
 
@@ -357,6 +367,7 @@ func (h *apiHarness) request(method, target string, body io.Reader, headers map[
 	return recorder
 }
 
+// A
 func (h *apiHarness) authCount() int {
 	if h.authCalls == nil {
 		return 0
@@ -364,6 +375,7 @@ func (h *apiHarness) authCount() int {
 	return *h.authCalls
 }
 
+// A
 func (h *apiHarness) requireStatus(rec *httptest.ResponseRecorder, expected int) {
 	h.t.Helper()
 	if rec.Code != expected {
@@ -382,24 +394,28 @@ type createConfig struct {
 
 type CreateOption func(*createConfig)
 
+// A
 func WithMimeType(mime string) CreateOption {
 	return func(cfg *createConfig) {
 		cfg.mimeType = mime
 	}
 }
 
+// A
 func WithParent(parent string) CreateOption {
 	return func(cfg *createConfig) {
 		cfg.parent = parent
 	}
 }
 
+// A
 func WithChildren(children ...string) CreateOption {
 	return func(cfg *createConfig) {
 		cfg.children = append([]string{}, children...)
 	}
 }
 
+// A
 func WithReedSolomon(shards, parity uint8) CreateOption {
 	return func(cfg *createConfig) {
 		cfg.shards = shards
@@ -407,12 +423,14 @@ func WithReedSolomon(shards, parity uint8) CreateOption {
 	}
 }
 
+// A
 func WithFilename(name string) CreateOption {
 	return func(cfg *createConfig) {
 		cfg.filename = name
 	}
 }
 
+// A
 func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
 	h.t.Helper()
 
@@ -462,6 +480,7 @@ func (h *apiHarness) create(content []byte, opts ...CreateOption) string {
 	return resp.Key
 }
 
+// A
 func (h *apiHarness) list() []string {
 	rec := h.request(http.MethodGet, "/data", nil, nil)
 	h.requireStatus(rec, http.StatusOK)
@@ -473,6 +492,7 @@ func (h *apiHarness) list() []string {
 	return resp.Keys
 }
 
+// A
 func (h *apiHarness) get(key string) ([]byte, http.Header) {
 	rec := h.request(http.MethodGet, "/data/"+key, nil, nil)
 	h.requireStatus(rec, http.StatusOK)
@@ -485,10 +505,12 @@ func (h *apiHarness) get(key string) ([]byte, http.Header) {
 	return body, header
 }
 
+// A
 func (h *apiHarness) options(path string, headers map[string]string) *httptest.ResponseRecorder {
 	return h.request(http.MethodOptions, path, nil, headers)
 }
 
+// A
 func TestAPIServerCreate(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
@@ -502,6 +524,7 @@ func TestAPIServerCreate(t *testing.T) {
 	}
 }
 
+// A
 func TestAPIServerListAfterCreate(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
@@ -517,6 +540,7 @@ func TestAPIServerListAfterCreate(t *testing.T) {
 	}
 }
 
+// A
 func TestAPIServerGetAfterCreate(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
@@ -542,6 +566,7 @@ func TestAPIServerGetAfterCreate(t *testing.T) {
 	}
 }
 
+// A
 func TestAPIServerOptionsSkipsAuth(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
@@ -559,6 +584,7 @@ func TestAPIServerOptionsSkipsAuth(t *testing.T) {
 	}
 }
 
+// A
 func TestAPIServerAuthFailure(t *testing.T) {
 	expectedErr := fmt.Errorf("no credentials")
 	h := newAPIHarness(t, func(r *http.Request) error { return expectedErr })
@@ -574,6 +600,7 @@ func TestAPIServerAuthFailure(t *testing.T) {
 	}
 }
 
+// A
 func TestAPIServerParentChildHeaders(t *testing.T) {
 	h := newAPIHarness(t, nil)
 
@@ -608,6 +635,7 @@ func TestAPIServerParentChildHeaders(t *testing.T) {
 	}
 }
 
+// A
 func TestAPIServerChildrenEndpoint(t *testing.T) {
 	h := newAPIHarness(t, nil)
 

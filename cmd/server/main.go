@@ -17,6 +17,7 @@ import (
 	api "github.com/i5heu/ouroboros-db/api"
 )
 
+// A
 func main() {
 	cfg := ouroboros.Config{
 		Paths:         []string{"./data"},

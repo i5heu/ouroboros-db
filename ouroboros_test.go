@@ -15,6 +15,7 @@ import (
 )
 
 // setupTestDir creates a temporary directory for testing
+// A
 func setupTestDir(tb testing.TB) string {
 	tb.Helper()
 	testDir, err := os.MkdirTemp("", "ouroboros_test_*")
@@ -25,6 +26,7 @@ func setupTestDir(tb testing.TB) string {
 }
 
 // setupTestKeyFile creates a test key file for ouroboros-crypt
+// A
 func setupTestKeyFile(tb testing.TB, testDir string) string {
 	tb.Helper()
 	// Create a new crypto instance
@@ -44,6 +46,7 @@ func setupTestKeyFile(tb testing.TB, testDir string) string {
 }
 
 // cleanupTestDir removes the test directory
+// A
 func cleanupTestDir(tb testing.TB, testDir string) {
 	tb.Helper()
 	if err := os.RemoveAll(testDir); err != nil {
@@ -51,10 +54,12 @@ func cleanupTestDir(tb testing.TB, testDir string) {
 	}
 }
 
+// A
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// A
 func newStartedDB(t *testing.T, config Config) *OuroborosDB {
 	t.Helper()
 
@@ -76,6 +81,7 @@ func newStartedDB(t *testing.T, config Config) *OuroborosDB {
 	return db
 }
 
+// A
 func TestNewOuroborosDB_Success(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -121,6 +127,7 @@ func TestNewOuroborosDB_Success(t *testing.T) {
 	}
 }
 
+// A
 func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -152,6 +159,7 @@ func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
 	}
 }
 
+// A
 func TestNewOuroborosDB_EmptyPaths(t *testing.T) {
 	config := Config{
 		Paths:         []string{}, // Empty paths should cause error
@@ -173,6 +181,7 @@ func TestNewOuroborosDB_EmptyPaths(t *testing.T) {
 	}
 }
 
+// A
 func TestNewOuroborosDB_MissingKeyFile(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -203,6 +212,7 @@ func TestNewOuroborosDB_MissingKeyFile(t *testing.T) {
 	}
 }
 
+// A
 func TestNewOuroborosDB_InvalidPath(t *testing.T) {
 	// Use a path that doesn't exist and cannot be created
 	invalidPath := "/invalid/nonexistent/path"
@@ -228,6 +238,7 @@ func TestNewOuroborosDB_InvalidPath(t *testing.T) {
 	}
 }
 
+// A
 func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -283,6 +294,7 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	}
 }
 
+// A
 func TestStoreAndGetData_Text(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -320,6 +332,7 @@ func TestStoreAndGetData_Text(t *testing.T) {
 	}
 }
 
+// A
 func TestStoreAndGetData_Binary(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -358,6 +371,7 @@ func TestStoreAndGetData_Binary(t *testing.T) {
 	}
 }
 
+// A
 func TestStoreDataParentChildRelationships(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -430,6 +444,7 @@ func TestStoreDataParentChildRelationships(t *testing.T) {
 	}
 }
 
+// A
 func TestOuroborosDB_CryptOperations(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -466,6 +481,7 @@ func TestOuroborosDB_CryptOperations(t *testing.T) {
 	}
 }
 
+// A
 func TestOuroborosDB_HashOperations(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -499,6 +515,7 @@ func TestOuroborosDB_HashOperations(t *testing.T) {
 	}
 }
 
+// A
 func TestOuroborosDB_Close(t *testing.T) {
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
@@ -531,6 +548,7 @@ func TestOuroborosDB_Close(t *testing.T) {
 }
 
 // testDB returns a minimal OuroborosDB instance for testing encode/decode functions
+// A
 func testDB(t *testing.T) *OuroborosDB {
 	t.Helper()
 	return &OuroborosDB{
@@ -538,6 +556,7 @@ func testDB(t *testing.T) *OuroborosDB {
 	}
 }
 
+// A
 func TestEncodeContentWithMimeType(t *testing.T) {
 	db := testDB(t)
 	content := []byte("sample payload")
@@ -633,6 +652,7 @@ func TestEncodeContentWithMimeType(t *testing.T) {
 	}
 }
 
+// A
 func TestDecodeContent(t *testing.T) {
 	db := testDB(t)
 	content := []byte("test payload data")
@@ -875,6 +895,7 @@ func TestDecodeContent(t *testing.T) {
 }
 
 // Benchmark test for database creation
+// A
 func BenchmarkNewOuroborosDB(b *testing.B) {
 	testDir := setupTestDir(b)
 	b.Cleanup(func() { cleanupTestDir(b, testDir) })

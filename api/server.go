@@ -29,6 +29,7 @@ type Server struct {
 
 type Option func(*Server)
 
+// A
 func WithLogger(logger *slog.Logger) Option {
 	return func(s *Server) {
 		if logger != nil {
@@ -39,6 +40,7 @@ func WithLogger(logger *slog.Logger) Option {
 
 type AuthFunc func(*http.Request) error
 
+// A
 func WithAuth(auth AuthFunc) Option {
 	return func(s *Server) {
 		if auth != nil {
@@ -47,10 +49,12 @@ func WithAuth(auth AuthFunc) Option {
 	}
 }
 
+// A
 func defaultAuth(*http.Request) error {
 	return nil
 }
 
+// A
 func New(db *ouroboros.OuroborosDB, opts ...Option) *Server {
 	s := &Server{
 		mux:  http.NewServeMux(),
@@ -67,6 +71,7 @@ func New(db *ouroboros.OuroborosDB, opts ...Option) *Server {
 	return s
 }
 
+// A
 func (s *Server) routes() {
 	s.mux.HandleFunc("POST /data", s.handleCreate)
 	s.mux.HandleFunc("GET /data/{key}", s.handleGet)
@@ -74,6 +79,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /data", s.handleList)
 }
 
+// A
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -130,6 +136,7 @@ type createMetadata struct {
 }
 
 // TODO: refactor to reduce complexity
+// A
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -224,6 +231,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, createResponse{Key: key.String()})
 }
 
+// A
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -249,6 +257,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// A
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -317,6 +326,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// A
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -357,6 +367,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// A
 func parseHash(value string) (cryptHash.Hash, error) {
 	if value == "" {
 		return cryptHash.Hash{}, nil
@@ -365,6 +376,7 @@ func parseHash(value string) (cryptHash.Hash, error) {
 	return cryptHash.HashHexadecimal(value)
 }
 
+// A
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
