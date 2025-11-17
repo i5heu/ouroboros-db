@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	ouroboros "github.com/i5heu/ouroboros-db"
+	"github.com/i5heu/ouroboros-db/browserCrypt"
 )
 
 const (
@@ -13,10 +14,11 @@ const (
 )
 
 type Server struct {
-	mux  *http.ServeMux
-	db   *ouroboros.OuroborosDB
-	log  *slog.Logger
-	auth AuthFunc
+	mux       *http.ServeMux
+	db        *ouroboros.OuroborosDB
+	log       *slog.Logger
+	auth      AuthFunc
+	authStore browserCrypt.AuthStore
 }
 
 func New(db *ouroboros.OuroborosDB, opts ...Option) *Server { // A
@@ -40,6 +42,7 @@ func (s *Server) routes() { // AC
 	s.mux.HandleFunc("GET /data/{key}", s.handleGet)
 	s.mux.HandleFunc("GET /data/{key}/children", s.handleChildren)
 	s.mux.HandleFunc("GET /data", s.handleList)
+	s.mux.HandleFunc("GET /authProcess", s.handleAuthProcess)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC
@@ -70,10 +73,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC
 		return
 	}
 
-	if err := s.auth(r, s.db); err != nil {
-		s.log.Warn("authentication failed", "error", err)
-		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return
+	if r.URL.Path != "/authProcess" {
+		if err := s.auth(r, s.db); err != nil {
+			s.log.Warn("authentication failed", "error", err)
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
 	}
 
 	s.mux.ServeHTTP(w, r)

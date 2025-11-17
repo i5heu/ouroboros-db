@@ -60,8 +60,6 @@ type Config struct {
 	MinimumFreeGB uint
 	// Logger is an optional structured logger. If nil, a stderr logger is used.
 	Logger *slog.Logger
-	// Admin Password (must be at least 100 characters long)
-	AdminPassword string
 }
 
 type RetrievedData struct {

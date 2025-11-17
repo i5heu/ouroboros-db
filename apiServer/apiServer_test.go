@@ -26,7 +26,9 @@ func TestCreateAndList(t *testing.T) { // A
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
 
-	server := New(db, WithLogger(testLogger()))
+	server := New(db, WithLogger(testLogger()), WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error {
+		return nil // bypass auth for tests
+	}))
 
 	payload := []byte("hello ouroboros")
 	metadata := map[string]any{
@@ -96,7 +98,9 @@ func TestCreateValidation(t *testing.T) { // A
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
 
-	server := New(db)
+	server := New(db, WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error {
+		return nil // bypass auth for tests
+	}))
 
 	req := newMultipartRequest(t, http.MethodPost, "/data", nil, "", "", nil)
 	rec := httptest.NewRecorder()
@@ -111,7 +115,9 @@ func TestGetBinaryData(t *testing.T) { // A
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
 
-	server := New(db)
+	server := New(db, WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error {
+		return nil // bypass auth for tests
+	}))
 
 	payload := []byte{0xde, 0xad, 0xbe, 0xef}
 	metadata := map[string]any{
@@ -166,7 +172,9 @@ func TestCreateTextWithExplicitMIME(t *testing.T) { // A
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
 
-	server := New(db)
+	server := New(db, WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error {
+		return nil // bypass auth for tests
+	}))
 
 	payload := []byte("hello world")
 	metadata := map[string]any{

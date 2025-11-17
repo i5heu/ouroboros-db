@@ -241,3 +241,17 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) { // A
 
 	writeJSON(w, http.StatusOK, response)
 }
+
+func (s *Server) handleAuthProcess(w http.ResponseWriter, r *http.Request) { // A
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20)) // limit to 1MB
+	dec.DisallowUnknownFields()
+
+	var req authProcessReq
+
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	s.authProcess(r.Context(), w, req)
+}
