@@ -110,7 +110,7 @@ func New(conf Config) (*OuroborosDB, error) { // A
 
 // Start initializes the crypt layer and KV store and marks the database as
 // ready. Start is safe to call multiple times; only the first call has effect.
-func (ou *OuroborosDB) Start(ctx context.Context) error { // A
+func (ou *OuroborosDB) Start(ctx context.Context) error { // PA
 	var startErr error
 	ou.startOnce.Do(func() {
 		dataRoot := ou.config.Paths[0]
@@ -236,7 +236,7 @@ func (opts *StoreOptions) applyDefaults() { // HC
 	}
 }
 
-func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) { // AP
+func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts StoreOptions) (hash.Hash, error) { // PAP
 	if err := ctx.Err(); err != nil {
 		return hash.Hash{}, err
 	}
@@ -314,7 +314,7 @@ func (ou *OuroborosDB) ListChildren(ctx context.Context, parent hash.Hash) ([]ha
 	return kv.GetChildren(parent)
 }
 
-func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) { //AC
+func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedData, error) { // PAC
 	if err := ctx.Err(); err != nil {
 		return RetrievedData{}, err
 	}
@@ -372,7 +372,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 	}, nil
 }
 
-func encodeMetadata(meta storedMetadata) ([]byte, error) { // HC
+func encodeMetadata(meta storedMetadata) ([]byte, error) { // PHC
 	return json.Marshal(meta)
 }
 
@@ -380,7 +380,7 @@ func encodeMetadata(meta storedMetadata) ([]byte, error) { // HC
 //
 // Empty or whitespace-only input is treated as absent metadata and results in a zero-value storedMetadata and a nil error.
 // On success it returns the decoded storedMetadata and a nil error; if JSON decoding fails the error is returned wrapped with context ("decode metadata:").
-func decodeMetadata(raw []byte) (storedMetadata, error) { // HC
+func decodeMetadata(raw []byte) (storedMetadata, error) { // PHC
 	if len(raw) == 0 || len(bytes.TrimSpace(raw)) == 0 {
 		return storedMetadata{}, nil
 	}
@@ -404,7 +404,7 @@ func decodeMetadata(raw []byte) (storedMetadata, error) { // HC
 // payload is the header concatenated with the content bytes.
 //
 // The function does not modify its input slices and returns either the encoded payload or an error.
-func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) { // HC
+func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) { // PHC
 
 	// check if mimeType is empty before TrimSpace to avoid unnecessary processing
 	if mimeType == "" {
@@ -441,7 +441,7 @@ func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) 
 // an error is returned.
 //
 // The function does not modify its input slice and returns either the decoded content, header, MIME flag, or an error.
-func (ou *OuroborosDB) decodeContent(payload []byte) (data []byte, payloadHeader []byte, isMime bool, err error) { // HC
+func (ou *OuroborosDB) decodeContent(payload []byte) (data []byte, payloadHeader []byte, isMime bool, err error) { // PHC
 	if len(payload) < 1 {
 		return nil, nil, false, errors.New("ouroboros: payload is impossible short, it must be at least 1 byte")
 	}

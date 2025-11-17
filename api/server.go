@@ -130,7 +130,7 @@ type createMetadata struct {
 }
 
 // TODO: refactor to reduce complexity
-func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // A
+func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // PA
 	if r.Method != http.MethodPost {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
