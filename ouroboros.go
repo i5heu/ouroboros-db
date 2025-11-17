@@ -60,6 +60,8 @@ type Config struct {
 	MinimumFreeGB uint
 	// Logger is an optional structured logger. If nil, a stderr logger is used.
 	Logger *slog.Logger
+	// UiPort specifies the port for the built-in web UI. If 0, the UI is disabled.
+	UiPort uint16
 }
 
 type RetrievedData struct {

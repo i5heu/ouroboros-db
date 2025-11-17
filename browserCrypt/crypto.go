@@ -25,7 +25,7 @@ func DecryptWithAESGCM(key, nonce, ciphertext []byte) ([]byte, error) { // PHC
 }
 
 // Will create a one-time key file that has the key for AES-256-GCM encryption in it.
-func createOneTimeKeyForAuthentication() (key []byte, nonce []byte, err error) { // PHC
+func CreateOneTimeKeyForAuthentication() (key []byte, nonce []byte, err error) { // PHC
 	// Generate a new random key and nonce for AES-256-GCM.
 	key = make([]byte, 32)
 	_, err = rand.Read(key)

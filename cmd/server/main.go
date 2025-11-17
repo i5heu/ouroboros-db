@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -21,12 +23,14 @@ func main() { // A
 	cfg := ouroboros.Config{
 		Paths:         []string{"./data"},
 		MinimumFreeGB: 1,
+		UiPort:        5173,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
 	slog.SetDefault(logger)
 
 	create := flag.Bool("create", false, "create a new keypair and exit")
+	otk := flag.Bool("otk", false, "generate a one-time key for authentication and start server")
 	flag.Parse()
 
 	if *create {
@@ -59,9 +63,24 @@ func main() { // A
 		os.Exit(1)
 	}
 
+	server := api.New(db, api.WithLogger(logger))
 	httpServer := &http.Server{
 		Addr:    ":8083",
-		Handler: api.New(db, api.WithLogger(logger)),
+		Handler: server,
+	}
+
+	if *otk {
+		key, nonce, err := server.CreateBrowserOTK()
+		if err != nil {
+			slog.Error("failed to generate one-time key", "error", err)
+			os.Exit(1)
+		}
+
+		// base64 encode the key and nonce for display
+		base64Key := base64.StdEncoding.EncodeToString(key)
+		base64Nonce := base64.StdEncoding.EncodeToString(nonce)
+		slog.Info("one-time key generated", "key", base64Key)
+		slog.Info("Go to http://localhost:" + strconv.Itoa(int(cfg.UiPort)) + "/?base64Key=" + base64Key + "&base64Nonce=" + base64Nonce + " to authenticate using the one-time key")
 	}
 
 	serverErr := make(chan error, 1)

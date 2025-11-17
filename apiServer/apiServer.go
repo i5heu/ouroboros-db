@@ -27,6 +27,9 @@ func New(db *ouroboros.OuroborosDB, opts ...Option) *Server { // A
 		db:   db,
 		log:  slog.Default(),
 		auth: defaultAuth,
+		authStore: browserCrypt.AuthStore{
+			OTK: make(map[string]browserCrypt.BrowserKey),
+		},
 	}
 
 	for _, opt := range opts {

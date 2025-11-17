@@ -158,3 +158,23 @@ func (s *Server) authProcess(ctx context.Context, w http.ResponseWriter, req aut
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated", "keyKvHash": keyKvHash.String()})
 }
+
+func (s *Server) CreateBrowserOTK() (key []byte, nonce []byte, err error) { // PHC
+	key, nonce, err = browserCrypt.CreateOneTimeKeyForAuthentication()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bk := browserCrypt.BrowserKey{
+		Key:       key,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+		Nonce:     nonce,
+	}
+
+	// add to auth store
+	sha512Sum := sha512.Sum512(bk.Key)
+	keyHash := fmt.Sprintf("%x", sha512Sum)
+	s.authStore.OTK[keyHash] = bk
+
+	return key, nonce, nil
+}
