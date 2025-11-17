@@ -129,6 +129,7 @@ type createMetadata struct {
 	Filename                string   `json:"filename"`
 }
 
+// TODO: refactor to reduce complexity
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)

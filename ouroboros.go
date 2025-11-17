@@ -198,9 +198,11 @@ func mergeHashSets(groups ...[]hash.Hash) []hash.Hash {
 }
 
 const (
-	payloadHeaderSize    = 256
-	payloadHeaderText    = 0x80
-	payloadHeaderMIMELen = payloadHeaderSize - 1
+	payloadHeaderSize           = 256
+	payloadHeaderNotExisting    = 0x00
+	payloadHeaderExisting       = 0x10
+	payloadHeaderIsMime         = 0x20
+	payloadHeaderContentSizeLen = payloadHeaderSize - 1
 )
 
 type StoreOptions struct {
@@ -232,7 +234,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 
 	opts.applyDefaults()
 
-	encodedContent, err := encodeContent(content, opts.MimeType)
+	encodedContent, err := encodeContentWithMimeType(content, opts.MimeType)
 	if err != nil {
 		return hash.Hash{}, err
 	}
@@ -322,9 +324,19 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
-	content, mime, isText, err := decodeContent(data.Content)
+	content, payloadHeader, isMime, err := ou.decodeContent(data.Content)
 	if err != nil {
 		return RetrievedData{}, err
+	}
+
+	isText := false
+	returnedMime := ""
+	if isMime {
+		// Trim any trailing zero bytes from the MIME type in the payload header.
+		mimeTypeBytes := bytes.TrimRight(payloadHeader, "\x00")
+
+		returnedMime = string(mimeTypeBytes)
+		isText = strings.HasPrefix(returnedMime, "text/")
 	}
 
 	parent := data.Parent
@@ -361,7 +373,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 	return RetrievedData{
 		Key:       key,
 		Content:   content,
-		MimeType:  mime,
+		MimeType:  returnedMime,
 		IsText:    isText,
 		Parent:    parent,
 		Children:  children,
@@ -389,54 +401,80 @@ func decodeMetadata(raw []byte) (storedMetadata, error) {
 	return meta, nil
 }
 
-func encodeContent(content []byte, mimeType string) ([]byte, error) {
+// encodeContentWithMimeType encodes raw content with an optional MIME type header.
+//
+// If mimeType is empty or contains only whitespace, the function returns a new byte slice
+// that starts with a single header byte set to payloadHeaderNotExisting followed by the content.
+//
+// If mimeType is non-empty, it is trimmed of surrounding whitespace and validated against
+// payloadHeaderContentSizeLen; if it exceeds that length the function returns an error.
+// Otherwise the function builds a header of size payloadHeaderSize with the first byte
+// set to payloadHeaderIsMime and the MIME type bytes copied into header[1:]. The returned
+// payload is the header concatenated with the content bytes.
+//
+// The function does not modify its input slices and returns either the encoded payload or an error.
+func encodeContentWithMimeType(content []byte, mimeType string) ([]byte, error) {
+
+	// check if mimeType is empty before TrimSpace to avoid unnecessary processing
+	if mimeType == "" {
+		encoded := append(make([]byte, 1), content...)
+		encoded[0] = payloadHeaderNotExisting
+		return encoded, nil
+	}
+
+	cleanMimeType := strings.TrimSpace(mimeType)
+	if cleanMimeType == "" {
+		encoded := append(make([]byte, 1), content...)
+		encoded[0] = payloadHeaderNotExisting
+		return encoded, nil
+	}
+
+	mimeBytes := []byte(cleanMimeType)
+	if len(mimeBytes) > payloadHeaderContentSizeLen {
+		return nil, fmt.Errorf("MIME type too long: %d bytes (max %d)", len(mimeBytes), payloadHeaderContentSizeLen)
+	}
 	header := make([]byte, payloadHeaderSize)
 
-	trimmed := strings.TrimSpace(mimeType)
-	if trimmed == "" || isTextLikeMIME(trimmed) {
-		header[0] = header[0] | payloadHeaderText
-	}
+	header[0] = payloadHeaderIsMime
+	copy(header[1:], mimeBytes)
 
-	if trimmed != "" {
-		mimeBytes := []byte(trimmed)
-		if len(mimeBytes) > payloadHeaderMIMELen {
-			mimeBytes = mimeBytes[:payloadHeaderMIMELen]
-		}
-		copy(header[1:], mimeBytes)
-	}
-
-	encoded := make([]byte, len(header)+len(content))
-	copy(encoded, header)
-	copy(encoded[len(header):], content)
-	return encoded, nil
+	return append(header, content...), nil
 }
 
-func decodeContent(payload []byte) ([]byte, string, bool, error) {
+// decodeContent parses the supplied payload into the payload data, optional header and a MIME flag.
+//
+// The first byte of the payload is a flag byte indicating the presence of a payload header and whether it contains a MIME type.
+// If the flag indicates no payload header, the function returns the content starting from payload[1:].
+// If the flag indicates a payload header with MIME type, the function extracts the header from payload[1:payloadHeaderSize]
+// and returns the remaining bytes as content. If the flag combination is invalid or the payload is too short,
+// an error is returned.
+//
+// The function does not modify its input slice and returns either the decoded content, header, MIME flag, or an error.
+func (ou *OuroborosDB) decodeContent(payload []byte) (data []byte, payloadHeader []byte, isMime bool, err error) {
+	if len(payload) < 1 {
+		return nil, nil, false, errors.New("ouroboros: payload is impossible short, it must be at least 1 byte")
+	}
+
+	ou.log.Debug("Decoding payload", "length", len(payload), "flag", payload[0])
+
+	// No payload header is set
+	if payload[0] == payloadHeaderNotExisting {
+		return payload[1:], nil, false, nil
+	}
+
+	ou.log.Debug("Decoding payload", "length", len(payload), "flag", payload[0])
+
+	// If not valid flag for existing data with MIME type, return error
+	if payload[0] != payloadHeaderExisting && payload[0] != payloadHeaderIsMime {
+		return []byte{}, nil, false, errors.New("ouroboros: invalid payload header flag combination")
+	}
 	if len(payload) < payloadHeaderSize {
-		return nil, "", false, ErrInvalidData
+		return nil, nil, false, errors.New("ouroboros: payloadHeader indicated but payload too short")
 	}
 
-	flag := payload[0]
-	isText := flag&payloadHeaderText != 0
+	payloadHeader = bytes.TrimRight(payload[1:payloadHeaderSize], "\x00")
+	data = payload[payloadHeaderSize:]
+	isMime = payload[0] == payloadHeaderIsMime
 
-	raw := bytes.TrimRight(payload[1:payloadHeaderSize], "\x00")
-	mime := strings.TrimSpace(string(raw))
-
-	content := make([]byte, len(payload)-payloadHeaderSize)
-	copy(content, payload[payloadHeaderSize:])
-	return content, mime, isText, nil
-}
-
-func isTextLikeMIME(value string) bool {
-	lower := strings.ToLower(value)
-	if strings.HasPrefix(lower, "text/") {
-		return true
-	}
-
-	switch {
-	case strings.Contains(lower, "json"), strings.Contains(lower, "xml"), strings.Contains(lower, "yaml"), strings.Contains(lower, "csv"):
-		return true
-	default:
-		return false
-	}
+	return data, payloadHeader, isMime, nil
 }
