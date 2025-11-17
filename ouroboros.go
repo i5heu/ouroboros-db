@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -194,37 +193,6 @@ func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) { // A
 	}
 
 	return kv, nil
-}
-
-func mergeHashSets(groups ...[]hash.Hash) []hash.Hash { // A
-	if len(groups) == 0 {
-		return nil
-	}
-
-	seen := make(map[hash.Hash]struct{})
-	for _, slice := range groups {
-		for _, sliceItem := range slice {
-			if sliceItem.IsZero() {
-				continue
-			}
-			seen[sliceItem] = struct{}{}
-		}
-	}
-
-	if len(seen) == 0 {
-		return nil
-	}
-
-	merged := make([]hash.Hash, 0, len(seen))
-	for h := range seen {
-		merged = append(merged, h)
-	}
-
-	sort.Slice(merged, func(i, j int) bool {
-		return bytes.Compare(merged[i][:], merged[j][:]) < 0
-	})
-
-	return merged
 }
 
 func (opts *StoreOptions) applyDefaults() { // HC
