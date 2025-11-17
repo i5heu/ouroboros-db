@@ -246,9 +246,9 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	// Test basic KV operations
 	testContent := []byte("test content")
 	testData := ouroboroskv.Data{
-		Content:                 testContent,
-		ReedSolomonShards:       4,
-		ReedSolomonParityShards: 2,
+		Content:        testContent,
+		RSDataSlices:   4,
+		RSParitySlices: 2,
 	}
 
 	kv, err := db.kvHandle()

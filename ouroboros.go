@@ -243,10 +243,10 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	}
 
 	data := ouroboroskv.Data{
-		MetaData:                metaBytes,
-		Content:                 encodedContent,
-		ReedSolomonShards:       opts.ReedSolomonShards,
-		ReedSolomonParityShards: opts.ReedSolomonParityShards,
+		MetaData:       metaBytes,
+		Content:        encodedContent,
+		RSDataSlices:   opts.ReedSolomonShards,
+		RSParitySlices: opts.ReedSolomonParityShards,
 	}
 
 	if !opts.Parent.IsZero() {
