@@ -21,6 +21,7 @@ func main() { // A
 	cfg := ouroboros.Config{
 		Paths:         []string{"./data"},
 		MinimumFreeGB: 1,
+		AdminPassword: "your-very-secure-and-long-admin-password-goes-here-ensure-it-is-at-least-100-characters-long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))

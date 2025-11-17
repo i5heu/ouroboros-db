@@ -1,6 +1,10 @@
 package apiServer
 
-import "net/http"
+import (
+	"net/http"
+
+	ouroboros "github.com/i5heu/ouroboros-db"
+)
 
 type createResponse struct {
 	Key string `json:"key"`
@@ -20,6 +24,6 @@ type createMetadata struct {
 	Filename                string   `json:"filename"`
 }
 
-type AuthFunc func(*http.Request) error
+type AuthFunc func(req *http.Request, db *ouroboros.OuroborosDB) error
 
 type Option func(*Server)

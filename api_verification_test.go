@@ -82,10 +82,10 @@ func newAPIHarness(t *testing.T, auth api.AuthFunc, opts ...api.Option) *apiHarn
 	var counter int
 	baseOpts := []api.Option{
 		api.WithLogger(testLogger()),
-		api.WithAuth(func(r *http.Request) error {
+		api.WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error {
 			counter++
 			if auth != nil {
-				return auth(r)
+				return auth(r, db)
 			}
 			return nil
 		}),
@@ -370,7 +370,7 @@ func TestAPIServerOptionsSkipsAuth(t *testing.T) { // A
 
 func TestAPIServerAuthFailure(t *testing.T) { // A
 	expectedErr := errors.New("no credentials")
-	h := newAPIHarness(t, func(r *http.Request) error { return expectedErr })
+	h := newAPIHarness(t, func(r *http.Request, db *ouroboros.OuroborosDB) error { return expectedErr })
 
 	rec := h.request(http.MethodGet, "/data", nil, nil)
 

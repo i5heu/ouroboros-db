@@ -70,7 +70,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC
 		return
 	}
 
-	if err := s.auth(r); err != nil {
+	if err := s.auth(r, s.db); err != nil {
 		s.log.Warn("authentication failed", "error", err)
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
