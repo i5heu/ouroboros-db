@@ -1,4 +1,4 @@
-package api
+package apiServer
 
 import (
 	"log/slog"
@@ -11,6 +11,13 @@ const (
 	defaultDataShards   = 4
 	defaultParityShards = 2
 )
+
+type Server struct {
+	mux  *http.ServeMux
+	db   *ouroboros.OuroborosDB
+	log  *slog.Logger
+	auth AuthFunc
+}
 
 func New(db *ouroboros.OuroborosDB, opts ...Option) *Server { // A
 	s := &Server{

@@ -1,4 +1,4 @@
-package api
+package apiServer
 
 import (
 	"encoding/json"
@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	cryptHash "github.com/i5heu/ouroboros-crypt/hash"
-	ouroboros "github.com/i5heu/ouroboros-db"
 )
 
 func parseHash(value string) (cryptHash.Hash, error) { // A
@@ -25,13 +24,6 @@ func writeJSON(w http.ResponseWriter, status int, payload any) { // A
 	}
 }
 
-type Server struct {
-	mux  *http.ServeMux
-	db   *ouroboros.OuroborosDB
-	log  *slog.Logger
-	auth AuthFunc
-}
-
 func WithLogger(logger *slog.Logger) Option { // HC
 	return func(s *Server) {
 		if logger != nil {
@@ -46,9 +38,4 @@ func WithAuth(auth AuthFunc) Option { // HC
 			s.auth = auth
 		}
 	}
-}
-
-func defaultAuth(*http.Request) error { // AP
-	// TODO : implement authentication
-	return nil
 }
