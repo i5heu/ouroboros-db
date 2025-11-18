@@ -117,15 +117,16 @@
 
 	// Header meta: creation date, number of items (children), and last child date
 	$: headerMeta = (() => {
-		if (newThreadMode) return { createdAt: null, childCount: 0, lastChildAt: null };
+		if (newThreadMode) return { createdAt: null, childrenCount: 0, descendantCount: 0, lastChildAt: null };
 		let createdAt: string | null = null;
-		let childCount = 0;
+		let childrenCount = 0; // immediate children
+		let descendantCount = 0; // full subtree count
 		let lastChildAt: string | null = null;
 		if (selectedThreadKey) {
 			const summary = threadSummaries.find((t) => t.key === selectedThreadKey);
 			if (summary) {
 				createdAt = summary.createdAt ?? null;
-				childCount = summary.childCount ?? 0;
+				childrenCount = summary.childCount ?? 0;
 			}
 		}
 		// if not present from summary, fallback to root message metadata
@@ -136,9 +137,12 @@
 		if (messages.length > 0) {
 			const mostRecent = findMostRecentChildCreatedAt(messages[0].children ?? []);
 			lastChildAt = mostRecent;
-			if (!childCount) childCount = countAllChildren(messages[0].children ?? []);
+			// immediate children from the root node
+			if (!childrenCount) childrenCount = (messages[0].children ?? []).length;
+			// descendant count: total in subtree
+			descendantCount = countAllChildren(messages[0].children ?? []);
 		}
-		return { createdAt, childCount, lastChildAt };
+	return { createdAt, childrenCount, descendantCount, lastChildAt };
 	})();
 
 	const deepClone = <T,>(value: T): T => {
@@ -1254,7 +1258,7 @@
 			<div>
 				<header class="conversation-header">
 					<h1>{headerTitle}</h1>
-					{#if headerMeta && (headerMeta.createdAt || headerMeta.childCount > 0 || headerMeta.lastChildAt)}
+					{#if headerMeta && (headerMeta.createdAt || headerMeta.childrenCount > 0 || headerMeta.lastChildAt)}
 						{#if headerMeta.createdAt}
 							<span class="meta-stat">
 								<span class="meta-title">Created</span>
@@ -1262,15 +1266,21 @@
 							</span>
 						{/if}
 						<span class="meta-stat">
-							<span class="meta-title">Replies</span>
+							<span class="meta-title">Children</span>
 							<span class="meta-value"
-								>{headerMeta.childCount} repl{headerMeta.childCount === 1 ? 'y' : 'ies'}</span
+								>{headerMeta.childrenCount} child{headerMeta.childrenCount === 1 ? '' : 'ren'}</span
 							>
 						</span>
 						{#if headerMeta.lastChildAt}
 							<span class="meta-stat">
 								<span class="meta-title">Last reply</span>
 								<span class="meta-value">{formatTimestamp(headerMeta.lastChildAt)}</span>
+							</span>
+						{/if}
+						{#if headerMeta.descendantCount > headerMeta.childrenCount}
+							<span class="meta-stat">
+								<span class="meta-title">Replies</span>
+								<span class="meta-value">{headerMeta.descendantCount} total</span>
 							</span>
 						{/if}
 					{/if}
