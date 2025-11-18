@@ -1869,6 +1869,7 @@
 
 	.global-search input[type='search'] {
 		flex: 1 1 auto;
+		min-width: 0; /* allow shrinking inside flex */
 		background: transparent;
 		border: none;
 		color: var(--text-primary);
@@ -1909,6 +1910,11 @@
 		cursor: pointer;
 		padding: 0 0.25rem;
 		border-radius: 0.5rem;
+		flex: 0 0 auto; /* constrain within flex */
+		width: 1.6rem;
+		height: 1.6rem;
+		line-height: 1.6rem;
+		text-align: center;
 	}
 
 	.global-search .search-clear:hover,
