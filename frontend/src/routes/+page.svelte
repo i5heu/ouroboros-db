@@ -1563,9 +1563,8 @@
 	}
 
 	.chat-window {
-		border: 1px solid var(--border-strong);
 		border-radius: 0.9rem;
-		padding: 1.25rem;
+		padding: 0.25rem;
 		min-height: 380px;
 		overflow-y: auto;
 		background: var(--surface-muted);

@@ -488,7 +488,8 @@
 <style>
 	.message {
 		background: #00000019;
-		border-radius: 0.75rem;
+		border-top-right-radius: 0.75rem;
+		border-bottom-right-radius: 0.75rem;
 		padding: 5px;
 		padding-right: 0;
 		box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
@@ -497,6 +498,10 @@
 		/* allow long words to break with hyphenation */
 		word-break: break-word;
 		hyphens: auto;
+	}
+	.message.level-0 {
+		border-radius: 0.75rem;
+		margin-bottom: 0;
 	}
 
 	.message p {
@@ -743,7 +748,8 @@
 	}
 
 	.level-0 {
-		border-left: 1px solid #3b82f6;
+		border: none;
+		outline: none;
 	}
 
 	.level-1 {
