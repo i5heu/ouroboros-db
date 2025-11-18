@@ -61,12 +61,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
 
-	allowedHeaders := r.Header.Get("Access-Control-Request-Headers")
-	if allowedHeaders == "" {
-		allowedHeaders = "Content-Type, Accept"
-	}
+	// Use explicit, fixed CORS header lists so preflight responses are cacheable
+	// and not dynamically varied by the incoming Access-Control-Request-Headers header.
+	// Keep headers aligned with what the client sends: Content-Type + Accept + our
+	// custom X-Auth headers and internal X-Ouroboros response/exposed headers.
+	allowedHeaders := "Content-Type, Accept, X-Auth-Token, X-Auth-Nonce, X-Auth-KeyHash-Base64"
 	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
+	// Allow caching of preflight responses so repeated identical requests don't cause
+	// a preflight for every request. 86400s == 24 hours.
+	w.Header().Set("Access-Control-Max-Age", "86400")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+	// If the API ever uses browser credentials (cookies) set to true. Current
+	// client uses custom headers, so credentials is not required; enable as false for now.
+	// If credentials are used, then Access-Control-Allow-Origin must not be '*'.
+	// w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set(
 		"Access-Control-Expose-Headers",
 		"Content-Type, Content-Length, X-Ouroboros-Key, X-Ouroboros-Mime, X-Ouroboros-Is-Text, X-Ouroboros-Parent, X-Ouroboros-Children, X-Ouroboros-Created-At",

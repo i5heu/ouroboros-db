@@ -33,7 +33,8 @@ The default route (`/`) now renders a simple threaded chat sandbox. Every messag
 
 The chat client persists every message to the Ouroboros API via the `/data` endpoint. While a message is being written, the UI shows a **Saving…** badge next to the entry and disables the send button. Once the backend acknowledges the write, the saved hash appears alongside the message and a success banner confirms the operation. Network or server failures surface inline errors.
 
-By default the client targets `http://localhost:8083`. Override the destination by setting `VITE_OUROBOROS_API` before starting the dev server:
+By default the client now targets the same origin (so the Vite dev server can proxy requests to the backend and avoid CORS preflight during development).
+To use an explicit API host (e.g. for remote testing), set `VITE_OUROBOROS_API` before starting the dev server:
 
 ```sh
 VITE_OUROBOROS_API="http://your-api-host:8083" npm run dev

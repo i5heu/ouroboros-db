@@ -4,7 +4,8 @@
 	import type { Message } from '../lib/types';
 	import { bootstrapAuthFromParams, buildAuthHeaders } from '../lib/auth';
 
-	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? 'http://localhost:8083';
+	// Prefer VITE_OUROBOROS_API when set; default to same origin so dev-server proxy reduces CORS
+	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? '';
 	const LAST_KEY_STORAGE = 'ouroboros:lastKey';
 	const AUTH_BANNER_TIMEOUT_MS = 5_000;
 
