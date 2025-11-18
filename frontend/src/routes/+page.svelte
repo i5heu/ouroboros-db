@@ -1189,76 +1189,82 @@
 			{/if}
 		</aside>
 		<section class="conversation-area">
-			<header class="conversation-header">
-				<div class="conversation-heading">
-					<h1>{headerTitle}</h1>
-					{#if newThreadMode}
-						<div class="new-thread-title">
-							<input
-								class="title-input"
-								bind:this={titleInputEl}
-								type="text"
-								placeholder="Enter Title"
-								bind:value={newThreadTitle}
-								on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
-								on:keydown={(e) => {
-									if (e.key === 'Enter') {
-										e.preventDefault();
-										void createThreadFromTitle();
-									}
-								}}
-								disabled={statusState === 'sending'}
-							/>
-							<button
-								type="button"
-								on:click={createThreadFromTitle}
-								disabled={!newThreadTitle.trim() || statusState === 'sending'}
-							>
-								Create
-							</button>
-							<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
-								Cancel
-							</button>
-						</div>
+			<div>
+				<header class="conversation-header">
+					<div class="conversation-heading">
+						<h1>{headerTitle}</h1>
+						{#if newThreadMode}
+							<div class="new-thread-title">
+								<input
+									class="title-input"
+									bind:this={titleInputEl}
+									type="text"
+									placeholder="Enter Title"
+									bind:value={newThreadTitle}
+									on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') {
+											e.preventDefault();
+											void createThreadFromTitle();
+										}
+									}}
+									disabled={statusState === 'sending'}
+								/>
+								<button
+									type="button"
+									on:click={createThreadFromTitle}
+									disabled={!newThreadTitle.trim() || statusState === 'sending'}
+								>
+									Create
+								</button>
+								<button
+									type="button"
+									on:click={cancelNewThread}
+									disabled={statusState === 'sending'}
+								>
+									Cancel
+								</button>
+							</div>
+						{:else}
+							<p class="conversation-subtitle">
+								{#if selectedMessage}
+									Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+								{:else}
+									Starting a new conversation
+								{/if}
+							</p>
+						{/if}
+					</div>
+				</header>
+
+				<div class="chat-window">
+					{#if nodeLoading && messages.length === 0}
+						<p class="placeholder">Streaming thread…</p>
+					{:else if nodeError && messages.length === 0}
+						<p class="placeholder error">{nodeError}</p>
+					{:else if messages.length === 0}
+						<p class="placeholder">Select a thread to view its messages.</p>
 					{:else}
-						<p class="conversation-subtitle">
-							{#if selectedMessage}
-								Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+						{#key messages[0].id}
+							{#if (messages[0].children ?? []).length === 0}
+								<p class="placeholder">This thread has no messages yet.</p>
 							{:else}
-								Starting a new conversation
+								{#each messages[0].children as child, index (child.id)}
+									<svelte:component
+										this={MessageNode}
+										message={child}
+										level={0}
+										path={[0, index]}
+										{selectedPath}
+										selectMessage={handleSelectMessage}
+										apiBaseUrl={API_BASE_URL}
+										getAuthHeaders={buildAuthHeaders}
+									/>
+								{/each}
 							{/if}
-						</p>
+						{/key}
 					{/if}
 				</div>
-			</header>
-
-			<div class="chat-window">
-				{#if nodeLoading && messages.length === 0}
-					<p class="placeholder">Streaming thread…</p>
-				{:else if nodeError && messages.length === 0}
-					<p class="placeholder error">{nodeError}</p>
-				{:else if messages.length === 0}
-					<p class="placeholder">Select a thread to view its messages.</p>
-				{:else}
-					{#key messages[0].id}
-						{#if (messages[0].children ?? []).length === 0}
-							<p class="placeholder">This thread has no messages yet.</p>
-						{:else}
-							{#each messages[0].children as child, index (child.id)}
-								<svelte:component
-									this={MessageNode}
-									message={child}
-									level={0}
-									path={[0, index]}
-									{selectedPath}
-									selectMessage={handleSelectMessage}
-									apiBaseUrl={API_BASE_URL}
-									getAuthHeaders={buildAuthHeaders}
-								/>
-							{/each}
-						{/if}
-					{/key}
-				{/if}
 			</div>
 
 			<div class="input-area">
@@ -1538,7 +1544,6 @@
 		padding: 1.5rem;
 		display: flex;
 		flex-direction: column;
-		gap: 1.25rem;
 		box-shadow: 0 22px 42px rgba(8, 11, 32, 0.5);
 	}
 
@@ -1548,6 +1553,10 @@
 		justify-content: space-between;
 		gap: 1rem;
 		flex-wrap: wrap;
+		position: sticky;
+		top: 0;
+		background: var(--surface-raised);
+		padding: 0.75rem;
 	}
 
 	.conversation-heading h1 {
@@ -1597,6 +1606,7 @@
 		overflow-y: auto;
 		background: var(--surface-muted);
 		box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.6);
+		margin: 1rem 0;
 	}
 
 	.placeholder {
@@ -1617,22 +1627,39 @@
 		position: sticky;
 		bottom: 0;
 		background: var(--surface-raised);
-		padding: 1rem;
+		padding: 1rem 0;
 		z-index: 5;
 	}
 
-	/* Fade the chat content into the input area with a subtle opacity gradient */
+	:global(:root) {
+		--gradient-size: 18px;
+	}
+
 	.input-area::before {
 		content: '';
 		position: absolute;
 		left: 0;
 		right: 0;
-		top: -36px;
-		height: 36px;
+		top: calc(var(--gradient-size) * -1);
+		height: var(--gradient-size);
 		pointer-events: none;
-		/* Transparent over the chat, blending to the input area background at the bottom */
 		background: linear-gradient(
 			180deg,
+			var(--surface-raised-transparent) 0%,
+			var(--surface-raised) 100%
+		);
+	}
+
+	.conversation-header::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: calc(var(--gradient-size) * -1);
+		height: var(--gradient-size);
+		pointer-events: none;
+		background: linear-gradient(
+			0deg,
 			var(--surface-raised-transparent) 0%,
 			var(--surface-raised) 100%
 		);
