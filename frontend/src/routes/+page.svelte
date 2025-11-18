@@ -6,31 +6,22 @@
 	import {
 		streamThreadNodes,
 		streamThreadSummaries,
+		streamBulkMessages,
 		type ThreadNodePayload,
-		type ThreadSummaryPayload
+		type ThreadSummaryPayload,
+		type BulkDataRecord
 	} from '../lib/apiClient';
 	import {
 		openIndexedDb2,
-		readThreadNodes,
-		writeThreadNodes,
-		deleteThreadNodes,
-		type ThreadNodeRecord
+		readMessageRecord,
+		writeMessageRecords,
+		type MessageRecord
 	} from '../lib/indexedDb2';
 
 	// Prefer VITE_OUROBOROS_API when set; default to same origin so dev-server proxy reduces CORS
 	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? '';
 	const LAST_KEY_STORAGE = 'ouroboros:lastKey';
 	const AUTH_BANNER_TIMEOUT_MS = 5_000;
-
-	type PersistedRecord = {
-		key: string;
-		content: string;
-		isText: boolean;
-		mimeType?: string;
-		parent?: string;
-		createdAt?: string;
-		createdAtMs?: number;
-	};
 
 	type AuthStatus = 'idle' | 'authenticating' | 'authenticated' | 'error';
 
@@ -49,6 +40,14 @@
 	let nodeStreamAbort: AbortController | null = null;
 	let threadsAbort: AbortController | null = null;
 	let db: IDBDatabase | null = null;
+	const messageCache = new Map<string, MessageRecord>();
+	const pendingMessageWrites = new Map<string, MessageRecord>();
+	const messageHydrations = new Map<string, Promise<void>>();
+	const pendingHydrationNodes = new Map<string, ThreadNodePayload>();
+	const bulkHydrationQueue = new Set<string>();
+	const bulkHydrationWaiters = new Map<string, Array<() => void>>();
+	let bulkHydrationTimer: ReturnType<typeof setTimeout> | null = null;
+	let bulkHydrationInFlight = false;
 	let sentinel: HTMLElement | null = null;
 	let sentinelObserver: IntersectionObserver | null = null;
 	let sentinelAttached = false;
@@ -196,27 +195,6 @@
 		return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 	};
 
-	const formatPersistedContent = (record: PersistedRecord): string => {
-		try {
-			const bytes = decodeBase64ToUint8(record.content);
-			if (record.isText) {
-				return new TextDecoder().decode(bytes);
-			}
-			const mime = record.mimeType?.trim() || 'binary';
-			return `[${mime} • ${formatBytes(bytes.length)}]`;
-		} catch (error) {
-			if (record.isText && typeof globalThis.atob === 'function') {
-				try {
-					return globalThis.atob(record.content);
-				} catch (innerError) {
-					console.error('Failed to decode text payload', innerError);
-				}
-			}
-			const fallbackMime = record.mimeType?.trim() || 'binary';
-			return `[${fallbackMime} attachment]`;
-		}
-	};
-
 	const summaryKey = (value: unknown, index: number): string => {
 		if (value && typeof value === 'object' && 'key' in value) {
 			return (value as ThreadSummary).key;
@@ -228,6 +206,21 @@
 		if (!value.length) return 0;
 		const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
 		return Math.floor((value.length * 3) / 4) - padding;
+	};
+
+	const textLoadingPlaceholder = 'Loading message…';
+
+	const nodeParentKey = (value?: string | null): string | undefined => {
+		if (!value) return undefined;
+		const trimmed = value.trim();
+		return trimmed.length > 0 ? trimmed : undefined;
+	};
+
+	const attachmentLabel = (mimeType: string, sizeBytes: number): string => {
+		const normalizedMime = mimeType?.trim() || 'attachment';
+		return sizeBytes > 0
+			? `[${normalizedMime} • ${formatBytes(sizeBytes)}]`
+			: `[${normalizedMime}]`;
 	};
 
 	const readFileAsBase64 = (file: File): Promise<string> =>
@@ -312,6 +305,7 @@
 		// keep the db handle initialization for node caching while skipping summaries
 		try {
 			db = await openIndexedDb2();
+			flushPendingMessageWrites();
 		} catch (error) {
 			console.warn('Failed to open IndexedDB (node cache only)', error);
 		}
@@ -382,24 +376,20 @@
 
 	const createMessageFromNode = (node: ThreadNodePayload): Message => {
 		const sizeBytes = node.sizeBytes ?? 0;
-		const baseContent = node.isText
-			? (node.content ?? '')
-			: (node.preview ?? `[${node.mimeType} • ${formatBytes(sizeBytes)}]`);
 		const createdAtMs = node.createdAt ? Date.parse(node.createdAt) : undefined;
 		return {
 			id: nextId++,
-			content: baseContent || '[empty]',
+			content: node.isText ? textLoadingPlaceholder : attachmentLabel(node.mimeType, sizeBytes),
 			children: [],
 			status: 'saved',
 			key: node.key,
-			parentKey: node.parent && node.parent.trim().length > 0 ? node.parent : undefined,
+			parentKey: nodeParentKey(node.parent),
 			mimeType: node.mimeType,
 			isText: node.isText,
 			sizeBytes,
 			attachmentName: !node.isText ? node.key : undefined,
 			createdAt: node.createdAt,
-			createdAtMs,
-			preview: node.preview
+			createdAtMs
 		};
 	};
 
@@ -407,22 +397,17 @@
 		const existingPath = node.key ? keyToPath.get(node.key) : undefined;
 		if (existingPath) {
 			updateMessageAtPath(existingPath, (message) => {
-				if (node.isText && node.content) {
-					message.content = node.content;
-				} else if (!node.isText && node.preview) {
-					message.content = node.preview;
-				}
 				message.mimeType = node.mimeType;
 				message.isText = node.isText;
 				message.sizeBytes = node.sizeBytes;
 				message.createdAt = node.createdAt;
-				message.preview = node.preview;
-				message.parentKey = node.parent && node.parent.trim().length > 0 ? node.parent : undefined;
+				message.createdAtMs = node.createdAt ? Date.parse(node.createdAt) : undefined;
+				message.parentKey = nodeParentKey(node.parent);
+				if (!node.isText) {
+					message.content = attachmentLabel(node.mimeType, node.sizeBytes ?? 0);
+				}
 			});
-			if (db && node.key) {
-				const record = threadNodePayloadToRecord(node, selectedThreadKey);
-				void writeThreadNodes(db, [record]);
-			}
+			requestMessageHydration(node);
 			return;
 		}
 
@@ -433,10 +418,7 @@
 			keyToPath = buildKeyPathMap(messages);
 			setSelectedPath([0]);
 			nodeLoading = false;
-			if (db && node.key) {
-				const record = threadNodePayloadToRecord(node, selectedThreadKey);
-				void writeThreadNodes(db, [record]);
-			}
+			requestMessageHydration(node);
 			return;
 		}
 
@@ -457,10 +439,255 @@
 		parentNode.children = [...parentNode.children, newMessage];
 		messages = cloned;
 		keyToPath = buildKeyPathMap(messages);
-		if (db && node.key) {
-			const record = threadNodePayloadToRecord(node, selectedThreadKey);
-			void writeThreadNodes(db, [record]);
+		requestMessageHydration(node);
+	};
+
+	const applyRecordToMessage = (record: MessageRecord) => {
+		const path = record.key ? keyToPath.get(record.key) : undefined;
+		if (!path) {
+			return;
 		}
+		updateMessageAtPath(path, (message) => {
+			if (record.content !== undefined) {
+				message.content = record.content === '' ? '[empty]' : record.content;
+			}
+			if (record.encodedContent) {
+				message.encodedContent = record.encodedContent;
+			}
+			message.mimeType = record.mimeType;
+			message.isText = record.isText;
+			message.sizeBytes = record.sizeBytes;
+			if (record.createdAt) {
+				message.createdAt = record.createdAt;
+				const ms = Date.parse(record.createdAt);
+				if (!Number.isNaN(ms)) {
+					message.createdAtMs = ms;
+				}
+			}
+		});
+	};
+
+	const readCachedMessageRecord = async (key: string): Promise<MessageRecord | null> => {
+		if (messageCache.has(key)) {
+			return messageCache.get(key) ?? null;
+		}
+		if (!db) {
+			return null;
+		}
+		try {
+			const record = await readMessageRecord(db, key);
+			if (record) {
+				messageCache.set(key, record);
+			}
+			return record;
+		} catch (error) {
+			console.warn('Failed to read cached message', error);
+			return null;
+		}
+	};
+
+	const fetchMessageRecord = async (node: ThreadNodePayload): Promise<MessageRecord> => {
+		if (!node.key) {
+			throw new Error('Message key is required');
+		}
+		const response = await fetch(`${API_BASE_URL}/data/${node.key}`, {
+			headers: await withAuthHeaders()
+		});
+		if (!response.ok) {
+			const message = (await response.text()) || `Failed to load message ${node.key}`;
+			throw new Error(message);
+		}
+		const buffer = await response.arrayBuffer();
+		const bytes = new Uint8Array(buffer);
+		const resolvedSize = bytes.length > 0 ? bytes.length : (node.sizeBytes ?? 0);
+		const encodedContent = encodeBytesToBase64(bytes);
+		const headerMime =
+			response.headers.get('X-Ouroboros-Mime') ?? response.headers.get('Content-Type');
+		const mimeType = headerMime ?? node.mimeType ?? 'application/octet-stream';
+		const headerIsText = response.headers.get('X-Ouroboros-Is-Text');
+		const isText = headerIsText ? headerIsText.toLowerCase() === 'true' : node.isText;
+		const createdAt = response.headers.get('X-Ouroboros-Created-At') ?? node.createdAt;
+		let decodedContent: string | undefined;
+		if (isText) {
+			try {
+				decodedContent = new TextDecoder().decode(bytes);
+			} catch (error) {
+				console.warn('Failed to decode text payload', error);
+			}
+		}
+		return {
+			key: node.key,
+			mimeType,
+			isText,
+			sizeBytes: resolvedSize,
+			encodedContent,
+			content: decodedContent,
+			createdAt
+		};
+	};
+
+	const flushPendingMessageWrites = () => {
+		if (!db || pendingMessageWrites.size === 0) {
+			return;
+		}
+		const batch = Array.from(pendingMessageWrites.values());
+		pendingMessageWrites.clear();
+		void writeMessageRecords(db, batch).catch((error) => {
+			console.warn('Failed to write cached messages', error);
+			for (const record of batch) {
+				if (record.key) {
+					pendingMessageWrites.set(record.key, record);
+				}
+			}
+		});
+	};
+
+	const persistMessageRecord = (record: MessageRecord) => {
+		if (!record.key) {
+			return;
+		}
+		messageCache.set(record.key, record);
+		pendingMessageWrites.set(record.key, record);
+		flushPendingMessageWrites();
+	};
+
+	const resolveBulkWaiters = (key: string) => {
+		const waiters = bulkHydrationWaiters.get(key);
+		bulkHydrationWaiters.delete(key);
+		waiters?.forEach((resolve) => resolve());
+	};
+
+	const bulkRecordToMessageRecord = (payload: BulkDataRecord): MessageRecord | null => {
+		if (!payload.key || !payload.found) {
+			return null;
+		}
+		const mime =
+			payload.mimeType?.trim() ||
+			(payload.isText ? 'text/plain; charset=utf-8' : 'application/octet-stream');
+		const record: MessageRecord = {
+			key: payload.key,
+			mimeType: mime,
+			isText: Boolean(payload.isText),
+			sizeBytes:
+				payload.sizeBytes ??
+				(payload.content !== undefined ? new TextEncoder().encode(payload.content).length : 0),
+			createdAt: payload.createdAt
+		};
+		if (payload.content !== undefined) {
+			record.content = payload.content;
+		}
+		if (payload.encodedContent) {
+			record.encodedContent = payload.encodedContent;
+		}
+		return record;
+	};
+
+	const enqueueBulkHydration = (key: string): Promise<void> => {
+		return new Promise((resolve) => {
+			if (!bulkHydrationWaiters.has(key)) {
+				bulkHydrationWaiters.set(key, []);
+			}
+			bulkHydrationWaiters.get(key)!.push(resolve);
+			bulkHydrationQueue.add(key);
+			scheduleBulkHydrationFlush();
+		});
+	};
+
+	const scheduleBulkHydrationFlush = () => {
+		if (bulkHydrationTimer) {
+			return;
+		}
+		bulkHydrationTimer = setTimeout(() => {
+			bulkHydrationTimer = null;
+			void flushBulkHydrationQueue();
+		}, 0);
+	};
+
+	const handleBulkPayload = (payload: BulkDataRecord, seen: Set<string>) => {
+		if (!payload.key) {
+			return;
+		}
+		seen.add(payload.key);
+		const record = bulkRecordToMessageRecord(payload);
+		if (record) {
+			persistMessageRecord(record);
+			applyRecordToMessage(record);
+		}
+		resolveBulkWaiters(payload.key);
+	};
+
+	const fallbackHydrationFetch = async (key: string) => {
+		const metadata = pendingHydrationNodes.get(key);
+		if (!metadata) {
+			resolveBulkWaiters(key);
+			return;
+		}
+		try {
+			const record = await fetchMessageRecord(metadata);
+			persistMessageRecord(record);
+			applyRecordToMessage(record);
+		} catch (error) {
+			console.warn('Failed to fetch message content (fallback)', error);
+		} finally {
+			resolveBulkWaiters(key);
+		}
+	};
+
+	const flushBulkHydrationQueue = async () => {
+		if (bulkHydrationInFlight || bulkHydrationQueue.size === 0) {
+			return;
+		}
+		const batch = Array.from(bulkHydrationQueue).slice(0, 500);
+		batch.forEach((key) => bulkHydrationQueue.delete(key));
+		const seen = new Set<string>();
+		bulkHydrationInFlight = true;
+		try {
+			await streamBulkMessages({
+				apiBaseUrl: API_BASE_URL,
+				keys: batch,
+				getHeaders: buildAuthHeaders,
+				onRecord: (payload) => handleBulkPayload(payload, seen)
+			});
+		} catch (error) {
+			console.warn('Bulk hydration request failed', error);
+		} finally {
+			bulkHydrationInFlight = false;
+			const unseen = batch.filter((key) => !seen.has(key));
+			for (const key of unseen) {
+				await fallbackHydrationFetch(key);
+			}
+			if (bulkHydrationQueue.size > 0) {
+				scheduleBulkHydrationFlush();
+			}
+		}
+	};
+
+	const hydrateMessage = async (node: ThreadNodePayload) => {
+		if (!node.key || !node.isText) {
+			return;
+		}
+		const cached = await readCachedMessageRecord(node.key);
+		if (cached) {
+			applyRecordToMessage(cached);
+			return;
+		}
+		await enqueueBulkHydration(node.key);
+	};
+
+	const requestMessageHydration = (node: ThreadNodePayload) => {
+		if (!node.key || !node.isText || messageHydrations.has(node.key)) {
+			return;
+		}
+		pendingHydrationNodes.set(node.key, node);
+		const promise = hydrateMessage(node)
+			.catch((error) => {
+				console.warn('Failed to hydrate message', error);
+			})
+			.finally(() => {
+				messageHydrations.delete(node.key as string);
+				pendingHydrationNodes.delete(node.key as string);
+			});
+		messageHydrations.set(node.key, promise);
 	};
 
 	const handleSelectThreadSummary = (summary: ThreadSummary) => {
@@ -482,23 +709,6 @@
 		nodeStreamAbort = controller;
 		void (async () => {
 			try {
-				// Attempt to load cached nodes (message tree) for the selected thread
-				if (db && summary.key) {
-					try {
-						const cached = await readThreadNodes(db, summary.key);
-						if (cached.length > 0) {
-							const roots = buildMessageTreeFromNodeRecords(cached);
-							messages = roots;
-							keyToPath = buildKeyPathMap(messages);
-							// pick an initial path based on storage or last path
-							const initial = resolveInitialPath(messages, keyToPath);
-							setSelectedPath(initial);
-							nodeLoading = false; // show cached messages while we stream
-						}
-					} catch (err) {
-						console.warn('Failed to load cached thread nodes', err);
-					}
-				}
 				await streamThreadNodes({
 					apiBaseUrl: API_BASE_URL,
 					rootKey: summary.key,
@@ -788,101 +998,27 @@
 	const encodeToBase64 = (text: string): string =>
 		encodeBytesToBase64(new TextEncoder().encode(text));
 
-	// Convert a persisted ThreadNodeRecord to a runtime Message
-	function createMessageFromNodeRecord(record: ThreadNodeRecord, id: number): Message {
-		const contentBase64 =
-			record.encodedContent ?? (record.content ? encodeToBase64(record.content) : '');
-		const messageSize = calculateBase64Size(contentBase64);
-		const displayContent = formatPersistedContent({
-			key: record.key,
-			content: contentBase64,
-			isText: record.isText,
-			mimeType: record.mimeType,
-			parent: record.parent,
-			createdAt: record.createdAt,
-			createdAtMs: record.createdAt ? Date.parse(record.createdAt) : undefined
-		});
-		const createdAtMs = record.createdAt ? Date.parse(record.createdAt) : undefined;
-		return {
-			id,
-			content: displayContent,
-			children: [],
-			status: 'saved',
-			key: record.key,
-			error: undefined,
-			parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined,
-			encodedContent: record.encodedContent,
-			mimeType: record.mimeType,
-			isText: record.isText,
-			sizeBytes: messageSize,
-			attachmentName: !record.isText ? record.key : undefined,
-			createdAt: record.createdAt,
-			createdAtMs
-		};
-	}
-
-	function buildMessageTreeFromNodeRecords(records: ThreadNodeRecord[]): Message[] {
-		const map = new Map<string, Message>();
-		const roots: Message[] = [];
-		const sorted = records.slice().sort((a, b) => {
-			const at = a.createdAt ?? '';
-			const bt = b.createdAt ?? '';
-			const cmp = at.localeCompare(bt);
-			if (cmp !== 0) return cmp;
-			return a.key.localeCompare(b.key);
-		});
-		for (const rec of sorted) {
-			const msg = createMessageFromNodeRecord(rec, nextId++);
-			map.set(rec.key, msg);
-		}
-		for (const rec of sorted) {
-			const msg = map.get(rec.key);
-			if (!msg) continue;
-			if (rec.parent && map.has(rec.parent)) {
-				const parent = map.get(rec.parent)!;
-				parent.children = [...parent.children, msg];
-			} else {
-				roots.push(msg);
-			}
-		}
-		sortMessageTree(roots);
-		return roots;
-	}
-
-	function threadNodePayloadToRecord(
-		node: ThreadNodePayload,
-		rootKey: string | null
-	): ThreadNodeRecord {
-		return {
-			key: node.key,
-			rootKey: rootKey ?? '',
-			parent: node.parent && node.parent.trim().length > 0 ? node.parent : undefined,
-			mimeType: node.mimeType,
-			isText: node.isText,
-			sizeBytes: node.sizeBytes ?? 0,
-			preview: node.preview,
-			encodedContent: node.isText && node.content ? encodeToBase64(node.content) : undefined,
-			createdAt: node.createdAt
-		};
-	}
-
-	function messageToThreadNodeRecord(message: Message, rootKey: string): ThreadNodeRecord {
-		const encoded = message.encodedContent ?? undefined;
+	// Convert a runtime Message into a cacheable IndexedDB record
+	const messageToRecord = (message: Message): MessageRecord => {
+		const normalizedMime =
+			message.mimeType ??
+			(message.isText ? 'text/plain; charset=utf-8' : 'application/octet-stream');
+		const ensuredEncoded =
+			message.encodedContent ??
+			(message.isText && message.content ? encodeToBase64(message.content) : undefined);
 		return {
 			key: message.key ?? '',
-			rootKey: rootKey ?? '',
-			parent:
-				message.parentKey && message.parentKey.trim().length > 0 ? message.parentKey : undefined,
-			mimeType:
-				message.mimeType ??
-				(message.isText ? 'text/plain; charset=utf-8' : 'application/octet-stream'),
+			mimeType: normalizedMime,
 			isText: message.isText ?? true,
-			sizeBytes: message.sizeBytes ?? calculateBase64Size(encoded ?? ''),
-			preview: message.preview,
-			encodedContent: encoded,
-			createdAt: message.createdAt
+			sizeBytes:
+				message.sizeBytes ??
+				(ensuredEncoded ? calculateBase64Size(ensuredEncoded) : (message.content?.length ?? 0)),
+			content: message.isText ? (message.content ?? '') : undefined,
+			encodedContent: ensuredEncoded,
+			createdAt: message.createdAt,
+			attachmentName: message.attachmentName
 		};
-	}
+	};
 
 	onMount(() => {
 		const params =
@@ -908,12 +1044,6 @@
 				attemptInitialSelection();
 			}
 		})();
-		if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-			const swUrl = '/sw.js';
-			navigator.serviceWorker
-				.register(swUrl)
-				.catch((error) => console.warn('Service worker registration failed', error));
-		}
 		if (typeof window !== 'undefined' && 'IntersectionObserver' in window) {
 			sentinelObserver = new IntersectionObserver(
 				(entries) => {
@@ -1083,13 +1213,10 @@
 				delete message.error;
 			});
 
-			// Persist newly saved message to IndexedDB
-			if (db && key) {
-				const message = getMessageAtPath(messages, path);
-				if (message) {
-					const record = messageToThreadNodeRecord(message, selectedThreadKey ?? key ?? '');
-					void writeThreadNodes(db, [record]);
-				}
+			// Persist newly saved message payload for future hydration
+			const updatedMessage = getMessageAtPath(messages, path);
+			if (updatedMessage && updatedMessage.key) {
+				persistMessageRecord(messageToRecord(updatedMessage));
 			}
 
 			statusState = 'success';

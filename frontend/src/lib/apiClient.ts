@@ -17,8 +17,18 @@ export type ThreadNodePayload = {
     createdAt?: string;
     depth: number;
     children: string[];
+};
+
+export type BulkDataRecord = {
+    key: string;
+    found: boolean;
+    mimeType?: string;
+    isText?: boolean;
+    sizeBytes?: number;
+    createdAt?: string;
     content?: string;
-    preview?: string;
+    encodedContent?: string;
+    error?: string;
 };
 
 type HeaderProvider = () => Promise<Record<string, string>>;
@@ -38,6 +48,15 @@ type ThreadNodeStreamOptions = {
     signal?: AbortSignal;
     getHeaders: HeaderProvider;
     onNode: (node: ThreadNodePayload) => void;
+};
+
+type BulkDataStreamOptions = {
+    apiBaseUrl: string;
+    keys: string[];
+    includeBinary?: boolean;
+    signal?: AbortSignal;
+    getHeaders: HeaderProvider;
+    onRecord: (record: BulkDataRecord) => void;
 };
 
 type NdjsonHandler = (record: unknown) => void;
@@ -146,6 +165,45 @@ export const streamThreadNodes = async (options: ThreadNodeStreamOptions): Promi
             const payload = record as { type?: string; node?: ThreadNodePayload };
             if (payload.type === 'node' && payload.node) {
                 options.onNode(payload.node);
+            }
+        },
+        options.signal
+    );
+};
+
+export const streamBulkMessages = async (options: BulkDataStreamOptions): Promise<void> => {
+    if (!options.keys.length) {
+        return;
+    }
+    const headers = withNdjsonAccept({
+        'Content-Type': 'application/json',
+        ...(await options.getHeaders())
+    });
+    const response = await fetch(`${options.apiBaseUrl}/data/bulk`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            keys: options.keys,
+            includeBinary: options.includeBinary ?? false
+        }),
+        signal: options.signal
+    });
+    if (!response.ok) {
+        const message = (await response.text()) || `Failed to bulk fetch (${response.status}).`;
+        throw new Error(message);
+    }
+
+    await consumeNdjson(
+        response,
+        (record) => {
+            if (!record || typeof record !== 'object') {
+                return;
+            }
+            const payload = record as { type?: string; record?: BulkDataRecord; error?: string };
+            if (payload.type === 'record' && payload.record) {
+                options.onRecord(payload.record);
+            } else if (payload.type === 'error' && payload.error) {
+                throw new Error(payload.error);
             }
         },
         options.signal

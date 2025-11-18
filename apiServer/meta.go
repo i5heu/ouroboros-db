@@ -38,8 +38,6 @@ type threadNode struct {
 	CreatedAt string   `json:"createdAt,omitempty"`
 	Depth     int      `json:"depth"`
 	Children  []string `json:"children"`
-	Content   string   `json:"content,omitempty"`
-	Preview   string   `json:"preview,omitempty"`
 }
 
 func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
@@ -56,46 +54,42 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sort by CreatedAt descending (newest first).
-	// We need to hydrate metadata for each key in order to determine CreatedAt.
-	// Fall back to zero time for any keys that fail to hydrate so they'll sort last.
+	// Sort by CreatedAt descending (newest first), considering only root thread nodes
+	// (nodes without a parent). We need to hydrate metadata for each key in order to
+	// determine CreatedAt, root-ness, and eventually stream summaries.
 	type keyedMeta struct {
 		key       cryptHash.Hash
 		createdAt time.Time
 	}
-	metas := make([]keyedMeta, 0, len(keys))
+	roots := make([]keyedMeta, 0, len(keys))
 	for _, k := range keys {
-		var created time.Time
-		if data, err := s.db.GetData(ctx, k); err == nil {
-			created = data.CreatedAt
-		} else {
+		data, err := s.db.GetData(ctx, k)
+		if err != nil {
 			s.log.Warn("failed to read metadata for sorting threads", "error", err, "key", k.String())
+			continue
 		}
-		metas = append(metas, keyedMeta{key: k, createdAt: created})
+		if !data.Parent.IsZero() {
+			// Skip entries that already belong to another thread; only emit actual roots
+			continue
+		}
+		roots = append(roots, keyedMeta{key: k, createdAt: data.CreatedAt})
 	}
 
-	sort.Slice(metas, func(i, j int) bool {
-		if metas[i].createdAt.Equal(metas[j].createdAt) {
-			// deterministic fallback: sort by key string descending so newly created keys
-			// with equal timestamps still have a stable order.
-			return metas[i].key.String() > metas[j].key.String()
+	sort.Slice(roots, func(i, j int) bool {
+		if roots[i].createdAt.Equal(roots[j].createdAt) {
+			return roots[i].key.String() > roots[j].key.String()
 		}
-		return metas[i].createdAt.After(metas[j].createdAt)
+		return roots[i].createdAt.After(roots[j].createdAt)
 	})
-
-	// Rebuild keys in sorted order.
-	for i := range metas {
-		keys[i] = metas[i].key
-	}
 
 	limit := parseLimit(r.URL.Query().Get("limit"), defaultThreadPageSize)
 	start := decodeCursor(r.URL.Query().Get("cursor"))
-	if start < 0 || start >= len(keys) {
+	if start < 0 || start >= len(roots) {
 		start = 0
 	}
 	end := start + limit
-	if end > len(keys) {
-		end = len(keys)
+	if end > len(roots) {
+		end = len(roots)
 	}
 
 	w.Header().Set("Content-Type", "application/x-ndjson")
@@ -103,9 +97,9 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 	encoder := json.NewEncoder(w)
 
 	for idx := start; idx < end; idx++ {
-		data, err := s.db.GetData(ctx, keys[idx])
+		data, err := s.db.GetData(ctx, roots[idx].key)
 		if err != nil {
-			s.log.Warn("failed to hydrate thread summary", "error", err, "key", keys[idx].String())
+			s.log.Warn("failed to hydrate thread summary", "error", err, "key", roots[idx].key.String())
 			continue
 		}
 		summary := threadSummary{
@@ -135,7 +129,7 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nextCursor := ""
-	if end < len(keys) {
+	if end < len(roots) {
 		nextCursor = strconv.Itoa(end)
 	}
 	cursorPayload := map[string]any{"type": "cursor", "cursor": nextCursor}
@@ -221,12 +215,6 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 			if depthLimit < 0 || item.depth+1 <= depthLimit {
 				queue = append(queue, queueItem{key: child, depth: item.depth + 1})
 			}
-		}
-
-		if data.IsText {
-			node.Content = clipString(string(data.Content), maxTextPayloadBytes)
-		} else {
-			node.Preview = binaryPreview(node.MimeType, node.SizeBytes)
 		}
 
 		payload := map[string]any{"type": "node", "node": node}

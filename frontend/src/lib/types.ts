@@ -15,7 +15,6 @@ export type Message = {
     attachmentName?: string;
     createdAt?: string;
     createdAtMs?: number;
-    preview?: string;
     attachmentUrl?: string;
     binaryLoadedBytes?: number;
     binaryTotalBytes?: number;

@@ -1,7 +1,8 @@
 const DB_NAME = 'ouroboros.v2';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const THREAD_STORE = 'threadSummaries';
-const NODE_STORE = 'threadNodes';
+const MESSAGE_STORE = 'messages';
+const LEGACY_NODE_STORE = 'threadNodes';
 
 export type ThreadSummaryRecord = {
     key: string;
@@ -14,17 +15,15 @@ export type ThreadSummaryRecord = {
     cachedAt: number;
 };
 
-export type ThreadNodeRecord = {
-    key: string; // server key or generated local key
-    rootKey: string; // the thread's root summary key
-    parent?: string; // parent key
+export type MessageRecord = {
+    key: string;
     mimeType: string;
     isText: boolean;
     sizeBytes: number;
-    preview?: string;
-    content?: string; // plain text (non-encoded)
-    encodedContent?: string; // base64 for attachment or original data
+    content?: string;
+    encodedContent?: string;
     createdAt?: string;
+    attachmentName?: string;
     cachedAt?: number;
 };
 
@@ -40,10 +39,11 @@ const openRequest = (): Promise<IDBDatabase | null> =>
             if (!db.objectStoreNames.contains(THREAD_STORE)) {
                 db.createObjectStore(THREAD_STORE, { keyPath: 'key' });
             }
-            if (!db.objectStoreNames.contains(NODE_STORE)) {
-                const store = db.createObjectStore(NODE_STORE, { keyPath: 'key' });
-                store.createIndex('rootKey', 'rootKey', { unique: false });
-                store.createIndex('parent', 'parent', { unique: false });
+            if (db.objectStoreNames.contains(LEGACY_NODE_STORE)) {
+                db.deleteObjectStore(LEGACY_NODE_STORE);
+            }
+            if (!db.objectStoreNames.contains(MESSAGE_STORE)) {
+                db.createObjectStore(MESSAGE_STORE, { keyPath: 'key' });
             }
         };
         request.onsuccess = () => {
@@ -74,21 +74,18 @@ export const writeThreadSummaries = async (
     });
 };
 
-export const writeThreadNodes = async (
-    db: IDBDatabase | null,
-    records: ThreadNodeRecord[]
-) => {
+export const writeMessageRecords = async (db: IDBDatabase | null, records: MessageRecord[]) => {
     if (!db || records.length === 0) {
         return;
     }
     await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(NODE_STORE, 'readwrite');
-        const store = tx.objectStore(NODE_STORE);
+        const tx = db.transaction(MESSAGE_STORE, 'readwrite');
+        const store = tx.objectStore(MESSAGE_STORE);
         records.forEach((record) => {
             store.put({ ...record, cachedAt: record.cachedAt ?? Date.now() });
         });
         tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error ?? new Error('Failed to write thread nodes.'));
+        tx.onerror = () => reject(tx.error ?? new Error('Failed to write messages.'));
     });
 };
 
@@ -107,36 +104,60 @@ export const readThreadSummaries = async (db: IDBDatabase | null): Promise<Threa
     });
 };
 
-export const readThreadNodes = async (
+export const readMessageRecord = async (
     db: IDBDatabase | null,
-    rootKey: string
-): Promise<ThreadNodeRecord[]> => {
-    if (!db || !rootKey) return [];
-    return await new Promise<ThreadNodeRecord[]>((resolve, reject) => {
-        try {
-            const tx = db.transaction(NODE_STORE, 'readonly');
-            const store = tx.objectStore(NODE_STORE);
-            const index = store.index('rootKey');
-            const request = index.getAll(IDBKeyRange.only(rootKey));
-            request.onsuccess = () => {
-                resolve(request.result as ThreadNodeRecord[]);
-            };
-            request.onerror = () => reject(request.error ?? new Error('Failed to read thread nodes.'));
-        } catch (error) {
-            reject(error);
-        }
+    key: string
+): Promise<MessageRecord | null> => {
+    if (!db || !key) return null;
+    return await new Promise<MessageRecord | null>((resolve, reject) => {
+        const tx = db.transaction(MESSAGE_STORE, 'readonly');
+        const store = tx.objectStore(MESSAGE_STORE);
+        const request = store.get(key);
+        request.onsuccess = () => {
+            resolve((request.result as MessageRecord) ?? null);
+        };
+        request.onerror = () => reject(request.error ?? new Error('Failed to read message.'));
     });
 };
 
-export const deleteThreadNodes = async (db: IDBDatabase | null, keys: string[]) => {
+export const readMessageRecords = async (
+    db: IDBDatabase | null,
+    keys: string[]
+): Promise<Map<string, MessageRecord>> => {
+    if (!db || keys.length === 0) return new Map();
+    return await new Promise<Map<string, MessageRecord>>((resolve, reject) => {
+        const tx = db.transaction(MESSAGE_STORE, 'readonly');
+        const store = tx.objectStore(MESSAGE_STORE);
+        const result = new Map<string, MessageRecord>();
+        let remaining = keys.length;
+        const checkDone = () => {
+            if (remaining === 0) {
+                resolve(result);
+            }
+        };
+        keys.forEach((key) => {
+            const request = store.get(key);
+            request.onsuccess = () => {
+                if (request.result) {
+                    result.set(key, request.result as MessageRecord);
+                }
+                remaining -= 1;
+                checkDone();
+            };
+            request.onerror = () => {
+                reject(request.error ?? new Error('Failed to read message.'));
+            };
+        });
+    });
+};
+
+export const deleteMessageRecords = async (db: IDBDatabase | null, keys: string[]) => {
     if (!db || keys.length === 0) return;
     await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(NODE_STORE, 'readwrite');
-        const store = tx.objectStore(NODE_STORE);
-        keys.forEach((k) => {
-            store.delete(k);
-        });
+        const tx = db.transaction(MESSAGE_STORE, 'readwrite');
+        const store = tx.objectStore(MESSAGE_STORE);
+        keys.forEach((key) => store.delete(key));
         tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error ?? new Error('Failed to delete thread nodes.'));
+        tx.onerror = () => reject(tx.error ?? new Error('Failed to delete messages.'));
     });
 };

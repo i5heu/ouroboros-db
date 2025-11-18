@@ -45,6 +45,7 @@ func (s *Server) routes() { // AC
 	s.mux.HandleFunc("GET /data/{key}", s.handleGet)
 	s.mux.HandleFunc("GET /data/{key}/children", s.handleChildren)
 	s.mux.HandleFunc("GET /data", s.handleList)
+	s.mux.HandleFunc("POST /data/bulk", s.handleBulkData)
 	s.mux.HandleFunc("GET /meta/threads", s.handleThreadSummaries)
 	s.mux.HandleFunc("GET /meta/thread/{key}/stream", s.handleThreadNodeStream)
 	s.mux.HandleFunc("GET /authProcess", s.handleAuthProcess)

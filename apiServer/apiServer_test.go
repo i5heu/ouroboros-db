@@ -701,3 +701,70 @@ func TestThreadSummariesNewestFirst(t *testing.T) {
 		t.Fatalf("expected created times descending, got %v", createdTimes[:3])
 	}
 }
+
+func TestBulkDataStream(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	key1 := h.create([]byte("first bulk"), WithMimeType("text/plain; charset=utf-8"))
+	key2 := h.create([]byte("second bulk"), WithMimeType("text/plain; charset=utf-8"))
+
+	body := fmt.Sprintf(`{"keys":["%s","%s"]}`, key1, key2)
+	rec := h.request(http.MethodPost, "/data/bulk", strings.NewReader(body), map[string]string{
+		"Content-Type": "application/json",
+	})
+	h.requireStatus(rec, http.StatusOK)
+
+	scanner := bufio.NewScanner(bytes.NewReader(rec.Body.Bytes()))
+	var seenKeys []string
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(line, &payload); err != nil {
+			t.Fatalf("failed to decode ndjson: %v", err)
+		}
+		tpe, _ := payload["type"].(string)
+		if tpe == "record" {
+			record, _ := payload["record"].(map[string]any)
+			if record == nil {
+				continue
+			}
+			if found, _ := record["found"].(bool); !found {
+				t.Fatalf("expected record to be found")
+			}
+			key, _ := record["key"].(string)
+			content, _ := record["content"].(string)
+			if key == "" || content == "" {
+				t.Fatalf("expected key and content in record: %v", record)
+			}
+			seenKeys = append(seenKeys, key)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
+	if len(seenKeys) != 2 {
+		t.Fatalf("expected 2 bulk records, got %v", seenKeys)
+	}
+	if seenKeys[0] != key1 || seenKeys[1] != key2 {
+		t.Fatalf("expected records in request order, got %v", seenKeys)
+	}
+}
+
+func TestBulkDataRejectsTooManyKeys(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	keys := make([]string, maxBulkKeys+1)
+	for i := 0; i < len(keys); i++ {
+		keys[i] = fmt.Sprintf("%064x", i+1)
+	}
+	body, _ := json.Marshal(map[string]any{"keys": keys})
+	rec := h.request(http.MethodPost, "/data/bulk", bytes.NewReader(body), map[string]string{
+		"Content-Type": "application/json",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad request for oversized bulk payload, got %d", rec.Code)
+	}
+}
