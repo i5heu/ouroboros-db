@@ -1,69 +1,96 @@
 package ouroboros
 
 import (
+	"bytes"
+	"context"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/keys"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
-	"github.com/sirupsen/logrus"
 )
 
 // setupTestDir creates a temporary directory for testing
-func setupTestDir(t *testing.T) string {
+func setupTestDir(tb testing.TB) string { // A
+	tb.Helper()
 	testDir, err := os.MkdirTemp("", "ouroboros_test_*")
 	if err != nil {
-		t.Fatalf("Failed to create test directory: %v", err)
+		tb.Fatalf("Failed to create test directory: %v", err)
 	}
 	return testDir
 }
 
 // setupTestKeyFile creates a test key file for ouroboros-crypt
-func setupTestKeyFile(t *testing.T, testDir string) string {
+func setupTestKeyFile(tb testing.TB, testDir string) string { // A
+	tb.Helper()
 	// Create a new crypto instance
 	asyncCrypt, err := keys.NewAsyncCrypt()
 	if err != nil {
-		t.Fatalf("Failed to create async crypt: %v", err)
+		tb.Fatalf("Failed to create async crypt: %v", err)
 	}
 
 	// Save the key file
 	keyPath := filepath.Join(testDir, "ouroboros.key")
 	err = asyncCrypt.SaveToFile(keyPath)
 	if err != nil {
-		t.Fatalf("Failed to save key file: %v", err)
+		tb.Fatalf("Failed to save key file: %v", err)
 	}
 
 	return keyPath
 }
 
 // cleanupTestDir removes the test directory
-func cleanupTestDir(t *testing.T, testDir string) {
-	err := os.RemoveAll(testDir)
-	if err != nil {
-		t.Errorf("Failed to cleanup test directory: %v", err)
+func cleanupTestDir(tb testing.TB, testDir string) { // A
+	tb.Helper()
+	if err := os.RemoveAll(testDir); err != nil {
+		tb.Errorf("Failed to cleanup test directory: %v", err)
 	}
 }
 
-func TestNewOuroborosDB_Success(t *testing.T) {
+func testLogger() *slog.Logger { // A
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func newStartedDB(t *testing.T, config Config) *OuroborosDB { // A
+	t.Helper()
+
+	db, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create OuroborosDB: %v", err)
+	}
+
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("Failed to start OuroborosDB: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := db.CloseWithoutContext(); err != nil {
+			t.Errorf("Failed to close OuroborosDB: %v", err)
+		}
+	})
+
+	return db
+}
+
+func TestNewOuroborosDB_Success(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Setup test key file
 	setupTestKeyFile(t, testDir)
 
-	// Create a test logger
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logger,
+		Logger:        testLogger(),
 	}
 
 	// Test successful initialization
-	db, err := NewOuroborosDB(config)
+	db, err := New(config)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -76,20 +103,27 @@ func TestNewOuroborosDB_Success(t *testing.T) {
 	if db.log == nil {
 		t.Error("Expected logger to be initialized")
 	}
-	if db.crypt == nil {
-		t.Error("Expected crypt to be initialized")
-	}
-	if db.kv == nil {
-		t.Error("Expected kv to be initialized")
-	}
 
-	// Test Close function
-	db.Close()
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("Expected Start to succeed, got: %v", err)
+	}
+	defer func() {
+		if err := db.CloseWithoutContext(); err != nil {
+			t.Errorf("CloseWithoutContext failed: %v", err)
+		}
+	}()
+
+	if db.crypt == nil {
+		t.Error("Expected crypt to be initialized after Start")
+	}
+	if _, err := db.kvHandle(); err != nil {
+		t.Errorf("Expected kv to be initialized after Start, got: %v", err)
+	}
 }
 
-func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
+func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Setup test key file
 	setupTestKeyFile(t, testDir)
@@ -100,7 +134,7 @@ func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
 		Logger:        nil, // Test default logger initialization
 	}
 
-	db, err := NewOuroborosDB(config)
+	db, err := New(config)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -109,17 +143,23 @@ func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) {
 		t.Error("Expected default logger to be initialized")
 	}
 
-	db.Close()
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("Expected Start to succeed, got: %v", err)
+	}
+
+	if err := db.CloseWithoutContext(); err != nil {
+		t.Fatalf("CloseWithoutContext failed: %v", err)
+	}
 }
 
-func TestNewOuroborosDB_EmptyPaths(t *testing.T) {
+func TestNewOuroborosDB_EmptyPaths(t *testing.T) { // A
 	config := Config{
 		Paths:         []string{}, // Empty paths should cause error
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
+	db, err := New(config)
 	if err == nil {
 		t.Fatal("Expected error for empty paths, got nil")
 	}
@@ -133,59 +173,64 @@ func TestNewOuroborosDB_EmptyPaths(t *testing.T) {
 	}
 }
 
-func TestNewOuroborosDB_MissingKeyFile(t *testing.T) {
+func TestNewOuroborosDB_MissingKeyFile(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Don't create key file - should cause error
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
+	db, err := New(config)
+	if err != nil {
+		t.Fatalf("Expected New to succeed, got: %v", err)
+	}
+
+	if db == nil {
+		t.Fatal("Expected db to be non-nil")
+	}
+
+	err = db.Start(context.Background())
 	if err == nil {
 		t.Fatal("Expected error for missing key file, got nil")
 	}
-	if db != nil {
-		t.Error("Expected db to be nil when error occurs")
-	}
 
-	// Check that error mentions ouroboros-crypt
-	expectedPrefix := "failed to initialize ouroboros-crypt:"
-	if len(err.Error()) < len(expectedPrefix) || err.Error()[:len(expectedPrefix)] != expectedPrefix {
-		t.Errorf("Expected error to start with '%s', got: %v", expectedPrefix, err)
+	if !strings.Contains(err.Error(), "init crypt") {
+		t.Errorf("Expected error to mention crypt init, got: %v", err)
 	}
 }
 
-func TestNewOuroborosDB_InvalidPath(t *testing.T) {
+func TestNewOuroborosDB_InvalidPath(t *testing.T) { // A
 	// Use a path that doesn't exist and cannot be created
 	invalidPath := "/invalid/nonexistent/path"
-
-	// Create key file in a temporary location
-	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
-	setupTestKeyFile(t, testDir)
 
 	config := Config{
 		Paths:         []string{invalidPath},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
+	db, err := New(config)
+	if err != nil {
+		t.Fatalf("Expected New to succeed, got: %v", err)
+	}
+
+	err = db.Start(context.Background())
 	if err == nil {
 		t.Fatal("Expected error for invalid path, got nil")
 	}
-	if db != nil {
-		t.Error("Expected db to be nil when error occurs")
+
+	if !strings.Contains(err.Error(), "mkdir") {
+		t.Errorf("Expected error to mention mkdir, got: %v", err)
 	}
 }
 
-func TestOuroborosDB_BasicKVOperations(t *testing.T) {
+func TestOuroborosDB_BasicKVOperations(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Setup test key file
 	setupTestKeyFile(t, testDir)
@@ -193,35 +238,32 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
-	if err != nil {
-		t.Fatalf("Failed to create OuroborosDB: %v", err)
-	}
-	defer db.Close()
+	db := newStartedDB(t, config)
 
 	// Test basic KV operations
 	testContent := []byte("test content")
 	testData := ouroboroskv.Data{
-		Key:                     db.crypt.HashBytes(testContent),
-		Content:                 testContent,
-		ReedSolomonShards:       4,
-		ReedSolomonParityShards: 2,
+		Content:        testContent,
+		RSDataSlices:   4,
+		RSParitySlices: 2,
+	}
+
+	kv, err := db.kvHandle()
+	if err != nil {
+		t.Fatalf("failed to get kv handle: %v", err)
 	}
 
 	// Write data
-	err = db.kv.WriteData(testData)
+	dataKey, err := kv.WriteData(testData)
 	if err != nil {
 		t.Fatalf("Failed to write data: %v", err)
 	}
 
-	// Use the key from the testData
-	key := testData.Key
-
 	// Check if data exists
-	exists, err := db.kv.DataExists(key)
+	exists, err := kv.DataExists(dataKey)
 	if err != nil {
 		t.Fatalf("Failed to check data existence: %v", err)
 	}
@@ -230,7 +272,7 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	}
 
 	// Read data back
-	readData, err := db.kv.ReadData(key)
+	readData, err := kv.ReadData(dataKey)
 	if err != nil {
 		t.Fatalf("Failed to read data: %v", err)
 	}
@@ -241,9 +283,156 @@ func TestOuroborosDB_BasicKVOperations(t *testing.T) {
 	}
 }
 
-func TestOuroborosDB_CryptOperations(t *testing.T) {
+func TestStoreAndGetData_Text(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	config := Config{
+		Paths:         []string{testDir},
+		MinimumFreeGB: 1,
+		Logger:        testLogger(),
+	}
+
+	db := newStartedDB(t, config)
+
+	content := []byte("hello mime aware world")
+
+	key, err := db.StoreData(context.Background(), content, StoreOptions{MimeType: "text/plain"})
+	if err != nil {
+		t.Fatalf("StoreData failed: %v", err)
+	}
+
+	retrieved, err := db.GetData(context.Background(), key)
+	if err != nil {
+		t.Fatalf("GetData failed: %v", err)
+	}
+
+	if !retrieved.IsText {
+		t.Fatalf("expected retrieved data to be marked as text")
+	}
+	if retrieved.MimeType != "text/plain" {
+		t.Fatalf("expected mime type \"text/plain\" for text data, got %q", retrieved.MimeType)
+	}
+	if !bytes.Equal(retrieved.Content, content) {
+		t.Fatalf("expected content to match original")
+	}
+}
+
+func TestStoreAndGetData_Binary(t *testing.T) { // A
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	config := Config{
+		Paths:         []string{testDir},
+		MinimumFreeGB: 1,
+		Logger:        testLogger(),
+	}
+
+	db := newStartedDB(t, config)
+
+	content := []byte{0xde, 0xad, 0xbe, 0xef}
+	mimeType := "application/octet-stream"
+
+	key, err := db.StoreData(context.Background(), content, StoreOptions{MimeType: mimeType})
+	if err != nil {
+		t.Fatalf("StoreData failed: %v", err)
+	}
+
+	retrieved, err := db.GetData(context.Background(), key)
+	if err != nil {
+		t.Fatalf("GetData failed: %v", err)
+	}
+
+	if retrieved.IsText {
+		t.Fatalf("expected binary data to be marked as non-text")
+	}
+	if retrieved.MimeType != mimeType {
+		t.Fatalf("expected mime type %q, got %q", mimeType, retrieved.MimeType)
+	}
+	if !bytes.Equal(retrieved.Content, content) {
+		t.Fatalf("expected retrieved content to match original")
+	}
+}
+
+func TestStoreDataParentChildRelationships(t *testing.T) { // A
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	config := Config{
+		Paths:         []string{testDir},
+		MinimumFreeGB: 1,
+		Logger:        testLogger(),
+	}
+
+	db := newStartedDB(t, config)
+
+	parentContent := []byte("parent payload")
+	parentKey, err := db.StoreData(context.Background(), parentContent, StoreOptions{})
+	if err != nil {
+		t.Fatalf("StoreData for parent failed: %v", err)
+	}
+
+	childContent := []byte("child payload")
+	childKey, err := db.StoreData(context.Background(), childContent, StoreOptions{Parent: parentKey})
+	if err != nil {
+		t.Fatalf("StoreData for child failed: %v", err)
+	}
+
+	parentRetrieved, err := db.GetData(context.Background(), parentKey)
+	if err != nil {
+		t.Fatalf("GetData for parent failed: %v", err)
+	}
+
+	if parentRetrieved.CreatedAt.IsZero() {
+		t.Fatal("expected parent data to include creation timestamp")
+	}
+
+	if len(parentRetrieved.Children) != 1 {
+		t.Fatalf("expected parent to have 1 child, got %d", len(parentRetrieved.Children))
+	}
+	if parentRetrieved.Children[0] != childKey {
+		t.Fatalf("expected parent child to be %s, got %s", childKey.String(), parentRetrieved.Children[0].String())
+	}
+
+	childRetrieved, err := db.GetData(context.Background(), childKey)
+	if err != nil {
+		t.Fatalf("GetData for child failed: %v", err)
+	}
+
+	if childRetrieved.CreatedAt.IsZero() {
+		t.Fatal("expected child data to include creation timestamp")
+	}
+
+	if childRetrieved.Parent != parentKey {
+		t.Fatalf("expected child parent to be %s, got %s", parentKey.String(), childRetrieved.Parent.String())
+	}
+
+	roots, err := db.ListData(context.Background())
+	if err != nil {
+		t.Fatalf("ListData failed: %v", err)
+	}
+	if len(roots) != 1 || roots[0] != parentKey {
+		t.Fatalf("expected ListData to return parent root key only, got %v", roots)
+	}
+
+	children, err := db.ListChildren(context.Background(), parentKey)
+	if err != nil {
+		t.Fatalf("ListChildren failed: %v", err)
+	}
+	if len(children) != 1 || children[0] != childKey {
+		t.Fatalf("expected ListChildren to return child key, got %v", children)
+	}
+}
+
+func TestOuroborosDB_CryptOperations(t *testing.T) { // A
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Setup test key file
 	setupTestKeyFile(t, testDir)
@@ -251,14 +440,10 @@ func TestOuroborosDB_CryptOperations(t *testing.T) {
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
-	if err != nil {
-		t.Fatalf("Failed to create OuroborosDB: %v", err)
-	}
-	defer db.Close()
+	db := newStartedDB(t, config)
 
 	// Test encryption/decryption
 	testData := []byte("secret message for encryption test")
@@ -281,9 +466,9 @@ func TestOuroborosDB_CryptOperations(t *testing.T) {
 	}
 }
 
-func TestOuroborosDB_HashOperations(t *testing.T) {
+func TestOuroborosDB_HashOperations(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Setup test key file
 	setupTestKeyFile(t, testDir)
@@ -291,14 +476,10 @@ func TestOuroborosDB_HashOperations(t *testing.T) {
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
-	if err != nil {
-		t.Fatalf("Failed to create OuroborosDB: %v", err)
-	}
-	defer db.Close()
+	db := newStartedDB(t, config)
 
 	// Test hashing
 	testData := []byte("data to hash")
@@ -318,9 +499,9 @@ func TestOuroborosDB_HashOperations(t *testing.T) {
 	}
 }
 
-func TestOuroborosDB_Close(t *testing.T) {
+func TestOuroborosDB_Close(t *testing.T) { // A
 	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
 
 	// Setup test key file
 	setupTestKeyFile(t, testDir)
@@ -328,38 +509,61 @@ func TestOuroborosDB_Close(t *testing.T) {
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
 
-	db, err := NewOuroborosDB(config)
+	db, err := New(config)
 	if err != nil {
 		t.Fatalf("Failed to create OuroborosDB: %v", err)
 	}
 
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("Failed to start OuroborosDB: %v", err)
+	}
+
 	// Close should not panic and should be callable multiple times
-	db.Close()
-	db.Close() // Should not panic on second call
+	if err := db.CloseWithoutContext(); err != nil {
+		t.Fatalf("Expected first close to succeed, got: %v", err)
+	}
+	if err := db.CloseWithoutContext(); err != nil {
+		t.Fatalf("Expected second close to succeed, got: %v", err)
+	}
+}
+
+// testDB returns a minimal OuroborosDB instance for testing encode/decode functions
+func testDB(t *testing.T) *OuroborosDB { // A
+	t.Helper()
+	return &OuroborosDB{
+		log: testLogger(),
+	}
 }
 
 // Benchmark test for database creation
-func BenchmarkNewOuroborosDB(b *testing.B) {
-	testDir := setupTestDir(&testing.T{})
-	defer cleanupTestDir(&testing.T{}, testDir)
+func BenchmarkNewOuroborosDB(b *testing.B) { // A
+	testDir := setupTestDir(b)
+	b.Cleanup(func() { cleanupTestDir(b, testDir) })
 
-	setupTestKeyFile(&testing.T{}, testDir)
+	setupTestKeyFile(b, testDir)
 
 	config := Config{
 		Paths:         []string{testDir},
 		MinimumFreeGB: 1,
-		Logger:        logrus.New(),
+		Logger:        testLogger(),
 	}
+
+	ctx := context.Background()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db, err := NewOuroborosDB(config)
+		db, err := New(config)
 		if err != nil {
 			b.Fatalf("Failed to create OuroborosDB: %v", err)
 		}
-		db.Close()
+		if err := db.Start(ctx); err != nil {
+			b.Fatalf("Failed to start OuroborosDB: %v", err)
+		}
+		if err := db.CloseWithoutContext(); err != nil {
+			b.Fatalf("Failed to close OuroborosDB: %v", err)
+		}
 	}
 }
