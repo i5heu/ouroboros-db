@@ -711,12 +711,13 @@
 
 	.status {
 		margin-top: 0.25rem;
-		font-size: 0.875rem;
+		font-size: 0.75rem;
 		line-height: 1.4;
 		font-weight: 500;
 		text-overflow: ellipsis;
 		overflow: clip;
 		word-break: normal;
+		text-wrap-mode: nowrap;
 	}
 
 	.timestamp {

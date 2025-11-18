@@ -31,7 +31,7 @@ import (
 func main() {
 	// parameters
 	threads := flag.Int("threads", 100, "number of threads to create")
-	messages := flag.Int("messages", 1000, "messages per thread to create")
+	messages := flag.Int("messages", 30, "messages per thread to create")
 	path := flag.String("path", "./data", "data directory (where ouroboros.key will live)")
 	httpMode := flag.Bool("http", false, "POST data via API server instead of writing DB directly")
 	serverAddr := flag.String("server", "http://localhost:8083", "server address when using HTTP mode")
