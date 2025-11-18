@@ -493,6 +493,7 @@
 		padding-right: 0;
 		box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 		margin-bottom: 0.75rem;
+		word-wrap: break-word;
 	}
 
 	.message p {
