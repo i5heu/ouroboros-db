@@ -1715,7 +1715,7 @@
 	main {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: 2.5rem 1.5rem 4rem;
+		padding: 2.5rem 1.5rem 0.5rem;
 	}
 
 	.auth-banner {
@@ -1750,7 +1750,7 @@
 		display: grid;
 		grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
 		gap: 1.75rem;
-		align-items: stretch;
+		align-items: flex-start;
 	}
 
 	.thread-sidebar {
@@ -1761,7 +1761,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-		min-height: 560px;
+		min-height: 400px;
+		max-height: calc(100vh - 6rem);
+		position: sticky;
+		top: 2.5rem;
+		align-self: start;
+		overflow: hidden;
 		box-shadow: var(--shadow-strong);
 	}
 
@@ -1816,12 +1821,40 @@
 
 	.thread-list {
 		margin: 0;
-		padding: 0;
+		padding: 5px;
 		list-style: none;
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
+		flex: 1 1 auto;
 		overflow-y: auto;
+		min-height: 0;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(59, 130, 246, 0.75) transparent;
+	}
+
+	.thread-list::-webkit-scrollbar {
+		width: 0.45rem;
+	}
+
+	.thread-list::-webkit-scrollbar-track {
+		background: linear-gradient(
+			180deg,
+			transparent 0%,
+			rgba(15, 23, 42, 0.35) 40%,
+			transparent 100%
+		);
+		border-radius: 999px;
+	}
+
+	.thread-list::-webkit-scrollbar-thumb {
+		background: linear-gradient(180deg, rgba(96, 165, 250, 0.85), rgba(59, 130, 246, 0.85));
+		border-radius: 999px;
+		box-shadow: 0 0 6px rgba(15, 23, 42, 0.35);
+	}
+
+	.thread-list::-webkit-scrollbar-thumb:hover {
+		background: linear-gradient(180deg, rgba(96, 165, 250, 1), rgba(37, 99, 235, 1));
 	}
 
 	.thread-list li {
@@ -2128,6 +2161,10 @@
 		.thread-sidebar {
 			flex-direction: column;
 			min-height: auto;
+			max-height: none;
+			position: static;
+			align-self: stretch;
+			overflow: visible;
 		}
 
 		.conversation-area {
