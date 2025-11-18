@@ -716,6 +716,7 @@
 		font-weight: 500;
 		text-overflow: ellipsis;
 		overflow: clip;
+		word-break: normal;
 	}
 
 	.timestamp {
