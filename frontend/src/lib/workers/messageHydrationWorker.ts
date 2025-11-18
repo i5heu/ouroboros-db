@@ -52,4 +52,4 @@ ctx.addEventListener('message', (event: MessageEvent<HydrationRequestMessage>) =
     void handleHydrationRequest(data);
 });
 
-export {};
+export { };
