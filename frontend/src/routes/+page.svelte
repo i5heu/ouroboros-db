@@ -117,7 +117,8 @@
 
 	// Header meta: creation date, number of items (children), and last child date
 	$: headerMeta = (() => {
-		if (newThreadMode) return { createdAt: null, childrenCount: 0, descendantCount: 0, lastChildAt: null };
+		if (newThreadMode)
+			return { createdAt: null, childrenCount: 0, descendantCount: 0, lastChildAt: null };
 		let createdAt: string | null = null;
 		let childrenCount = 0; // immediate children
 		let descendantCount = 0; // full subtree count
@@ -142,7 +143,7 @@
 			// descendant count: total in subtree
 			descendantCount = countAllChildren(messages[0].children ?? []);
 		}
-	return { createdAt, childrenCount, descendantCount, lastChildAt };
+		return { createdAt, childrenCount, descendantCount, lastChildAt };
 	})();
 
 	const deepClone = <T,>(value: T): T => {
