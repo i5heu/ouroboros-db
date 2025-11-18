@@ -1,12 +1,17 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import type { Message } from '../types';
+	import { fetchAttachmentBlob, fetchAttachmentRange } from '../apiClient';
 
 	export let message: Message;
 	export let level = 0;
 	export let path: number[] = [];
 	export let selectedPath: number[] | null = null;
 	export let selectMessage: (path: number[]) => void = () => {};
+	export let apiBaseUrl = '';
+	export let getAuthHeaders: () => Promise<Record<string, string>> = async () => ({
+		Accept: 'application/json'
+	});
 
 	const levelClass = `level-${Math.min(level, 5)}`;
 
@@ -23,12 +28,27 @@
 	let previousActiveElement: HTMLElement | null = null;
 	let normalizedMime = '';
 	let isAttachment = false;
-	let dataUrl: string | null = null;
+	let encodedDataUrl: string | null = null;
 	let isImage = false;
 	let isVideo = false;
 	let sizeLabel: string | null = null;
 	let downloadName = 'attachment';
 	let createdAtLabel: string | null = null;
+	let container: HTMLDivElement | null = null;
+	let observer: IntersectionObserver | null = null;
+	let shouldLoadImage = false;
+	let attachmentUrl: string | null = null;
+	let attachmentError = '';
+	let binaryAbort: AbortController | null = null;
+	let videoPreviewUrl: string | null = null;
+	let videoPreviewBytes = 0;
+	let videoPreviewTotal = 0;
+	let videoLoading = false;
+	let videoError = '';
+	const videoPreviewChunk = 1024 * 1024; // 1MB preview
+	let attachmentDisplayUrl: string | null = null;
+	let videoPreviewSource: string | null = null;
+	let childNodes: Message[] = [];
 
 	const closeModal = () => {
 		modalAttachment = null;
@@ -81,6 +101,47 @@
 		});
 	};
 
+	const cleanupUrls = () => {
+		if (attachmentUrl) {
+			URL.revokeObjectURL(attachmentUrl);
+			attachmentUrl = null;
+		}
+		if (videoPreviewUrl) {
+			URL.revokeObjectURL(videoPreviewUrl);
+			videoPreviewUrl = null;
+		}
+		binaryAbort?.abort();
+		binaryAbort = null;
+	};
+
+	onMount(() => {
+		videoPreviewTotal = message.sizeBytes ?? 0;
+		if (!container || typeof window === 'undefined') return;
+		if (
+			'IntersectionObserver' in window &&
+			isAttachment &&
+			normalizedMime.startsWith('image/') &&
+			!message.encodedContent
+		) {
+			observer = new IntersectionObserver((entries) => {
+				entries.forEach((entry) => {
+					if (entry.isIntersecting) {
+						shouldLoadImage = true;
+						observer?.disconnect();
+					}
+				});
+			});
+			observer.observe(container);
+		} else if (isAttachment && normalizedMime.startsWith('image/') && !message.encodedContent) {
+			shouldLoadImage = true;
+		}
+	});
+
+	onDestroy(() => {
+		observer?.disconnect();
+		cleanupUrls();
+	});
+
 	$: statusText =
 		message.status === 'pending'
 			? 'Saving to Ouroboros…'
@@ -95,24 +156,95 @@
 	$: normalizedMime = mime();
 	$: isAttachment =
 		message.isText === false || (!!normalizedMime && !normalizedMime.startsWith('text/'));
-	$: dataUrl =
+	$: encodedDataUrl =
 		isAttachment && message.encodedContent
 			? `data:${normalizedMime || 'application/octet-stream'};base64,${message.encodedContent}`
 			: null;
-	$: isImage = Boolean(dataUrl && normalizedMime.startsWith('image/'));
-	$: isVideo = Boolean(dataUrl && normalizedMime.startsWith('video/'));
+	$: isImage = Boolean((encodedDataUrl || attachmentUrl) && normalizedMime.startsWith('image/'));
+	$: isVideo = Boolean(normalizedMime.startsWith('video/'));
 	$: sizeLabel = formatBytes(message.sizeBytes ?? undefined);
 	$: downloadName = buildDownloadName();
 	$: createdAtLabel = formatTimestamp(message.createdAt);
+	$: videoPreviewTotal = message.sizeBytes ?? videoPreviewTotal;
+
+	$: if (shouldLoadImage && !encodedDataUrl && normalizedMime.startsWith('image/')) {
+		shouldLoadImage = false;
+		void loadAttachmentBlob();
+	}
+
+	$: attachmentDisplayUrl = encodedDataUrl ?? attachmentUrl ?? null;
+	$: videoPreviewSource = videoPreviewUrl ?? attachmentDisplayUrl;
+	$: childNodes = (message.children ?? []) as Message[];
+
+	const loadAttachmentBlob = async () => {
+		if (!message.key) return;
+		attachmentError = '';
+		binaryAbort?.abort();
+		binaryAbort = new AbortController();
+		try {
+			const blob = await fetchAttachmentBlob({
+				apiBaseUrl,
+				key: message.key,
+				getHeaders: getAuthHeaders,
+				signal: binaryAbort.signal
+			});
+			cleanupUrls();
+			attachmentUrl = URL.createObjectURL(blob);
+		} catch (error) {
+			attachmentError = error instanceof Error ? error.message : String(error);
+		}
+	};
+
+	const loadVideoPreview = async () => {
+		if (!message.key || videoLoading) return;
+		videoError = '';
+		videoLoading = true;
+		try {
+			const chunk = await fetchAttachmentRange({
+				apiBaseUrl,
+				key: message.key,
+				start: 0,
+				end: videoPreviewChunk - 1,
+				getHeaders: getAuthHeaders
+			});
+			videoPreviewBytes = chunk.end - chunk.start + 1;
+			videoPreviewTotal = chunk.total;
+			if (videoPreviewUrl) {
+				URL.revokeObjectURL(videoPreviewUrl);
+			}
+			videoPreviewUrl = URL.createObjectURL(new Blob([chunk.buffer], { type: chunk.mimeType }));
+		} catch (error) {
+			videoError = error instanceof Error ? error.message : String(error);
+		} finally {
+			videoLoading = false;
+		}
+	};
+
+	const downloadFullVideo = async () => {
+		await loadAttachmentBlob();
+		videoPreviewUrl = attachmentUrl;
+		videoPreviewBytes = message.sizeBytes ?? videoPreviewBytes;
+	};
+
+	const handleDownloadAttachment = async () => {
+		await loadAttachmentBlob();
+		if (attachmentUrl) {
+			const a = document.createElement('a');
+			a.href = attachmentUrl;
+			a.download = downloadName;
+			a.click();
+		}
+	};
 
 	const openAttachment = async (type: 'image' | 'video') => {
-		if (!dataUrl) return;
+		const url = type === 'image' ? attachmentDisplayUrl : videoPreviewUrl;
+		if (!url) return;
 		if (typeof document !== 'undefined') {
 			previousActiveElement = document.activeElement as HTMLElement | null;
 		}
 		modalAttachment = {
 			type,
-			url: dataUrl,
+			url,
 			name: downloadName,
 			description: message.content ?? downloadName,
 			mime: normalizedMime
@@ -170,6 +302,7 @@
 	role="button"
 	on:click={handleSelect}
 	on:keydown={handleKeydown}
+	bind:this={container}
 >
 	{#if isAttachment}
 		<div class="attachment">
@@ -182,33 +315,87 @@
 					<span class="attachment-mime">{normalizedMime}</span>
 				{/if}
 			</div>
-			{#if isImage && dataUrl}
-				<button
-					type="button"
-					class="attachment-preview attachment-image"
-					on:click|stopPropagation={() => openAttachment('image')}
-					on:keydown|stopPropagation={createAttachmentKeydownHandler('image')}
-					aria-label={`Open image attachment${message.content ? `: ${message.content}` : ''}`}
-				>
-					<img src={dataUrl} alt={message.content} loading="lazy" />
-				</button>
-			{:else if isVideo && dataUrl}
-				<!-- svelte-ignore a11y-media-has-caption -->
-				<button
-					type="button"
-					class="attachment-preview attachment-video"
-					on:click|stopPropagation={() => openAttachment('video')}
-					on:keydown|stopPropagation={createAttachmentKeydownHandler('video')}
-					aria-label={`Open video attachment${message.content ? `: ${message.content}` : ''}`}
-				>
-					<video src={dataUrl} preload="metadata" muted playsinline></video>
-				</button>
-			{:else if dataUrl}
-				<a class="attachment-download" href={dataUrl} download={downloadName} rel="noopener">
-					Download file
-				</a>
+			{#if normalizedMime.startsWith('image/')}
+				{#if attachmentDisplayUrl}
+					<button
+						type="button"
+						class="attachment-preview attachment-image"
+						on:click|stopPropagation={() => openAttachment('image')}
+						on:keydown|stopPropagation={createAttachmentKeydownHandler('image')}
+						aria-label={`Open image attachment${message.content ? `: ${message.content}` : ''}`}
+					>
+						<img src={attachmentDisplayUrl} alt={message.content} loading="lazy" />
+					</button>
+				{:else}
+					<button
+						type="button"
+						class="attachment-download"
+						on:click|stopPropagation={loadAttachmentBlob}
+					>
+						Load image
+					</button>
+					{#if attachmentError}
+						<p class="attachment-error">{attachmentError}</p>
+					{/if}
+				{/if}
+			{:else if isVideo}
+				{#if videoPreviewSource}
+					<!-- svelte-ignore a11y-media-has-caption -->
+					<button
+						type="button"
+						class="attachment-preview attachment-video"
+						on:click|stopPropagation={() => openAttachment('video')}
+						on:keydown|stopPropagation={createAttachmentKeydownHandler('video')}
+						aria-label={`Open video attachment${message.content ? `: ${message.content}` : ''}`}
+					>
+						<video src={videoPreviewSource} preload="metadata" muted playsinline></video>
+					</button>
+				{/if}
+				{#if videoPreviewBytes > 0}
+					<p class="video-hint">
+						Previewing {formatBytes(videoPreviewBytes) ?? '-'} of {formatBytes(videoPreviewTotal) ??
+							'-'}
+					</p>
+				{/if}
+				<div class="attachment-actions">
+					<button type="button" on:click|stopPropagation={loadVideoPreview} disabled={videoLoading}>
+						{videoLoading
+							? 'Loading preview…'
+							: `Load preview (~${formatBytes(videoPreviewChunk) ?? '1 MB'})`}
+					</button>
+					<button
+						type="button"
+						on:click|stopPropagation={downloadFullVideo}
+						disabled={videoLoading}
+					>
+						Download full
+					</button>
+				</div>
+				{#if videoError}
+					<p class="attachment-error">{videoError}</p>
+				{/if}
 			{:else}
-				<p class="attachment-placeholder">Attachment unavailable</p>
+				{#if attachmentDisplayUrl}
+					<a
+						class="attachment-download"
+						href={attachmentDisplayUrl}
+						download={downloadName}
+						rel="noopener"
+					>
+						Download file
+					</a>
+				{:else}
+					<button
+						type="button"
+						class="attachment-download"
+						on:click|stopPropagation={handleDownloadAttachment}
+					>
+						Download attachment
+					</button>
+				{/if}
+				{#if attachmentError}
+					<p class="attachment-error">{attachmentError}</p>
+				{/if}
 			{/if}
 		</div>
 	{:else}
@@ -218,15 +405,17 @@
 		<div class="timestamp">Created {createdAtLabel}</div>
 	{/if}
 	<div class={`status ${statusClass}`}>{statusText}</div>
-	{#if message.children.length > 0}
+	{#if childNodes.length > 0}
 		<div class="children">
-			{#each message.children as child, index (`${child.id}-${index}-${child.key ?? ''}`)}
+			{#each childNodes as child, index (`${child.id}-${index}-${child.key ?? ''}`)}
 				<svelte:self
 					message={child}
 					level={level + 1}
 					path={[...path, index]}
 					{selectedPath}
 					{selectMessage}
+					{apiBaseUrl}
+					{getAuthHeaders}
 				/>
 			{/each}
 		</div>

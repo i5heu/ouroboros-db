@@ -173,7 +173,6 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 	}
 
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data.Content)))
 	w.Header().Set("X-Ouroboros-Key", keyHex)
 	w.Header().Set("X-Ouroboros-Is-Text", strconv.FormatBool(data.IsText))
 	w.Header().Set("X-Ouroboros-Mime", mimeType)
@@ -195,9 +194,26 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 			w.Header().Set("X-Ouroboros-Children", strings.Join(children, ","))
 		}
 	}
+	w.Header().Set("Accept-Ranges", "bytes")
 
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(data.Content); err != nil {
+	status := http.StatusOK
+	responseBody := data.Content
+	totalSize := len(data.Content)
+	if rangeHeader := strings.TrimSpace(r.Header.Get("Range")); rangeHeader != "" {
+		start, end, err := parseByteRange(rangeHeader, totalSize)
+		if err != nil {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", totalSize))
+			http.Error(w, http.StatusText(http.StatusRequestedRangeNotSatisfiable), http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		responseBody = data.Content[start : end+1]
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
+		status = http.StatusPartialContent
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(responseBody)))
+
+	w.WriteHeader(status)
+	if _, err := w.Write(responseBody); err != nil {
 		s.log.Error("failed to write response body", "error", err, "key", keyHex)
 	}
 }
@@ -265,4 +281,61 @@ func (s *Server) handleAuthProcess(w http.ResponseWriter, r *http.Request) { // 
 	}
 
 	s.authProcess(r.Context(), w, req)
+}
+
+func parseByteRange(header string, size int) (int, int, error) {
+	if size <= 0 {
+		return 0, 0, fmt.Errorf("invalid size for range")
+	}
+	if header == "" {
+		return 0, size - 1, nil
+	}
+	if !strings.HasPrefix(header, "bytes=") {
+		return 0, 0, fmt.Errorf("unsupported range unit")
+	}
+	value := strings.TrimSpace(header[len("bytes="):])
+	parts := strings.Split(value, ",")
+	if len(parts) != 1 {
+		return 0, 0, fmt.Errorf("multiple ranges not supported")
+	}
+	rangeSpec := strings.TrimSpace(parts[0])
+	rangeParts := strings.SplitN(rangeSpec, "-", 2)
+	if len(rangeParts) != 2 {
+		return 0, 0, fmt.Errorf("malformed range")
+	}
+	startStr := strings.TrimSpace(rangeParts[0])
+	endStr := strings.TrimSpace(rangeParts[1])
+
+	switch {
+	case startStr == "" && endStr == "":
+		return 0, 0, fmt.Errorf("empty range")
+	case startStr == "":
+		suffix, err := strconv.Atoi(endStr)
+		if err != nil || suffix <= 0 {
+			return 0, 0, fmt.Errorf("invalid suffix range")
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return size - suffix, size - 1, nil
+	case endStr == "":
+		start, err := strconv.Atoi(startStr)
+		if err != nil || start < 0 || start >= size {
+			return 0, 0, fmt.Errorf("invalid start range")
+		}
+		return start, size - 1, nil
+	default:
+		start, err := strconv.Atoi(startStr)
+		if err != nil || start < 0 {
+			return 0, 0, fmt.Errorf("invalid start value")
+		}
+		end, err := strconv.Atoi(endStr)
+		if err != nil || end < start {
+			return 0, 0, fmt.Errorf("invalid end value")
+		}
+		if end >= size {
+			end = size - 1
+		}
+		return start, end, nil
+	}
 }

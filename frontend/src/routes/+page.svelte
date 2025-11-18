@@ -3,6 +3,13 @@
 	import MessageNode from '../lib/components/MessageNode.svelte';
 	import type { Message } from '../lib/types';
 	import { bootstrapAuthFromParams, buildAuthHeaders } from '../lib/auth';
+	import {
+		streamThreadNodes,
+		streamThreadSummaries,
+		type ThreadNodePayload,
+		type ThreadSummaryPayload
+	} from '../lib/apiClient';
+	import { openIndexedDb2, readThreadSummaries, writeThreadSummaries } from '../lib/indexedDb2';
 
 	// Prefer VITE_OUROBOROS_API when set; default to same origin so dev-server proxy reduces CORS
 	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? '';
@@ -21,24 +28,42 @@
 
 	type AuthStatus = 'idle' | 'authenticating' | 'authenticated' | 'error';
 
+	type ThreadSummary = ThreadSummaryPayload & { cachedAt?: number };
+
+	let threadSummaries: ThreadSummary[] = [];
+	let typedThreadSummaries: ThreadSummary[] = [];
+	$: typedThreadSummaries = threadSummaries;
+	let threadCursor: string | null = null;
+	let threadsLoading = false;
+	let threadsError = '';
+	let threadsComplete = false;
+	let nodeLoading = false;
+	let nodeError = '';
+	let nodeProgressCount = 0;
+	let nodeStreamAbort: AbortController | null = null;
+	let threadsAbort: AbortController | null = null;
+	let db: IDBDatabase | null = null;
+	let sentinel: HTMLElement | null = null;
+	let sentinelObserver: IntersectionObserver | null = null;
+	let sentinelAttached = false;
+	let selectedThreadKey: string | null = null;
+
 	let messages: Message[] = [];
 	let inputValue = '';
 	let nextId = 1;
 	let selectedPath: number[] | null = null;
 	let selectedMessage: Message | null = null;
-	let selectedThreadIndex: number | null = null;
 	let fileInput: HTMLInputElement | null = null;
 	let activeSaves = 0;
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
 	let statusText = '';
-	let loading = false;
-	let loadError = '';
 	let keyToPath = new Map<string, number[]>();
 	let authStatus: AuthStatus = 'idle';
 	let authStatusText = 'Authenticate with the one-time key link to unlock data access.';
 	let authBannerVisible = true;
 	let authBannerTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastAuthStatusText = '';
+	let initialSelectionDone = false;
 
 	const deepClone = <T,>(value: T): T => {
 		if (typeof structuredClone === 'function') {
@@ -111,6 +136,13 @@
 		}
 	};
 
+	const summaryKey = (value: unknown, index: number): string => {
+		if (value && typeof value === 'object' && 'key' in value) {
+			return (value as ThreadSummary).key;
+		}
+		return `summary-${index}`;
+	};
+
 	const calculateBase64Size = (value: string): number => {
 		if (!value.length) return 0;
 		const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
@@ -140,12 +172,240 @@
 		return trimmed.length <= length ? trimmed : `${trimmed.slice(0, length)}…`;
 	};
 
+	const sortThreadSummaries = (items: ThreadSummary[]): ThreadSummary[] =>
+		items.slice().sort((a, b) => {
+			const aTime = a.createdAt ?? '';
+			const bTime = b.createdAt ?? '';
+			return bTime.localeCompare(aTime);
+		});
+
+	const upsertThreadSummary = (summary: ThreadSummaryPayload) => {
+		const enriched: ThreadSummary = { ...summary, cachedAt: Date.now() };
+		const existingIndex = threadSummaries.findIndex((item) => item.key === summary.key);
+		if (existingIndex >= 0) {
+			const next = [...threadSummaries];
+			next[existingIndex] = enriched;
+			threadSummaries = sortThreadSummaries(next);
+			return;
+		}
+		threadSummaries = sortThreadSummaries([...threadSummaries, enriched]);
+	};
+
 	const threadTitle = (message: Message): string => {
 		const content = message.content?.trim() ?? '';
 		if (!content.length) {
 			return '[untitled]';
 		}
 		return truncate(content, 60);
+	};
+
+	const threadSummaryTitle = (summary: ThreadSummary): string => {
+		const content = summary.preview?.trim() ?? '';
+		if (!content.length) {
+			return '[untitled]';
+		}
+		return truncate(content, 60);
+	};
+
+	const threadSummaryMeta = (summary: ThreadSummary): string => {
+		const parts: string[] = [];
+		const createdLabel = formatTimestamp(summary.createdAt);
+		if (createdLabel) {
+			parts.push(`Created ${createdLabel}`);
+		}
+		const repliesLabel = summary.childCount
+			? `${summary.childCount} repl${summary.childCount === 1 ? 'y' : 'ies'}`
+			: 'No replies yet';
+		parts.push(repliesLabel);
+		return parts.join(' · ');
+	};
+
+	const loadCachedThreadSummaries = async () => {
+		try {
+			db = await openIndexedDb2();
+			const cached = await readThreadSummaries(db);
+			if (cached.length > 0) {
+				threadSummaries = sortThreadSummaries(cached);
+			}
+		} catch (error) {
+			console.warn('Failed to load cached thread summaries', error);
+		}
+	};
+
+	const fetchNextThreadBatch = async () => {
+		if (threadsLoading || (threadsComplete && threadSummaries.length > 0)) {
+			return;
+		}
+		threadsLoading = true;
+		threadsError = '';
+		const controller = new AbortController();
+		threadsAbort?.abort();
+		threadsAbort = controller;
+		try {
+			const result = await streamThreadSummaries({
+				apiBaseUrl: API_BASE_URL,
+				cursor: threadCursor ?? undefined,
+				limit: 25,
+				signal: controller.signal,
+				getHeaders: buildAuthHeaders,
+				onSummary: (summary) => {
+					upsertThreadSummary(summary);
+					void writeThreadSummaries(db, [{ ...summary, cachedAt: Date.now() }]);
+				}
+			});
+			threadCursor = result.nextCursor ?? null;
+			if (!threadCursor) {
+				threadsComplete = true;
+			}
+		} catch (error) {
+			if (!controller.signal.aborted) {
+				threadsError = error instanceof Error ? error.message : String(error);
+			}
+		} finally {
+			if (!controller.signal.aborted) {
+				threadsLoading = false;
+			}
+		}
+	};
+
+	const attemptInitialSelection = () => {
+		if (initialSelectionDone) {
+			return;
+		}
+		if (selectedThreadKey) {
+			const existing = threadSummaries.find((item) => item.key === selectedThreadKey);
+			if (existing) {
+				handleSelectThreadSummary(existing);
+				initialSelectionDone = true;
+				return;
+			}
+		}
+		const storedKey =
+			typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_KEY_STORAGE) : null;
+		if (storedKey) {
+			const cached = threadSummaries.find((item) => item.key === storedKey);
+			if (cached) {
+				handleSelectThreadSummary(cached);
+				initialSelectionDone = true;
+				return;
+			}
+		}
+		if (threadSummaries.length > 0) {
+			handleSelectThreadSummary(threadSummaries[0]);
+			initialSelectionDone = true;
+		}
+	};
+
+	const createMessageFromNode = (node: ThreadNodePayload): Message => {
+		const sizeBytes = node.sizeBytes ?? 0;
+		const baseContent = node.isText
+			? (node.content ?? '')
+			: (node.preview ?? `[${node.mimeType} • ${formatBytes(sizeBytes)}]`);
+		const createdAtMs = node.createdAt ? Date.parse(node.createdAt) : undefined;
+		return {
+			id: nextId++,
+			content: baseContent || '[empty]',
+			children: [],
+			status: 'saved',
+			key: node.key,
+			parentKey: node.parent && node.parent.trim().length > 0 ? node.parent : undefined,
+			mimeType: node.mimeType,
+			isText: node.isText,
+			sizeBytes,
+			attachmentName: !node.isText ? node.key : undefined,
+			createdAt: node.createdAt,
+			createdAtMs,
+			preview: node.preview
+		};
+	};
+
+	const upsertNodeFromStream = (node: ThreadNodePayload) => {
+		const existingPath = node.key ? keyToPath.get(node.key) : undefined;
+		if (existingPath) {
+			updateMessageAtPath(existingPath, (message) => {
+				if (node.isText && node.content) {
+					message.content = node.content;
+				} else if (!node.isText && node.preview) {
+					message.content = node.preview;
+				}
+				message.mimeType = node.mimeType;
+				message.isText = node.isText;
+				message.sizeBytes = node.sizeBytes;
+				message.createdAt = node.createdAt;
+				message.preview = node.preview;
+				message.parentKey = node.parent && node.parent.trim().length > 0 ? node.parent : undefined;
+			});
+			return;
+		}
+
+		const newMessage = createMessageFromNode(node);
+
+		if (!node.parent) {
+			messages = [newMessage];
+			keyToPath = buildKeyPathMap(messages);
+			setSelectedPath([0]);
+			nodeLoading = false;
+			return;
+		}
+
+		const parentPath = keyToPath.get(node.parent);
+		if (!parentPath) {
+			return;
+		}
+
+		const cloned = deepClone(messages);
+		let parentNode: Message | undefined = cloned[parentPath[0]];
+		for (let i = 1; i < parentPath.length && parentNode; i += 1) {
+			parentNode = parentNode.children[parentPath[i]];
+		}
+		if (!parentNode) {
+			return;
+		}
+
+		parentNode.children = [...parentNode.children, newMessage];
+		messages = cloned;
+		keyToPath = buildKeyPathMap(messages);
+	};
+
+	const handleSelectThreadSummary = (summary: ThreadSummary) => {
+		if (selectedThreadKey === summary.key && messages.length > 0) {
+			return;
+		}
+		selectedThreadKey = summary.key;
+		nodeLoading = true;
+		nodeError = '';
+		nodeProgressCount = 0;
+		messages = [];
+		keyToPath = new Map();
+		nextId = 1;
+		setSelectedPath(null);
+		rememberLastKey(summary.key);
+		nodeStreamAbort?.abort();
+		const controller = new AbortController();
+		nodeStreamAbort = controller;
+		void (async () => {
+			try {
+				await streamThreadNodes({
+					apiBaseUrl: API_BASE_URL,
+					rootKey: summary.key,
+					signal: controller.signal,
+					getHeaders: buildAuthHeaders,
+					onNode: (node) => {
+						nodeProgressCount += 1;
+						upsertNodeFromStream(node);
+					}
+				});
+				if (!controller.signal.aborted) {
+					nodeLoading = false;
+				}
+			} catch (error) {
+				if (controller.signal.aborted) {
+					return;
+				}
+				nodeLoading = false;
+				nodeError = error instanceof Error ? error.message : String(error);
+			}
+		})();
 	};
 
 	const formatTimestamp = (value?: string): string | null => {
@@ -232,47 +492,6 @@
 			createdAt: record.createdAt,
 			createdAtMs
 		};
-	};
-
-	const fetchThreadTree = async (
-		key: string,
-		state: { nextId: number },
-		errors: string[],
-		path: Set<string> = new Set<string>()
-	): Promise<Message | null> => {
-		const normalized = key.trim();
-		if (!normalized.length || path.has(normalized)) {
-			return null;
-		}
-
-		path.add(normalized);
-		try {
-			const record = await fetchMessageRecord(normalized);
-			const message = createMessageFromRecord(record, state.nextId++);
-
-			let childKeys: string[] = [];
-			try {
-				childKeys = await fetchChildKeys(normalized);
-			} catch (error) {
-				errors.push(error instanceof Error ? error.message : String(error));
-			}
-
-			for (const childKey of childKeys) {
-				try {
-					const child = await fetchThreadTree(childKey, state, errors, path);
-					if (child) {
-						message.children.push(child);
-					}
-				} catch (error) {
-					errors.push(error instanceof Error ? error.message : String(error));
-				}
-			}
-
-			sortMessageTree(message.children);
-			return message;
-		} finally {
-			path.delete(normalized);
-		}
 	};
 
 	const buildKeyPathMap = (nodes: Message[]): Map<string, number[]> => {
@@ -373,7 +592,6 @@
 	$: {
 		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
 		selectedMessage = message;
-		selectedThreadIndex = selectedPath && selectedPath.length > 0 ? selectedPath[0] : null;
 		if (selectedPath && !message) {
 			selectedPath = null;
 			forgetLastKey();
@@ -403,125 +621,6 @@
 	const encodeToBase64 = (text: string): string =>
 		encodeBytesToBase64(new TextEncoder().encode(text));
 
-	const fetchMessageRecord = async (key: string): Promise<PersistedRecord> => {
-		const response = await fetch(`${API_BASE_URL}/data/${key}`, {
-			headers: await withAuthHeaders()
-		});
-		if (!response.ok) {
-			const message = (await response.text()) || `Request failed with status ${response.status}`;
-			throw new Error(message);
-		}
-
-		const headers = response.headers;
-		const headerKey = (headers.get('X-Ouroboros-Key') ?? '').trim();
-		const parentHeader = (headers.get('X-Ouroboros-Parent') ?? '').trim();
-		const isTextHeader = (headers.get('X-Ouroboros-Is-Text') ?? '').trim().toLowerCase();
-		const mimeHeader = (headers.get('X-Ouroboros-Mime') ?? '').trim();
-		const createdAtHeader = (headers.get('X-Ouroboros-Created-At') ?? '').trim();
-		const parsedCreatedAt = createdAtHeader.length > 0 ? Date.parse(createdAtHeader) : Number.NaN;
-		const createdAtMs = Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : undefined;
-
-		const buffer = await response.arrayBuffer();
-		const bytes = new Uint8Array(buffer);
-		const base64Content = encodeBytesToBase64(bytes);
-
-		return {
-			key: headerKey || key,
-			content: base64Content,
-			isText: isTextHeader === 'true',
-			mimeType: mimeHeader || undefined,
-			parent: parentHeader.length > 0 ? parentHeader : undefined,
-			createdAt: createdAtHeader || undefined,
-			createdAtMs
-		};
-	};
-
-	const fetchChildKeys = async (key: string): Promise<string[]> => {
-		const response = await fetch(`${API_BASE_URL}/data/${key}/children`, {
-			headers: await withAuthHeaders({ Accept: 'application/json' })
-		});
-		if (!response.ok) {
-			const message = (await response.text()) || `Request failed with status ${response.status}`;
-			throw new Error(message);
-		}
-
-		const body: { keys?: string[] } = await response.json();
-		if (!Array.isArray(body.keys)) {
-			return [];
-		}
-
-		return body.keys.filter(
-			(childKey) => typeof childKey === 'string' && childKey.trim().length > 0
-		);
-	};
-
-	const restoreConversation = async () => {
-		loading = true;
-		loadError = '';
-		try {
-			const response = await fetch(`${API_BASE_URL}/data`, {
-				headers: await withAuthHeaders({ Accept: 'application/json' })
-			});
-			if (!response.ok) {
-				const message = (await response.text()) || `Request failed with status ${response.status}`;
-				throw new Error(message);
-			}
-
-			const body: { keys?: string[] } = await response.json();
-			const keys = Array.isArray(body.keys) ? body.keys : [];
-			if (keys.length === 0) {
-				messages = [];
-				keyToPath = new Map();
-				nextId = 1;
-				setSelectedPath(null);
-				return;
-			}
-
-			const errors: string[] = [];
-			const threads: Message[] = [];
-			const idState = { nextId: 1 };
-			for (const key of keys) {
-				const normalizedRoot = key.trim();
-				if (!normalizedRoot.length) {
-					continue;
-				}
-				try {
-					const thread = await fetchThreadTree(normalizedRoot, idState, errors, new Set<string>());
-					if (thread) {
-						threads.push(thread);
-					}
-				} catch (error) {
-					errors.push(error instanceof Error ? error.message : String(error));
-				}
-			}
-
-			if (threads.length === 0) {
-				throw new Error(errors[0] ?? 'No messages available');
-			}
-
-			sortMessageTree(threads);
-			messages = threads;
-			nextId = Math.max(idState.nextId, threads.length + 1);
-			keyToPath = buildKeyPathMap(threads);
-			const initialPath = resolveInitialPath(threads, keyToPath);
-			setSelectedPath(initialPath.length > 0 ? initialPath : null);
-			statusState = 'idle';
-			statusText = '';
-			if (errors.length > 0) {
-				loadError = `Skipped ${errors.length} message${errors.length === 1 ? '' : 's'} due to load errors.`;
-			}
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			loadError = `Failed to load conversation: ${errorMessage}`;
-			messages = [];
-			keyToPath = new Map();
-			nextId = 1;
-			setSelectedPath(null);
-		} finally {
-			loading = false;
-		}
-	};
-
 	onMount(() => {
 		const params =
 			typeof window !== 'undefined'
@@ -541,9 +640,29 @@
 				authStatus = 'error';
 				authStatusText = error instanceof Error ? error.message : String(error);
 			} finally {
-				void restoreConversation();
+				await loadCachedThreadSummaries();
+				await fetchNextThreadBatch();
+				attemptInitialSelection();
 			}
 		})();
+		if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+			const swUrl = '/sw.js';
+			navigator.serviceWorker
+				.register(swUrl)
+				.catch((error) => console.warn('Service worker registration failed', error));
+		}
+		if (typeof window !== 'undefined' && 'IntersectionObserver' in window) {
+			sentinelObserver = new IntersectionObserver(
+				(entries) => {
+					entries.forEach((entry) => {
+						if (entry.isIntersecting) {
+							void fetchNextThreadBatch();
+						}
+					});
+				},
+				{ rootMargin: '200px' }
+			);
+		}
 	});
 
 	onDestroy(() => {
@@ -551,6 +670,9 @@
 			clearTimeout(authBannerTimer);
 			authBannerTimer = null;
 		}
+		sentinelObserver?.disconnect();
+		nodeStreamAbort?.abort();
+		threadsAbort?.abort();
 	});
 
 	$: if (authStatusText !== lastAuthStatusText) {
@@ -569,6 +691,11 @@
 		} else {
 			authBannerVisible = false;
 		}
+	}
+
+	$: if (sentinel && sentinelObserver && !sentinelAttached) {
+		sentinelObserver.observe(sentinel);
+		sentinelAttached = true;
 	}
 
 	const insertMessage = (newMessage: Message, parentPath: number[] | null): number[] => {
@@ -815,31 +942,39 @@
 					New thread
 				</button>
 			</div>
-			{#if loading && messages.length === 0}
-				<p class="thread-placeholder">Loading…</p>
-			{:else if messages.length === 0}
+			{#if threadsLoading && threadSummaries.length === 0}
+				<p class="thread-placeholder">Loading threads…</p>
+			{:else if threadSummaries.length === 0}
 				<p class="thread-placeholder">No threads yet. Start one!</p>
 			{:else}
 				<ul class="thread-list">
-					{#each messages as thread, index (thread.id)}
+					{#each typedThreadSummaries as summaryValue, index (summaryKey(summaryValue, index))}
+						{@const summary = summaryValue as ThreadSummary}
 						<li>
 							<button
 								type="button"
 								class="thread-item"
-								class:active={selectedThreadIndex === index}
-								class:unsaved={thread.status !== 'saved'}
-								on:click={() => handleSelectThread(index)}
+								class:active={selectedThreadKey === summary.key}
+								on:click={() => handleSelectThreadSummary(summary)}
 							>
-								<div class="thread-item-title">{threadTitle(thread)}</div>
+								<div class="thread-item-title">{threadSummaryTitle(summary)}</div>
 								<div class="thread-item-meta">
-									{threadMeta(thread)}
-									{#if thread.status !== 'saved'}
-										· {messageStatusLabel(thread.status)}
-									{/if}
+									{threadSummaryMeta(summary)}
 								</div>
 							</button>
 						</li>
 					{/each}
+					<li class="thread-load-more" bind:this={sentinel}>
+						{#if threadsLoading}
+							<span>Loading more…</span>
+						{:else if threadsError}
+							<span class="error-text">{threadsError}</span>
+						{:else if threadsComplete}
+							<span>End of threads</span>
+						{:else}
+							<button type="button" on:click={() => fetchNextThreadBatch()}> Load more </button>
+						{/if}
+					</li>
 				</ul>
 			{/if}
 		</aside>
@@ -858,22 +993,22 @@
 			</header>
 
 			<div class="chat-window">
-				{#if loading && messages.length === 0}
-					<p class="placeholder">Loading conversation…</p>
-				{:else if loadError && messages.length === 0}
-					<p class="placeholder error">{loadError}</p>
+				{#if nodeLoading && messages.length === 0}
+					<p class="placeholder">Streaming thread…</p>
+				{:else if nodeError && messages.length === 0}
+					<p class="placeholder error">{nodeError}</p>
 				{:else if messages.length === 0}
-					<p class="placeholder">Type a message to start the conversation.</p>
-				{:else if selectedThreadIndex == null || !messages[selectedThreadIndex]}
 					<p class="placeholder">Select a thread to view its messages.</p>
 				{:else}
-					{#key messages[selectedThreadIndex].id}
+					{#key messages[0].id}
 						<MessageNode
-							message={messages[selectedThreadIndex]}
+							message={messages[0]}
 							level={0}
-							path={[selectedThreadIndex]}
+							path={[0]}
 							{selectedPath}
 							selectMessage={handleSelectMessage}
+							apiBaseUrl={API_BASE_URL}
+							getAuthHeaders={buildAuthHeaders}
 						/>
 					{/key}
 				{/if}
@@ -911,9 +1046,9 @@
 				/>
 			</div>
 
-			{#if loadError && messages.length > 0}
+			{#if nodeError && messages.length > 0}
 				<div class="global-status error">
-					{loadError}
+					{nodeError}
 				</div>
 			{/if}
 
