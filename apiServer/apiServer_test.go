@@ -1,6 +1,7 @@
 package apiServer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -640,5 +641,63 @@ func TestAPIServerChildrenEndpoint(t *testing.T) { // A
 
 	if h.authCount() != 4 {
 		t.Fatalf("expected auth hook to run four times, ran %d", h.authCount())
+	}
+}
+
+func TestThreadSummariesNewestFirst(t *testing.T) {
+	h := newAPIHarness(t, nil)
+
+	key1 := h.create([]byte("first"), WithMimeType("text/plain; charset=utf-8"))
+	// Ensure different created timestamps
+	time.Sleep(15 * time.Millisecond)
+	key2 := h.create([]byte("second"), WithMimeType("text/plain; charset=utf-8"))
+	time.Sleep(15 * time.Millisecond)
+	key3 := h.create([]byte("third"), WithMimeType("text/plain; charset=utf-8"))
+
+	rec := h.request(http.MethodGet, "/meta/threads?limit=10", nil, nil)
+	h.requireStatus(rec, http.StatusOK)
+
+	// Parse NDJSON lines and collect thread keys and timestamps.
+	var keys []string
+	var createdTimes []time.Time
+	scanner := bufio.NewScanner(bytes.NewReader(rec.Body.Bytes()))
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var payload map[string]any
+		if err := json.Unmarshal(line, &payload); err != nil {
+			t.Fatalf("failed to decode ndjson line: %v", err)
+		}
+		if tpe, ok := payload["type"].(string); !ok {
+			continue
+		} else if tpe == "thread" {
+			thread, _ := payload["thread"].(map[string]any)
+			if thread == nil {
+				continue
+			}
+			key, _ := thread["key"].(string)
+			created, _ := thread["createdAt"].(string)
+			keys = append(keys, key)
+			if created != "" {
+				if ts, err := time.Parse(time.RFC3339Nano, created); err == nil {
+					createdTimes = append(createdTimes, ts)
+				} else {
+					createdTimes = append(createdTimes, time.Time{})
+				}
+			} else {
+				createdTimes = append(createdTimes, time.Time{})
+			}
+		}
+	}
+	if len(keys) < 3 {
+		t.Fatalf("expected at least 3 threads in response, got %d", len(keys))
+	}
+
+	// The first thread returned should be the newest (key3), followed by key2, key1.
+	if keys[0] != key3 || keys[1] != key2 || keys[2] != key1 {
+		t.Fatalf("expected newest-first ordering, got %v (created times: %v)", keys[:3], createdTimes[:3])
+	}
+	// Also ensure timestamps are in descending order.
+	if !createdTimes[0].After(createdTimes[1]) || !createdTimes[1].After(createdTimes[2]) {
+		t.Fatalf("expected created times descending, got %v", createdTimes[:3])
 	}
 }

@@ -56,10 +56,37 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Provide a deterministic ordering based on the string representation.
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i].String() > keys[j].String()
+	// Sort by CreatedAt descending (newest first).
+	// We need to hydrate metadata for each key in order to determine CreatedAt.
+	// Fall back to zero time for any keys that fail to hydrate so they'll sort last.
+	type keyedMeta struct {
+		key       cryptHash.Hash
+		createdAt time.Time
+	}
+	metas := make([]keyedMeta, 0, len(keys))
+	for _, k := range keys {
+		var created time.Time
+		if data, err := s.db.GetData(ctx, k); err == nil {
+			created = data.CreatedAt
+		} else {
+			s.log.Warn("failed to read metadata for sorting threads", "error", err, "key", k.String())
+		}
+		metas = append(metas, keyedMeta{key: k, createdAt: created})
+	}
+
+	sort.Slice(metas, func(i, j int) bool {
+		if metas[i].createdAt.Equal(metas[j].createdAt) {
+			// deterministic fallback: sort by key string descending so newly created keys
+			// with equal timestamps still have a stable order.
+			return metas[i].key.String() > metas[j].key.String()
+		}
+		return metas[i].createdAt.After(metas[j].createdAt)
 	})
+
+	// Rebuild keys in sorted order.
+	for i := range metas {
+		keys[i] = metas[i].key
+	}
 
 	limit := parseLimit(r.URL.Query().Get("limit"), defaultThreadPageSize)
 	start := decodeCursor(r.URL.Query().Get("cursor"))

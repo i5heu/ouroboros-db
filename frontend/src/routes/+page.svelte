@@ -1129,9 +1129,13 @@
 				</button>
 			</div>
 			{#if threadsLoading && threadSummaries.length === 0}
-				disabled={statusState === 'sending' || newThreadMode}
+				<p class="thread-placeholder">Loading threads…</p>
 			{:else if threadSummaries.length === 0}
-				<p class="thread-placeholder">No threads yet. Start one!</p>
+				{#if threadsError}
+					<p class="thread-placeholder error">{threadsError}</p>
+				{:else}
+					<p class="thread-placeholder">No threads yet. Start one!</p>
+				{/if}
 			{:else}
 				<ul class="thread-list">
 					{#each typedThreadSummaries as summaryValue, index (summaryKey(summaryValue, index))}
