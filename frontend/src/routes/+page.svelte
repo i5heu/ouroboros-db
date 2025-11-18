@@ -9,7 +9,15 @@
 		type ThreadNodePayload,
 		type ThreadSummaryPayload
 	} from '../lib/apiClient';
-	import { openIndexedDb2, readThreadSummaries, writeThreadSummaries } from '../lib/indexedDb2';
+	import {
+		openIndexedDb2,
+		readThreadSummaries,
+		writeThreadSummaries,
+		readThreadNodes,
+		writeThreadNodes,
+		deleteThreadNodes,
+		type ThreadNodeRecord
+	} from '../lib/indexedDb2';
 
 	// Prefer VITE_OUROBOROS_API when set; default to same origin so dev-server proxy reduces CORS
 	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? '';
@@ -335,6 +343,10 @@
 				message.preview = node.preview;
 				message.parentKey = node.parent && node.parent.trim().length > 0 ? node.parent : undefined;
 			});
+			if (db && node.key) {
+				const record = threadNodePayloadToRecord(node, selectedThreadKey);
+				void writeThreadNodes(db, [record]);
+			}
 			return;
 		}
 
@@ -345,6 +357,10 @@
 			keyToPath = buildKeyPathMap(messages);
 			setSelectedPath([0]);
 			nodeLoading = false;
+			if (db && node.key) {
+				const record = threadNodePayloadToRecord(node, selectedThreadKey);
+				void writeThreadNodes(db, [record]);
+			}
 			return;
 		}
 
@@ -365,6 +381,10 @@
 		parentNode.children = [...parentNode.children, newMessage];
 		messages = cloned;
 		keyToPath = buildKeyPathMap(messages);
+		if (db && node.key) {
+			const record = threadNodePayloadToRecord(node, selectedThreadKey);
+			void writeThreadNodes(db, [record]);
+		}
 	};
 
 	const handleSelectThreadSummary = (summary: ThreadSummary) => {
@@ -385,6 +405,23 @@
 		nodeStreamAbort = controller;
 		void (async () => {
 			try {
+				// Attempt to load cached nodes (message tree) for the selected thread
+				if (db && summary.key) {
+					try {
+						const cached = await readThreadNodes(db, summary.key);
+						if (cached.length > 0) {
+							const roots = buildMessageTreeFromNodeRecords(cached);
+							messages = roots;
+							keyToPath = buildKeyPathMap(messages);
+							// pick an initial path based on storage or last path
+							const initial = resolveInitialPath(messages, keyToPath);
+							setSelectedPath(initial);
+							nodeLoading = false; // show cached messages while we stream
+						}
+					} catch (err) {
+						console.warn('Failed to load cached thread nodes', err);
+					}
+				}
 				await streamThreadNodes({
 					apiBaseUrl: API_BASE_URL,
 					rootKey: summary.key,
@@ -467,31 +504,6 @@
 	const sortMessageTree = (nodes: Message[]) => {
 		nodes.sort(compareMessages);
 		nodes.forEach((child) => sortMessageTree(child.children));
-	};
-
-	const createMessageFromRecord = (record: PersistedRecord, id: number): Message => {
-		const messageSize = calculateBase64Size(record.content);
-		const displayContent = formatPersistedContent(record);
-		const createdAtMs =
-			typeof record.createdAtMs === 'number' && Number.isFinite(record.createdAtMs)
-				? record.createdAtMs
-				: undefined;
-		return {
-			id,
-			content: displayContent,
-			children: [],
-			status: 'saved',
-			key: record.key,
-			error: undefined,
-			parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined,
-			encodedContent: record.content,
-			mimeType: record.mimeType,
-			isText: record.isText,
-			sizeBytes: messageSize,
-			attachmentName: !record.isText ? record.key : undefined,
-			createdAt: record.createdAt,
-			createdAtMs
-		};
 	};
 
 	const buildKeyPathMap = (nodes: Message[]): Map<string, number[]> => {
@@ -620,6 +632,102 @@
 
 	const encodeToBase64 = (text: string): string =>
 		encodeBytesToBase64(new TextEncoder().encode(text));
+
+	// Convert a persisted ThreadNodeRecord to a runtime Message
+	function createMessageFromNodeRecord(record: ThreadNodeRecord, id: number): Message {
+		const contentBase64 =
+			record.encodedContent ?? (record.content ? encodeToBase64(record.content) : '');
+		const messageSize = calculateBase64Size(contentBase64);
+		const displayContent = formatPersistedContent({
+			key: record.key,
+			content: contentBase64,
+			isText: record.isText,
+			mimeType: record.mimeType,
+			parent: record.parent,
+			createdAt: record.createdAt,
+			createdAtMs: record.createdAt ? Date.parse(record.createdAt) : undefined
+		});
+		const createdAtMs = record.createdAt ? Date.parse(record.createdAt) : undefined;
+		return {
+			id,
+			content: displayContent,
+			children: [],
+			status: 'saved',
+			key: record.key,
+			error: undefined,
+			parentKey: record.parent && record.parent.trim().length > 0 ? record.parent : undefined,
+			encodedContent: record.encodedContent,
+			mimeType: record.mimeType,
+			isText: record.isText,
+			sizeBytes: messageSize,
+			attachmentName: !record.isText ? record.key : undefined,
+			createdAt: record.createdAt,
+			createdAtMs
+		};
+	}
+
+	function buildMessageTreeFromNodeRecords(records: ThreadNodeRecord[]): Message[] {
+		const map = new Map<string, Message>();
+		const roots: Message[] = [];
+		const sorted = records.slice().sort((a, b) => {
+			const at = a.createdAt ?? '';
+			const bt = b.createdAt ?? '';
+			const cmp = at.localeCompare(bt);
+			if (cmp !== 0) return cmp;
+			return a.key.localeCompare(b.key);
+		});
+		for (const rec of sorted) {
+			const msg = createMessageFromNodeRecord(rec, nextId++);
+			map.set(rec.key, msg);
+		}
+		for (const rec of sorted) {
+			const msg = map.get(rec.key);
+			if (!msg) continue;
+			if (rec.parent && map.has(rec.parent)) {
+				const parent = map.get(rec.parent)!;
+				parent.children = [...parent.children, msg];
+			} else {
+				roots.push(msg);
+			}
+		}
+		sortMessageTree(roots);
+		return roots;
+	}
+
+	function threadNodePayloadToRecord(
+		node: ThreadNodePayload,
+		rootKey: string | null
+	): ThreadNodeRecord {
+		return {
+			key: node.key,
+			rootKey: rootKey ?? '',
+			parent: node.parent && node.parent.trim().length > 0 ? node.parent : undefined,
+			mimeType: node.mimeType,
+			isText: node.isText,
+			sizeBytes: node.sizeBytes ?? 0,
+			preview: node.preview,
+			encodedContent: node.isText && node.content ? encodeToBase64(node.content) : undefined,
+			createdAt: node.createdAt
+		};
+	}
+
+	function messageToThreadNodeRecord(message: Message, rootKey: string): ThreadNodeRecord {
+		const encoded = message.encodedContent ?? undefined;
+		return {
+			key: message.key ?? '',
+			rootKey: rootKey ?? '',
+			parent:
+				message.parentKey && message.parentKey.trim().length > 0 ? message.parentKey : undefined,
+			mimeType:
+				message.mimeType ??
+				(message.isText ? 'text/plain; charset=utf-8' : 'application/octet-stream'),
+			isText: message.isText ?? true,
+			sizeBytes: message.sizeBytes ?? calculateBase64Size(encoded ?? ''),
+			preview: message.preview,
+			encodedContent: encoded,
+			createdAt: message.createdAt
+		};
+	}
 
 	onMount(() => {
 		const params =
@@ -819,6 +927,15 @@
 				}
 				delete message.error;
 			});
+
+			// Persist newly saved message to IndexedDB
+			if (db && key) {
+				const message = getMessageAtPath(messages, path);
+				if (message) {
+					const record = messageToThreadNodeRecord(message, selectedThreadKey ?? key ?? '');
+					void writeThreadNodes(db, [record]);
+				}
+			}
 
 			statusState = 'success';
 			statusText = key ? `Message saved with key ${key}` : 'Message saved successfully.';
