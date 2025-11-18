@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -80,7 +81,12 @@ func main() { // A
 		base64Key := base64.StdEncoding.EncodeToString(key)
 		base64Nonce := base64.StdEncoding.EncodeToString(nonce)
 		slog.Info("one-time key generated", "key", base64Key)
-		slog.Info("Go to http://localhost:" + strconv.Itoa(int(cfg.UiPort)) + "/?base64Key=" + base64Key + "&base64Nonce=" + base64Nonce + " to authenticate using the one-time key")
+		// URL-encode the parameters; base64 can include characters such as + which are interpreted
+		// as spaces in query params when not encoded. Ensure the link preserves the original
+		// base64 values so the client can `atob` them correctly.
+		encKey := url.QueryEscape(base64Key)
+		encNonce := url.QueryEscape(base64Nonce)
+		slog.Info("Go to http://localhost:" + strconv.Itoa(int(cfg.UiPort)) + "/?base64Key=" + encKey + "&base64Nonce=" + encNonce + " to authenticate using the one-time key")
 	}
 
 	serverErr := make(chan error, 1)
