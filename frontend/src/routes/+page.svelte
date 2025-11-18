@@ -1309,6 +1309,7 @@
 	:global(:root) {
 		--surface: #111c2f;
 		--surface-raised: #15213a;
+		--surface-raised-transparent: rgba(21, 33, 58, 0);
 		--surface-muted: #0b1528;
 		--border: #1f2a3d;
 		--border-strong: #2c3b55;
@@ -1580,6 +1581,28 @@
 		grid-template-columns: minmax(0, 1fr) auto auto;
 		gap: 0.9rem;
 		align-items: start;
+		position: sticky;
+		bottom: 0;
+		background: var(--surface-raised);
+		padding: 1rem;
+		z-index: 5;
+	}
+
+	/* Fade the chat content into the input area with a subtle opacity gradient */
+	.input-area::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: -36px;
+		height: 36px;
+		pointer-events: none;
+		/* Transparent over the chat, blending to the input area background at the bottom */
+		background: linear-gradient(
+			180deg,
+			var(--surface-raised-transparent) 0%,
+			var(--surface-raised) 100%
+		);
 	}
 
 	textarea {
