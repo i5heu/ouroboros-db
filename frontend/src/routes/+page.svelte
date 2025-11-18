@@ -48,6 +48,22 @@
 	const bulkHydrationWaiters = new Map<string, Array<() => void>>();
 	let bulkHydrationTimer: ReturnType<typeof setTimeout> | null = null;
 	let bulkHydrationInFlight = false;
+	type HydrationWorkerRecordMessage = { type: 'record'; requestId: number; record: BulkDataRecord };
+	type HydrationWorkerCompleteMessage = { type: 'complete'; requestId: number };
+	type HydrationWorkerErrorMessage = { type: 'error'; requestId: number; message: string };
+	type HydrationWorkerMessage =
+		| HydrationWorkerRecordMessage
+		| HydrationWorkerCompleteMessage
+		| HydrationWorkerErrorMessage;
+	type HydrationRequestState = {
+		batch: string[];
+		seen: Set<string>;
+		resolve: (value: Set<string>) => void;
+		reject: (error: Error) => void;
+	};
+	let hydrationWorker: Worker | null = null;
+	const hydrationRequests = new Map<number, HydrationRequestState>();
+	let nextHydrationRequestId = 1;
 	let sentinel: HTMLElement | null = null;
 	let sentinelObserver: IntersectionObserver | null = null;
 	let sentinelAttached = false;
@@ -616,6 +632,102 @@
 		resolveBulkWaiters(payload.key);
 	};
 
+	const handleHydrationWorkerMessage = (event: MessageEvent<HydrationWorkerMessage>) => {
+		const data = event.data;
+		const state = hydrationRequests.get(data.requestId);
+		if (!state) {
+			return;
+		}
+		if (data.type === 'record') {
+			handleBulkPayload(data.record, state.seen);
+			return;
+		}
+		hydrationRequests.delete(data.requestId);
+		if (data.type === 'complete') {
+			state.resolve(state.seen);
+		} else if (data.type === 'error') {
+			state.reject(new Error(data.message));
+		}
+	};
+
+	const resetHydrationWorker = (error?: Error) => {
+		hydrationWorker?.terminate();
+		hydrationWorker = null;
+		if (hydrationRequests.size > 0) {
+			const failure = error ?? new Error('Hydration worker terminated.');
+			hydrationRequests.forEach((state) => state.reject(failure));
+			hydrationRequests.clear();
+		}
+	};
+
+	const ensureHydrationWorker = (): Worker | null => {
+		if (typeof window === 'undefined') {
+			return null;
+		}
+		if (hydrationWorker) {
+			return hydrationWorker;
+		}
+		try {
+			hydrationWorker = new Worker(
+				new URL('../lib/workers/messageHydrationWorker.ts', import.meta.url),
+				{ type: 'module' }
+			);
+			hydrationWorker.addEventListener('message', handleHydrationWorkerMessage);
+			hydrationWorker.addEventListener('error', (event) => {
+				console.error('Hydration worker runtime error', event);
+				resetHydrationWorker(new Error('Hydration worker crashed.'));
+			});
+			return hydrationWorker;
+		} catch (error) {
+			const failure = error instanceof Error ? error : new Error(String(error));
+			console.warn('Failed to start hydration worker', failure);
+			resetHydrationWorker(failure);
+			return null;
+		}
+	};
+
+	const hydrateBatchWithWorker = async (batch: string[]): Promise<Set<string> | null> => {
+		const worker = ensureHydrationWorker();
+		if (!worker) {
+			return null;
+		}
+		const headers = await buildAuthHeaders();
+		const requestId = nextHydrationRequestId++;
+		return await new Promise((resolve, reject) => {
+			const seen = new Set<string>();
+			const state: HydrationRequestState = {
+				batch,
+				seen,
+				resolve: (value) => resolve(value),
+				reject
+			};
+			hydrationRequests.set(requestId, state);
+			try {
+				worker.postMessage({
+					type: 'hydrate-batch',
+					requestId,
+					apiBaseUrl: API_BASE_URL,
+					keys: batch,
+					headers
+				});
+			} catch (error) {
+				hydrationRequests.delete(requestId);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
+	};
+
+	const hydrateBatchInline = async (batch: string[]): Promise<Set<string>> => {
+		const seen = new Set<string>();
+		await streamBulkMessages({
+			apiBaseUrl: API_BASE_URL,
+			keys: batch,
+			getHeaders: buildAuthHeaders,
+			onRecord: (payload) => handleBulkPayload(payload, seen)
+		});
+		return seen;
+	};
+
 	const fallbackHydrationFetch = async (key: string) => {
 		const metadata = pendingHydrationNodes.get(key);
 		if (!metadata) {
@@ -639,17 +751,27 @@
 		}
 		const batch = Array.from(bulkHydrationQueue).slice(0, 500);
 		batch.forEach((key) => bulkHydrationQueue.delete(key));
-		const seen = new Set<string>();
+		let seen = new Set<string>();
+		let inlineAttempted = false;
 		bulkHydrationInFlight = true;
 		try {
-			await streamBulkMessages({
-				apiBaseUrl: API_BASE_URL,
-				keys: batch,
-				getHeaders: buildAuthHeaders,
-				onRecord: (payload) => handleBulkPayload(payload, seen)
-			});
+			const workerSeen = await hydrateBatchWithWorker(batch);
+			if (workerSeen) {
+				seen = workerSeen;
+			} else {
+				inlineAttempted = true;
+				seen = await hydrateBatchInline(batch);
+			}
 		} catch (error) {
-			console.warn('Bulk hydration request failed', error);
+			console.warn('Hydration worker batch failed, attempting inline fetch', error);
+			if (!inlineAttempted) {
+				try {
+					inlineAttempted = true;
+					seen = await hydrateBatchInline(batch);
+				} catch (inlineError) {
+					console.warn('Bulk hydration request failed', inlineError);
+				}
+			}
 		} finally {
 			bulkHydrationInFlight = false;
 			const unseen = batch.filter((key) => !seen.has(key));
@@ -1066,6 +1188,7 @@
 		sentinelObserver?.disconnect();
 		nodeStreamAbort?.abort();
 		threadsAbort?.abort();
+		resetHydrationWorker();
 	});
 
 	$: if (authStatusText !== lastAuthStatusText) {
