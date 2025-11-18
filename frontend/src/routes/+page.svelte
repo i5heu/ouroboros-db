@@ -570,7 +570,12 @@
 				forgetLastKey();
 			}
 		}
-		return computeLastPath(roots);
+		const last = computeLastPath(roots);
+		if ((!last || last.length === 0) && roots.length > 0) {
+			// fallback to root if there is at least one root node
+			return [0];
+		}
+		return last;
 	};
 
 	const getMessageAtPath = (source: Message[], path: number[]): Message | null => {
@@ -597,6 +602,16 @@
 	};
 
 	const handleSelectMessage = (path: number[]) => {
+		// If the message clicked is already selected, toggle selection back to the thread root
+		const alreadySelected =
+			selectedPath !== null &&
+			selectedPath.length === path.length &&
+			selectedPath.every((v, i) => v === path[i]);
+		if (alreadySelected) {
+			// set selection back to root
+			setSelectedPath([0]);
+			return;
+		}
 		setSelectedPath(path);
 	};
 
@@ -1226,15 +1241,22 @@
 					<p class="placeholder">Select a thread to view its messages.</p>
 				{:else}
 					{#key messages[0].id}
-						<MessageNode
-							message={messages[0]}
-							level={0}
-							path={[0]}
-							{selectedPath}
-							selectMessage={handleSelectMessage}
-							apiBaseUrl={API_BASE_URL}
-							getAuthHeaders={buildAuthHeaders}
-						/>
+						{#if (messages[0].children ?? []).length === 0}
+							<p class="placeholder">This thread has no messages yet.</p>
+						{:else}
+							{#each messages[0].children as child, index (child.id)}
+								<svelte:component
+									this={MessageNode}
+									message={child}
+									level={0}
+									path={[0, index]}
+									{selectedPath}
+									selectMessage={handleSelectMessage}
+									apiBaseUrl={API_BASE_URL}
+									getAuthHeaders={buildAuthHeaders}
+								/>
+							{/each}
+						{/if}
 					{/key}
 				{/if}
 			</div>
