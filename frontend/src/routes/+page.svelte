@@ -1877,6 +1877,23 @@
 		outline: none;
 	}
 
+	/* Remove browser-native search clear button so we can use our own clear UI */
+	.global-search input[type='search']::-webkit-search-decoration,
+	.global-search input[type='search']::-webkit-search-cancel-button,
+	.global-search input[type='search']::-webkit-search-results-button,
+	.global-search input[type='search']::-webkit-search-results-decoration {
+		-webkit-appearance: none;
+		appearance: none;
+		display: none;
+	}
+
+	.global-search input[type='search']::-ms-clear,
+	.global-search input[type='search']::-ms-expand {
+		display: none;
+		width: 0;
+		height: 0;
+	}
+
 	.global-search .search-icon {
 		width: 1rem;
 		height: 1rem;
