@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import MessageNode from '../lib/components/MessageNode.svelte';
 	import type { Message } from '../lib/types';
 	import { bootstrapAuthFromParams, buildAuthHeaders } from '../lib/auth';
@@ -66,6 +66,10 @@
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
 	let statusText = '';
 	let keyToPath = new Map<string, number[]>();
+	let newThreadMode = false;
+	let newThreadTitle = '';
+	let newThreadRootPath: number[] | null = null;
+	let titleInputEl: HTMLInputElement | null = null;
 	let authStatus: AuthStatus = 'idle';
 	let authStatusText = 'Authenticate with the one-time key link to unlock data access.';
 	let authBannerVisible = true;
@@ -388,6 +392,7 @@
 	};
 
 	const handleSelectThreadSummary = (summary: ThreadSummary) => {
+		newThreadMode = false;
 		if (selectedThreadKey === summary.key && messages.length > 0) {
 			return;
 		}
@@ -599,6 +604,69 @@
 
 	const clearSelection = () => {
 		setSelectedPath(null);
+		newThreadMode = false;
+		newThreadTitle = '';
+		newThreadRootPath = null;
+	};
+
+	const startNewThread = () => {
+		newThreadMode = true;
+		newThreadTitle = '';
+		messages = [];
+		selectedThreadKey = null;
+		const newRoot: Message = {
+			id: nextId++,
+			content: '[untitled]',
+			children: [],
+			status: 'pending',
+			key: '',
+			parentKey: undefined,
+			mimeType: 'text/plain; charset=utf-8',
+			isText: true,
+			sizeBytes: 0
+		};
+		messages = [newRoot];
+		keyToPath = buildKeyPathMap(messages);
+		setSelectedPath([0]);
+		newThreadRootPath = [0];
+		// Focus the title input in the next tick (if bound)
+		void tick().then(() => titleInputEl?.focus());
+	};
+
+	const cancelNewThread = () => {
+		// Reset the new thread state and clear the draft
+		newThreadMode = false;
+		newThreadTitle = '';
+		newThreadRootPath = null;
+		// revert messages to empty selection (no thread)
+		messages = [];
+		keyToPath = new Map();
+		setSelectedPath(null);
+	};
+
+	const applyTitleToRoot = (title: string) => {
+		newThreadTitle = title;
+		if (newThreadRootPath) {
+			updateMessageAtPath(newThreadRootPath, (message) => {
+				message.content = title.trim() ? title : '[untitled]';
+				message.encodedContent = encodeToBase64(message.content);
+				message.sizeBytes = calculateBase64Size(message.encodedContent ?? '');
+			});
+		}
+	};
+
+	const createThreadFromTitle = async () => {
+		if (!newThreadRootPath) return;
+		// Ensure title is applied
+		if (newThreadTitle.trim().length === 0) return;
+		await persistMessage(newThreadRootPath);
+		const rootMessage = getMessageAtPath(messages, newThreadRootPath);
+		if (rootMessage?.key) {
+			selectedThreadKey = rootMessage.key;
+		}
+		newThreadMode = false;
+		newThreadTitle = '';
+		newThreadRootPath = null;
 	};
 
 	$: {
@@ -957,6 +1025,7 @@
 	};
 
 	const addMessage = () => {
+		if (newThreadMode) return;
 		const trimmed = inputValue.trim();
 		if (!trimmed) return;
 
@@ -1053,14 +1122,14 @@
 				<button
 					type="button"
 					class="new-thread"
-					on:click={clearSelection}
+					on:click={startNewThread}
 					disabled={statusState === 'sending'}
 				>
 					New thread
 				</button>
 			</div>
 			{#if threadsLoading && threadSummaries.length === 0}
-				<p class="thread-placeholder">Loading threads…</p>
+				disabled={statusState === 'sending' || newThreadMode}
 			{:else if threadSummaries.length === 0}
 				<p class="thread-placeholder">No threads yet. Start one!</p>
 			{:else}
@@ -1099,13 +1168,43 @@
 			<header class="conversation-header">
 				<div class="conversation-heading">
 					<h1>Threaded Chat</h1>
-					<p class="conversation-subtitle">
-						{#if selectedMessage}
-							Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
-						{:else}
-							Starting a new conversation
-						{/if}
-					</p>
+					{#if newThreadMode}
+						<div class="new-thread-title">
+							<input
+								class="title-input"
+								bind:this={titleInputEl}
+								type="text"
+								placeholder="Enter Title"
+								bind:value={newThreadTitle}
+								on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
+								on:keydown={(e) => {
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										void createThreadFromTitle();
+									}
+								}}
+								disabled={statusState === 'sending'}
+							/>
+							<button
+								type="button"
+								on:click={createThreadFromTitle}
+								disabled={!newThreadTitle.trim() || statusState === 'sending'}
+							>
+								Create
+							</button>
+							<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
+								Cancel
+							</button>
+						</div>
+					{:else}
+						<p class="conversation-subtitle">
+							{#if selectedMessage}
+								Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+							{:else}
+								Starting a new conversation
+							{/if}
+						</p>
+					{/if}
 				</div>
 			</header>
 
@@ -1132,35 +1231,65 @@
 			</div>
 
 			<div class="input-area">
-				<textarea
-					bind:value={inputValue}
-					rows="3"
-					placeholder="Type a message and press Enter"
-					on:keydown={handleKeydown}
-				></textarea>
-				<button
-					type="button"
-					class="attach-button"
-					on:click={openFilePicker}
-					disabled={statusState === 'sending'}
-				>
-					Attach
-				</button>
-				<button
-					type="button"
-					on:click={addMessage}
-					disabled={!inputValue.trim().length || statusState === 'sending'}
-				>
-					{statusState === 'sending' ? 'Sending…' : 'Send'}
-				</button>
-				<input
-					type="file"
-					class="file-input"
-					bind:this={fileInput}
-					on:change={handleFileSelection}
-					multiple
-					hidden
-				/>
+				<!-- If newThreadMode, show title input and disable message area until title is created -->
+				{#if newThreadMode}
+					<div class="new-thread-inputs">
+						<input
+							type="text"
+							placeholder="Thread title"
+							bind:value={newThreadTitle}
+							on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									void createThreadFromTitle();
+								}
+							}}
+							class="title-input-mobile"
+							bind:this={titleInputEl}
+						/>
+						<button
+							type="button"
+							on:click={createThreadFromTitle}
+							disabled={!newThreadTitle.trim() || statusState === 'sending'}
+						>
+							Create Thread
+						</button>
+						<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
+							Cancel
+						</button>
+					</div>
+				{:else}
+					<textarea
+						bind:value={inputValue}
+						rows="3"
+						placeholder="Type a message and press Enter"
+						on:keydown={handleKeydown}
+					></textarea>
+					<button
+						type="button"
+						class="attach-button"
+						on:click={openFilePicker}
+						disabled={statusState === 'sending'}
+					>
+						Attach
+					</button>
+					<button
+						type="button"
+						on:click={addMessage}
+						disabled={!inputValue.trim().length || statusState === 'sending' || newThreadMode}
+					>
+						{statusState === 'sending' ? 'Sending…' : 'Send'}
+					</button>
+					<input
+						type="file"
+						class="file-input"
+						bind:this={fileInput}
+						on:change={handleFileSelection}
+						multiple
+						hidden
+					/>
+				{/if}
 			</div>
 
 			{#if nodeError && messages.length > 0}
@@ -1394,6 +1523,28 @@
 		font-size: 1.6rem;
 		font-weight: 600;
 		color: var(--text-primary);
+	}
+
+	.new-thread-title {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.title-input,
+	.title-input-mobile {
+		border-radius: 0.5rem;
+		padding: 0.5rem 0.7rem;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		color: var(--text-primary);
+		min-width: 240px;
+	}
+
+	.new-thread-inputs {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
 	}
 
 	.conversation-subtitle {
