@@ -30,6 +30,15 @@
 	let threadSummaries: ThreadSummary[] = [];
 	let typedThreadSummaries: ThreadSummary[] = [];
 	$: typedThreadSummaries = threadSummaries;
+	let searchQuery = '';
+	$: filteredThreadSummaries = searchQuery
+		? typedThreadSummaries.filter((s) => {
+				const key = s.key?.toLowerCase() ?? '';
+				const preview = s.preview?.toLowerCase() ?? '';
+				const needle = searchQuery.trim().toLowerCase();
+				return key.includes(needle) || preview.includes(needle);
+			})
+		: typedThreadSummaries;
 	let threadCursor: string | null = null;
 	let threadsLoading = false;
 	let threadsError = '';
@@ -1454,6 +1463,30 @@
 	{/if}
 	<div class="app-shell">
 		<aside class="thread-sidebar">
+			<div class="global-search">
+				<div class="search-input">
+					<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"
+						><path
+							fill="currentColor"
+							d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zM4 9.5C4 6.46 6.46 4 9.5 4S15 6.46 15 9.5 12.54 15 9.5 15 4 12.54 4 9.5z"
+						></path></svg
+					>
+					<input
+						type="search"
+						aria-label="Search messages and threads"
+						placeholder="Search messages and threads…"
+						bind:value={searchQuery}
+					/>
+					{#if searchQuery}
+						<button
+							type="button"
+							class="search-clear"
+							on:click={() => (searchQuery = '')}
+							aria-label="Clear search">×</button
+						>
+					{/if}
+				</div>
+			</div>
 			<div class="sidebar-header">
 				<h2>Threads</h2>
 				<button
@@ -1475,7 +1508,7 @@
 				{/if}
 			{:else}
 				<ul class="thread-list">
-					{#each typedThreadSummaries as summaryValue, index (summaryKey(summaryValue, index))}
+					{#each filteredThreadSummaries as summaryValue, index (summaryKey(summaryValue, index))}
 						{@const summary = summaryValue as ThreadSummary}
 						<li>
 							<button
@@ -1817,6 +1850,55 @@
 		color: var(--text-muted);
 		background: rgba(15, 23, 42, 0.65);
 		border-radius: 0.85rem;
+	}
+
+	.global-search {
+		display: block;
+		margin-bottom: 0.6rem;
+	}
+
+	.global-search .search-input {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: var(--surface-muted);
+		border-radius: 0.75rem;
+		padding: 0.4rem 0.6rem;
+		border: 1px solid var(--border);
+	}
+
+	.global-search input[type='search'] {
+		flex: 1 1 auto;
+		background: transparent;
+		border: none;
+		color: var(--text-primary);
+		padding: 0.35rem 0.25rem;
+		font-size: 0.95rem;
+		outline: none;
+	}
+
+	.global-search .search-icon {
+		width: 1rem;
+		height: 1rem;
+		color: var(--text-muted);
+		flex: 0 0 auto;
+	}
+
+	.global-search .search-clear {
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		font-size: 1.05rem;
+		cursor: pointer;
+		padding: 0 0.25rem;
+		border-radius: 0.5rem;
+	}
+
+	.global-search .search-clear:hover,
+	.global-search .search-clear:focus {
+		color: var(--text-primary);
+		outline: none;
+		background: rgba(255, 255, 255, 0.02);
 	}
 
 	.thread-list {
