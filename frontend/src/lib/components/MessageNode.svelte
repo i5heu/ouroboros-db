@@ -489,7 +489,8 @@
 	.message {
 		background: #00000019;
 		border-radius: 0.75rem;
-		padding: 0.75rem 1rem;
+		padding: 5px;
+		padding-right: 0;
 		box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 		margin-bottom: 0.75rem;
 	}
@@ -736,21 +737,21 @@
 	}
 
 	.level-0 {
-		border-left: 4px solid #3b82f6;
+		border-left: 1px solid #3b82f6;
 	}
 
 	.level-1 {
-		border-left: 4px solid #f97316;
+		border-left: 1px solid #f97316;
 	}
 
 	.level-2 {
-		border-left: 4px solid #10b981;
+		border-left: 1px solid #10b981;
 	}
 
 	.level-3,
 	.level-4,
 	.level-5 {
-		border-left: 4px solid #8b5cf6;
+		border-left: 1px solid #8b5cf6;
 	}
 
 	.message:focus {

@@ -1295,7 +1295,6 @@
 		border-radius: 0.9rem;
 		padding: 1.25rem;
 		min-height: 380px;
-		max-height: 520px;
 		overflow-y: auto;
 		background: var(--surface-muted);
 		box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.6);
