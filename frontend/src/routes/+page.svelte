@@ -86,6 +86,61 @@
 		return 'Threaded Chat';
 	})();
 
+	const countAllChildren = (nodeList: Message[] | undefined): number => {
+		if (!nodeList || nodeList.length === 0) return 0;
+		let count = 0;
+		const traverse = (nodes: Message[]) => {
+			for (const n of nodes) {
+				count += 1;
+				traverse(n.children ?? []);
+			}
+		};
+		traverse(nodeList);
+		return count;
+	};
+
+	const findMostRecentChildCreatedAt = (nodeList: Message[] | undefined): string | null => {
+		let maxMs = -1;
+		const traverse = (nodes: Message[]) => {
+			for (const n of nodes) {
+				if (n.createdAt) {
+					const ms = Date.parse(n.createdAt);
+					if (!Number.isNaN(ms) && ms > maxMs) maxMs = ms;
+				}
+				traverse(n.children ?? []);
+			}
+		};
+		if (!nodeList) return null;
+		traverse(nodeList);
+		return maxMs >= 0 ? new Date(maxMs).toISOString() : null;
+	};
+
+	// Header meta: creation date, number of items (children), and last child date
+	$: headerMeta = (() => {
+		if (newThreadMode) return { createdAt: null, childCount: 0, lastChildAt: null };
+		let createdAt: string | null = null;
+		let childCount = 0;
+		let lastChildAt: string | null = null;
+		if (selectedThreadKey) {
+			const summary = threadSummaries.find((t) => t.key === selectedThreadKey);
+			if (summary) {
+				createdAt = summary.createdAt ?? null;
+				childCount = summary.childCount ?? 0;
+			}
+		}
+		// if not present from summary, fallback to root message metadata
+		if (!createdAt && messages.length > 0) {
+			createdAt = messages[0].createdAt ?? null;
+		}
+		// last child: search across all children (excluding the root)
+		if (messages.length > 0) {
+			const mostRecent = findMostRecentChildCreatedAt(messages[0].children ?? []);
+			lastChildAt = mostRecent;
+			if (!childCount) childCount = countAllChildren(messages[0].children ?? []);
+		}
+		return { createdAt, childCount, lastChildAt };
+	})();
+
 	const deepClone = <T,>(value: T): T => {
 		if (typeof structuredClone === 'function') {
 			return structuredClone(value);
@@ -1191,50 +1246,64 @@
 		<section class="conversation-area">
 			<div>
 				<header class="conversation-header">
-					<div class="conversation-heading">
-						<h1>{headerTitle}</h1>
-						{#if newThreadMode}
-							<div class="new-thread-title">
-								<input
-									class="title-input"
-									bind:this={titleInputEl}
-									type="text"
-									placeholder="Enter Title"
-									bind:value={newThreadTitle}
-									on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
-									on:keydown={(e) => {
-										if (e.key === 'Enter') {
-											e.preventDefault();
-											void createThreadFromTitle();
-										}
-									}}
-									disabled={statusState === 'sending'}
-								/>
-								<button
-									type="button"
-									on:click={createThreadFromTitle}
-									disabled={!newThreadTitle.trim() || statusState === 'sending'}
-								>
-									Create
-								</button>
-								<button
-									type="button"
-									on:click={cancelNewThread}
-									disabled={statusState === 'sending'}
-								>
-									Cancel
-								</button>
-							</div>
-						{:else}
-							<p class="conversation-subtitle">
-								{#if selectedMessage}
-									Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
-								{:else}
-									Starting a new conversation
-								{/if}
-							</p>
+					<h1>{headerTitle}</h1>
+					{#if headerMeta && (headerMeta.createdAt || headerMeta.childCount > 0 || headerMeta.lastChildAt)}
+						{#if headerMeta.createdAt}
+							<span class="meta-stat">
+								<span class="meta-title">Created</span>
+								<span class="meta-value">{formatTimestamp(headerMeta.createdAt)}</span>
+							</span>
 						{/if}
-					</div>
+						<span class="meta-stat">
+							<span class="meta-title">Replies</span>
+							<span class="meta-value"
+								>{headerMeta.childCount} repl{headerMeta.childCount === 1 ? 'y' : 'ies'}</span
+							>
+						</span>
+						{#if headerMeta.lastChildAt}
+							<span class="meta-stat">
+								<span class="meta-title">Last reply</span>
+								<span class="meta-value">{formatTimestamp(headerMeta.lastChildAt)}</span>
+							</span>
+						{/if}
+					{/if}
+					{#if newThreadMode}
+						<div class="new-thread-title">
+							<input
+								class="title-input"
+								bind:this={titleInputEl}
+								type="text"
+								placeholder="Enter Title"
+								bind:value={newThreadTitle}
+								on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
+								on:keydown={(e) => {
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										void createThreadFromTitle();
+									}
+								}}
+								disabled={statusState === 'sending'}
+							/>
+							<button
+								type="button"
+								on:click={createThreadFromTitle}
+								disabled={!newThreadTitle.trim() || statusState === 'sending'}
+							>
+								Create
+							</button>
+							<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
+								Cancel
+							</button>
+						</div>
+					{:else}
+						<p class="conversation-subtitle">
+							{#if selectedMessage}
+								Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+							{:else}
+								Starting a new conversation
+							{/if}
+						</p>
+					{/if}
 				</header>
 
 				<div class="chat-window">
@@ -1548,22 +1617,24 @@
 	}
 
 	.conversation-header {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) min-content min-content min-content;
+		grid-auto-rows: min-content;
+		grid-auto-flow: row;
+		gap: 0.75rem;
 		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		flex-wrap: wrap;
 		position: sticky;
 		top: 0;
 		background: var(--surface-raised);
 		padding: 0.75rem;
 	}
 
-	.conversation-heading h1 {
+	.conversation-header h1 {
 		margin: 0;
 		font-size: 1.6rem;
 		font-weight: 600;
 		color: var(--text-primary);
+		overflow-wrap: anywhere;
 	}
 
 	.new-thread-title {
@@ -1592,6 +1663,25 @@
 		margin: 0.35rem 0 0;
 		font-size: 0.9rem;
 		color: var(--text-muted);
+	}
+
+	.conversation-header .meta-stat {
+		display: inline-flex;
+		flex-direction: row;
+		gap: 0.4rem;
+		align-items: center;
+		white-space: nowrap;
+		font-size: 0.8rem;
+	}
+
+	.conversation-header .meta-title {
+		color: var(--text-muted);
+	}
+
+	.conversation-header .conversation-subtitle,
+	.conversation-header .new-thread-title {
+		grid-column: 1 / -1;
+		margin-top: 0.25rem;
 	}
 
 	.conversation-subtitle .snippet {
@@ -1771,6 +1861,10 @@
 
 		.conversation-area {
 			min-height: auto;
+		}
+
+		.conversation-header {
+			grid-template-columns: 1fr;
 		}
 	}
 
