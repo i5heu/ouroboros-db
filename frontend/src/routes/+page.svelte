@@ -11,8 +11,6 @@
 	} from '../lib/apiClient';
 	import {
 		openIndexedDb2,
-		readThreadSummaries,
-		writeThreadSummaries,
 		readThreadNodes,
 		writeThreadNodes,
 		deleteThreadNodes,
@@ -233,14 +231,11 @@
 	};
 
 	const loadCachedThreadSummaries = async () => {
+		// keep the db handle initialization for node caching while skipping summaries
 		try {
 			db = await openIndexedDb2();
-			const cached = await readThreadSummaries(db);
-			if (cached.length > 0) {
-				threadSummaries = sortThreadSummaries(cached);
-			}
 		} catch (error) {
-			console.warn('Failed to load cached thread summaries', error);
+			console.warn('Failed to open IndexedDB (node cache only)', error);
 		}
 	};
 
@@ -262,7 +257,6 @@
 				getHeaders: buildAuthHeaders,
 				onSummary: (summary) => {
 					upsertThreadSummary(summary);
-					void writeThreadSummaries(db, [{ ...summary, cachedAt: Date.now() }]);
 				}
 			});
 			threadCursor = result.nextCursor ?? null;
