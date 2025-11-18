@@ -80,8 +80,8 @@
 		if (newThreadMode) return 'Create Thread';
 		if (selectedThreadKey) {
 			const summary = threadSummaries.find((t) => t.key === selectedThreadKey);
-			if (summary) return threadSummaryTitle(summary);
-			if (messages.length > 0) return threadTitle(messages[0]);
+			if (summary) return threadHeaderTitle(summary, messages.length > 0 ? messages[0] : null);
+			if (messages.length > 0) return threadHeaderTitle(undefined, messages[0]);
 		}
 		return 'Threaded Chat';
 	})();
@@ -281,6 +281,13 @@
 			return '[untitled]';
 		}
 		return truncate(content, 60);
+	};
+
+	// Full header title (do not truncate). Prefer summary preview when available, else root message.
+	const threadHeaderTitle = (summary?: ThreadSummary, root?: Message | null): string => {
+		const content = summary?.preview?.trim() ?? root?.content?.trim() ?? '';
+		if (!content.length) return '[untitled]';
+		return content;
 	};
 
 	const threadSummaryMeta = (summary: ThreadSummary): string => {
@@ -1618,7 +1625,7 @@
 
 	.conversation-header {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) min-content min-content min-content;
+		grid-template-columns: min-content min-content min-content auto;
 		grid-auto-rows: min-content;
 		grid-auto-flow: row;
 		gap: 0.75rem;
@@ -1635,6 +1642,9 @@
 		font-weight: 600;
 		color: var(--text-primary);
 		overflow-wrap: anywhere;
+		white-space: normal;
+		text-overflow: initial;
+		grid-column: 1 / -1;
 	}
 
 	.new-thread-title {
