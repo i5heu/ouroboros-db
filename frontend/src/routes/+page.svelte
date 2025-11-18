@@ -75,6 +75,17 @@
 	let lastAuthStatusText = '';
 	let initialSelectionDone = false;
 
+	// Header title: prefer new-thread mode, then current selected thread summary, then root message title, then fallback
+	$: headerTitle = (() => {
+		if (newThreadMode) return 'Create Thread';
+		if (selectedThreadKey) {
+			const summary = threadSummaries.find((t) => t.key === selectedThreadKey);
+			if (summary) return threadSummaryTitle(summary);
+			if (messages.length > 0) return threadTitle(messages[0]);
+		}
+		return 'Threaded Chat';
+	})();
+
 	const deepClone = <T,>(value: T): T => {
 		if (typeof structuredClone === 'function') {
 			return structuredClone(value);
@@ -1165,7 +1176,7 @@
 		<section class="conversation-area">
 			<header class="conversation-header">
 				<div class="conversation-heading">
-					<h1>Threaded Chat</h1>
+					<h1>{headerTitle}</h1>
 					{#if newThreadMode}
 						<div class="new-thread-title">
 							<input
