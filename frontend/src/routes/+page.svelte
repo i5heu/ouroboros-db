@@ -486,7 +486,11 @@
 
 		const newMessage = createMessageFromNode(node);
 
-		if (!node.parent) {
+		// If our messages list is empty, treat the first streamed node as the
+		// root in the client view even if it reports a parent (this happens when
+		// selecting a child from search results). This ensures the node is visible
+		// and that replies reference it as the parent.
+		if (messages.length === 0 || !node.parent) {
 			messages = [newMessage];
 			keyToPath = buildKeyPathMap(messages);
 			setSelectedPath([0]);
@@ -1421,12 +1425,20 @@
 		}
 	};
 
-	const addMessage = () => {
+	const addMessage = async () => {
 		if (newThreadMode) return;
 		const trimmed = inputValue.trim();
 		if (!trimmed) return;
 
 		const parentPath = selectedPath ? [...selectedPath] : null;
+		// If replying to a local-only parent without a key, persist the parent first
+		if (parentPath && parentPath.length > 0) {
+			const parentNode = getMessageAtPath(messages, parentPath);
+			if (parentNode && !parentNode.key) {
+				// Persist parent so it has a key to attach as parent for this reply
+				await persistMessage(parentPath);
+			}
+		}
 		const parentKeyValue = parentPath ? (getMessageAtPath(messages, parentPath)?.key ?? '') : '';
 		const textBytes = new TextEncoder().encode(trimmed);
 		const base64Content = encodeBytesToBase64(textBytes);
@@ -1461,6 +1473,13 @@
 		}
 
 		const parentPath = selectedPath ? [...selectedPath] : null;
+		// If replying to a local-only parent without a key, persist the parent first
+		if (parentPath && parentPath.length > 0) {
+			const parentNode = getMessageAtPath(messages, parentPath);
+			if (parentNode && !parentNode.key) {
+				await persistMessage(parentPath);
+			}
+		}
 		const parentKeyValue = parentPath ? (getMessageAtPath(messages, parentPath)?.key ?? '') : '';
 
 		for (const file of Array.from(files)) {
@@ -1738,7 +1757,7 @@
 					</button>
 					<button
 						type="button"
-						on:click={addMessage}
+						on:click={() => void addMessage()}
 						disabled={!inputValue.trim().length || statusState === 'sending' || newThreadMode}
 					>
 						{statusState === 'sending' ? 'Sending…' : 'Send'}
