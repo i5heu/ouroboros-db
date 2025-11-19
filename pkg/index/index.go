@@ -3,6 +3,7 @@ package index
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -20,11 +21,13 @@ import (
 //TODO: check if it would be better to have a bleve on disk instead of in memory only
 
 type Indexer struct {
+	log *slog.Logger
+
 	kv atomic.Pointer[ouroboroskv.KV]
 	bi bleve.Index
 }
 
-func NewIndexer(kv *ouroboroskv.KV) *Indexer { //A
+func NewIndexer(kv *ouroboroskv.KV, logger *slog.Logger) *Indexer { //A
 	index, err := bleve.NewMemOnly(bleve.NewIndexMapping())
 	if err != nil {
 		panic(err)
@@ -32,8 +35,9 @@ func NewIndexer(kv *ouroboroskv.KV) *Indexer { //A
 
 	_ = index
 	idx := &Indexer{
-		bi: index,
-		kv: atomic.Pointer[ouroboroskv.KV]{},
+		log: logger,
+		bi:  index,
+		kv:  atomic.Pointer[ouroboroskv.KV]{},
 	}
 	// Store kv pointer for the indexer to be able to fetch data for indexing
 	if kv != nil {
@@ -77,6 +81,7 @@ func (idx *Indexer) ReindexAll() error { //A
 			// don't fail the entire reindex on single record error; log and continue
 			// but index package should not import slog/log to avoid cycles.
 			// For now, continue.
+			idx.log.Error("reindex: index hash failed", "key", keyStr, "error", err)
 		}
 
 		children, err := kv.GetChildren(k)

@@ -6,6 +6,7 @@
 	import {
 		streamThreadNodes,
 		streamThreadSummaries,
+		searchThreadSummaries,
 		streamBulkMessages,
 		type ThreadNodePayload,
 		type ThreadSummaryPayload,
@@ -48,6 +49,9 @@
 	let nodeProgressCount = 0;
 	let nodeStreamAbort: AbortController | null = null;
 	let threadsAbort: AbortController | null = null;
+	let searchAbort: AbortController | null = null;
+	let searchMode = false;
+	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 	let db: IDBDatabase | null = null;
 	const messageCache = new Map<string, MessageRecord>();
 	const pendingMessageWrites = new Map<string, MessageRecord>();
@@ -369,6 +373,50 @@
 				threadsLoading = false;
 			}
 		}
+	};
+
+	const performSearch = async (query: string) => {
+		// Abort previous search
+		searchAbort?.abort();
+		if (!query || query.trim().length === 0) {
+			searchMode = false;
+			threadCursor = null;
+			threadSummaries = [];
+			threadsComplete = false;
+			await fetchNextThreadBatch();
+			return;
+		}
+		searchMode = true;
+		threadsComplete = true; // disable paging for search results
+		threadsError = '';
+		threadsLoading = true;
+		const controller = new AbortController();
+		searchAbort = controller;
+		try {
+			const results = await searchThreadSummaries({
+				apiBaseUrl: API_BASE_URL,
+				query: query.trim(),
+				limit: 50,
+				getHeaders: buildAuthHeaders
+			});
+			if (controller.signal.aborted) return;
+			threadSummaries = results;
+		} catch (err) {
+			if (!controller.signal.aborted) {
+				threadsError = err instanceof Error ? err.message : String(err);
+			}
+		} finally {
+			if (!controller.signal.aborted) {
+				threadsLoading = false;
+			}
+		}
+	};
+
+	const onSearchInputChanged = (value: string) => {
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			void performSearch(value);
+		}, 300);
 	};
 
 	const attemptInitialSelection = () => {
@@ -1197,6 +1245,8 @@
 		sentinelObserver?.disconnect();
 		nodeStreamAbort?.abort();
 		threadsAbort?.abort();
+		searchAbort?.abort();
+		if (searchTimer) clearTimeout(searchTimer);
 		resetHydrationWorker();
 	});
 
@@ -1206,6 +1256,7 @@
 			clearTimeout(authBannerTimer);
 			authBannerTimer = null;
 		}
+
 		const trimmed = authStatusText.trim();
 		if (trimmed) {
 			authBannerVisible = true;
@@ -1476,12 +1527,16 @@
 						aria-label="Search messages and threads"
 						placeholder="Search messages and threads…"
 						bind:value={searchQuery}
+						on:input={(e) => onSearchInputChanged((e.target as HTMLInputElement).value)}
 					/>
 					{#if searchQuery}
 						<button
 							type="button"
 							class="search-clear"
-							on:click={() => (searchQuery = '')}
+							on:click={() => {
+								searchQuery = '';
+								onSearchInputChanged('');
+							}}
 							aria-label="Clear search">×</button
 						>
 					{/if}

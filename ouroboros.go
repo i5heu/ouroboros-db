@@ -146,7 +146,7 @@ func (ou *OuroborosDB) Start(ctx context.Context) error { // PA
 		ou.kv.Store(kv)
 
 		// Initialize indexer to keep a Bleve index synchronized with the KV content.
-		ou.indexer = indexpkg.NewIndexer(kv)
+		ou.indexer = indexpkg.NewIndexer(kv, ou.log)
 		// Populate index synchronously on startup; do not run this in the background
 		// to avoid races with DB close during tests and short-lived instances.
 		if err := ou.indexer.ReindexAll(); err != nil {

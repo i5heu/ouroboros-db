@@ -210,6 +210,65 @@ export const streamBulkMessages = async (options: BulkDataStreamOptions): Promis
     );
 };
 
+export const searchKeys = async (params: {
+    apiBaseUrl: string;
+    query: string;
+    limit?: number;
+    getHeaders: HeaderProvider;
+}): Promise<string[]> => {
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(await params.getHeaders())
+    };
+    const body = JSON.stringify({ query: params.query, limit: params.limit ?? 25 });
+    const response = await fetch(`${params.apiBaseUrl}/search`, {
+        method: 'POST',
+        headers,
+        body
+    });
+    if (!response.ok) {
+        const message = (await response.text()) || `Search failed (${response.status}).`;
+        throw new Error(message);
+    }
+    const data = await response.json();
+    if (!data || !Array.isArray(data.keys)) {
+        return [];
+    }
+    return data.keys as string[];
+};
+
+export const searchThreadSummaries = async (params: {
+    apiBaseUrl: string;
+    query: string;
+    limit?: number;
+    getHeaders: HeaderProvider;
+}): Promise<ThreadSummaryPayload[]> => {
+    const keys = await searchKeys(params);
+    if (!keys.length) return [];
+
+    const summaries: ThreadSummaryPayload[] = [];
+    await streamBulkMessages({
+        apiBaseUrl: params.apiBaseUrl,
+        keys,
+        includeBinary: false,
+        getHeaders: params.getHeaders,
+        onRecord: (record) => {
+            if (!record || !record.key || !record.found) return;
+            const preview = record.content ?? '';
+            summaries.push({
+                key: record.key,
+                preview: preview.slice(0, 240),
+                mimeType: record.mimeType ?? 'application/octet-stream',
+                isText: Boolean(record.isText),
+                sizeBytes: record.sizeBytes ?? 0,
+                childCount: 0,
+                createdAt: record.createdAt
+            });
+        }
+    });
+    return summaries;
+};
+
 export const fetchAttachmentBlob = async (params: {
     apiBaseUrl: string;
     key: string;

@@ -23,6 +23,13 @@ export default defineConfig(({ mode }) => ({
 				changeOrigin: true,
 				secure: false
 			}
+			,
+			'/search': {
+				target: 'http://localhost:8083',
+				changeOrigin: true,
+				secure: false
+			}
+
 		}
 	}
 }));

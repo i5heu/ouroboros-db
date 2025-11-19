@@ -76,7 +76,7 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	kv, cleanup := newInitializedKV(t, tmp)
 	t.Cleanup(cleanup)
 
-	idx := NewIndexer(kv)
+	idx := NewIndexer(kv, testLogger())
 	defer idx.Close()
 
 	// store a text payload by writing raw data to KV (with encoding)

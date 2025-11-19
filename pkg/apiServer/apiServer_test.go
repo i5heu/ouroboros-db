@@ -377,7 +377,7 @@ func TestSearchEndpoint(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = kv.Close() })
 
-	idx := indexpkg.NewIndexer(kv)
+	idx := indexpkg.NewIndexer(kv, testLogger())
 	t.Cleanup(func() { _ = idx.Close() })
 
 	// write data and index
