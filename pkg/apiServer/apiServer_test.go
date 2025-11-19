@@ -518,6 +518,7 @@ type createConfig struct {
 	shards   uint8
 	parity   uint8
 	filename string
+	title    string
 }
 
 type CreateOption func(*createConfig)
@@ -553,6 +554,12 @@ func WithFilename(name string) CreateOption { // A
 	}
 }
 
+func WithTitle(title string) CreateOption { // A
+	return func(cfg *createConfig) {
+		cfg.title = title
+	}
+}
+
 func (h *apiHarness) create(content []byte, opts ...CreateOption) string { // A
 	h.t.Helper()
 
@@ -585,6 +592,9 @@ func (h *apiHarness) create(content []byte, opts ...CreateOption) string { // A
 	}
 	if cfg.parity != 0 {
 		metadata["reed_solomon_parity_shards"] = cfg.parity
+	}
+	if cfg.title != "" {
+		metadata["title"] = cfg.title
 	}
 
 	req := newMultipartRequest(h.t, http.MethodPost, "/data", content, filename, cfg.mimeType, metadata)
@@ -881,6 +891,109 @@ func TestBulkDataStream(t *testing.T) {
 	}
 	if seenKeys[0] != key1 || seenKeys[1] != key2 {
 		t.Fatalf("expected records in request order, got %v", seenKeys)
+	}
+}
+
+func TestCreateWithTitleSetsHeader(t *testing.T) { // A
+	h := newAPIHarness(t, nil)
+
+	title := "My Thread Title"
+	key := h.create([]byte("hello titled message"), WithMimeType("text/plain; charset=utf-8"), WithTitle(title))
+
+	_, header := h.get(key)
+	if got := header.Get("X-Ouroboros-Title"); got != title {
+		t.Fatalf("expected title header %q, got %q", title, got)
+	}
+}
+
+func TestBulkDataStreamIncludesTitle(t *testing.T) { // A
+	h := newAPIHarness(t, nil)
+
+	key1 := h.create([]byte("first bulk"), WithMimeType("text/plain; charset=utf-8"), WithTitle("First Title"))
+	key2 := h.create([]byte("second bulk"), WithMimeType("text/plain; charset=utf-8"), WithTitle("Second Title"))
+
+	body := fmt.Sprintf(`{"keys":["%s","%s"]}`, key1, key2)
+	rec := h.request(http.MethodPost, "/data/bulk", strings.NewReader(body), map[string]string{
+		"Content-Type": "application/json",
+	})
+	h.requireStatus(rec, http.StatusOK)
+
+	scanner := bufio.NewScanner(bytes.NewReader(rec.Body.Bytes()))
+	var seenKeys []string
+	var titles = map[string]string{}
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(line, &payload); err != nil {
+			t.Fatalf("failed to decode ndjson: %v", err)
+		}
+		tpe, _ := payload["type"].(string)
+		if tpe == "record" {
+			record, _ := payload["record"].(map[string]any)
+			if record == nil {
+				continue
+			}
+			key, _ := record["key"].(string)
+			titleVal, _ := record["title"].(string)
+			titles[key] = titleVal
+			seenKeys = append(seenKeys, key)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
+	if len(seenKeys) != 2 {
+		t.Fatalf("expected 2 bulk records, got %v", seenKeys)
+	}
+	if titles[key1] != "First Title" || titles[key2] != "Second Title" {
+		t.Fatalf("expected titles to be included in bulk records, got %v", titles)
+	}
+}
+
+func TestThreadSummariesIncludeTitle(t *testing.T) { // A
+	h := newAPIHarness(t, nil)
+
+	title := "Thread Summary Title"
+	key := h.create([]byte("root"), WithMimeType("text/plain; charset=utf-8"), WithTitle(title))
+
+	rec := h.request(http.MethodGet, "/meta/threads?limit=10", nil, nil)
+	h.requireStatus(rec, http.StatusOK)
+
+	// Parse NDJSON lines and find the thread record matching our key
+	scanner := bufio.NewScanner(bytes.NewReader(rec.Body.Bytes()))
+	found := false
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var payload map[string]any
+		if err := json.Unmarshal(line, &payload); err != nil {
+			t.Fatalf("failed to decode ndjson line: %v", err)
+		}
+		if tpe, ok := payload["type"].(string); !ok {
+			continue
+		} else if tpe == "thread" {
+			thread, _ := payload["thread"].(map[string]any)
+			if thread == nil {
+				continue
+			}
+			keyVal, _ := thread["key"].(string)
+			if keyVal == key {
+				found = true
+				threadTitle, _ := thread["title"].(string)
+				if threadTitle != title {
+					t.Fatalf("expected thread summary title %q, got %q", title, threadTitle)
+				}
+				break
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected to find thread %s in summaries", key)
 	}
 }
 
