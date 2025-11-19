@@ -303,7 +303,7 @@
 	};
 
 	const threadSummaryTitle = (summary: ThreadSummary): string => {
-		const content = summary.preview?.trim() ?? '';
+		const content = summary.title?.trim() ?? summary.preview?.trim() ?? '';
 		if (!content.length) {
 			return '[untitled]';
 		}
@@ -312,7 +312,12 @@
 
 	// Full header title (do not truncate). Prefer summary preview when available, else root message.
 	const threadHeaderTitle = (summary?: ThreadSummary, root?: Message | null): string => {
-		const content = summary?.preview?.trim() ?? root?.content?.trim() ?? '';
+		const content =
+			summary?.title?.trim() ??
+			summary?.preview?.trim() ??
+			root?.title?.trim() ??
+			root?.content?.trim() ??
+			'';
 		if (!content.length) return '[untitled]';
 		return content;
 	};
@@ -462,7 +467,8 @@
 			sizeBytes,
 			attachmentName: !node.isText ? node.key : undefined,
 			createdAt: node.createdAt,
-			createdAtMs
+			createdAtMs,
+			title: node.title
 		};
 	};
 
@@ -541,6 +547,9 @@
 					message.createdAtMs = ms;
 				}
 			}
+			if (record.title) {
+				message.title = record.title;
+			}
 		});
 	};
 
@@ -584,6 +593,7 @@
 		const headerIsText = response.headers.get('X-Ouroboros-Is-Text');
 		const isText = headerIsText ? headerIsText.toLowerCase() === 'true' : node.isText;
 		const createdAt = response.headers.get('X-Ouroboros-Created-At') ?? node.createdAt;
+		const headerTitle = response.headers.get('X-Ouroboros-Title');
 		let decodedContent: string | undefined;
 		if (isText) {
 			try {
@@ -599,7 +609,8 @@
 			sizeBytes: resolvedSize,
 			encodedContent,
 			content: decodedContent,
-			createdAt
+			createdAt,
+			title: headerTitle || undefined
 		};
 	};
 
@@ -650,6 +661,7 @@
 				(payload.content !== undefined ? new TextEncoder().encode(payload.content).length : 0),
 			createdAt: payload.createdAt
 		};
+		if (payload.title) record.title = payload.title;
 		if (payload.content !== undefined) {
 			record.content = payload.content;
 		}
@@ -1129,6 +1141,7 @@
 		if (newThreadRootPath) {
 			updateMessageAtPath(newThreadRootPath, (message) => {
 				message.content = title.trim() ? title : '[untitled]';
+				message.title = title.trim() ? title : undefined;
 				message.encodedContent = encodeToBase64(message.content);
 				message.sizeBytes = calculateBase64Size(message.encodedContent ?? '');
 			});
@@ -1199,7 +1212,8 @@
 			content: message.isText ? (message.content ?? '') : undefined,
 			encodedContent: ensuredEncoded,
 			createdAt: message.createdAt,
-			attachmentName: message.attachmentName
+			attachmentName: message.attachmentName,
+			title: message.title
 		};
 	};
 
@@ -1366,6 +1380,9 @@
 		};
 		if (parentKey) {
 			metadata.parent = parentKey;
+		}
+		if (snapshot.title) {
+			metadata.title = snapshot.title;
 		}
 
 		const sourceBytes = decodeBase64ToUint8(base64Content);

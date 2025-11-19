@@ -1,6 +1,7 @@
 export type ThreadSummaryPayload = {
     key: string;
     preview: string;
+    title?: string;
     mimeType: string;
     isText: boolean;
     sizeBytes: number;
@@ -11,6 +12,7 @@ export type ThreadSummaryPayload = {
 export type ThreadNodePayload = {
     key: string;
     parent?: string;
+    title?: string;
     mimeType: string;
     isText: boolean;
     sizeBytes: number;
@@ -29,6 +31,7 @@ export type BulkDataRecord = {
     content?: string;
     encodedContent?: string;
     error?: string;
+    title?: string;
 };
 
 type HeaderProvider = () => Promise<Record<string, string>>;
@@ -258,6 +261,7 @@ export const searchThreadSummaries = async (params: {
             summaries.push({
                 key: record.key,
                 preview: preview.slice(0, 240),
+                title: record.title,
                 mimeType: record.mimeType ?? 'application/octet-stream',
                 isText: Boolean(record.isText),
                 sizeBytes: record.sizeBytes ?? 0,

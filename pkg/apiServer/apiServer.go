@@ -88,7 +88,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC
 	// w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set(
 		"Access-Control-Expose-Headers",
-		"Content-Type, Content-Length, X-Ouroboros-Key, X-Ouroboros-Mime, X-Ouroboros-Is-Text, X-Ouroboros-Parent, X-Ouroboros-Children, X-Ouroboros-Created-At",
+		"Content-Type, Content-Length, X-Ouroboros-Key, X-Ouroboros-Mime, X-Ouroboros-Is-Text, X-Ouroboros-Parent, X-Ouroboros-Children, X-Ouroboros-Created-At, X-Ouroboros-Title",
 	)
 
 	if r.Method == http.MethodOptions {

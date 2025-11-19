@@ -19,4 +19,5 @@ export type Message = {
     binaryLoadedBytes?: number;
     binaryTotalBytes?: number;
     depth?: number;
+    title?: string;
 };

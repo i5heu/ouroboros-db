@@ -22,6 +22,7 @@ const (
 type threadSummary struct {
 	Key        string `json:"key"`
 	Preview    string `json:"preview"`
+	Title      string `json:"title,omitempty"`
 	MimeType   string `json:"mimeType"`
 	IsText     bool   `json:"isText"`
 	SizeBytes  int    `json:"sizeBytes"`
@@ -32,6 +33,7 @@ type threadSummary struct {
 type threadNode struct {
 	Key       string   `json:"key"`
 	Parent    string   `json:"parent,omitempty"`
+	Title     string   `json:"title,omitempty"`
 	MimeType  string   `json:"mimeType"`
 	IsText    bool     `json:"isText"`
 	SizeBytes int      `json:"sizeBytes"`
@@ -104,6 +106,7 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 		}
 		summary := threadSummary{
 			Key:        data.Key.String(),
+			Title:      data.Title,
 			MimeType:   normalizeMime(data.MimeType, data.IsText),
 			IsText:     data.IsText,
 			SizeBytes:  len(data.Content),
@@ -195,6 +198,7 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 
 		node := threadNode{
 			Key:       data.Key.String(),
+			Title:     data.Title,
 			MimeType:  normalizeMime(data.MimeType, data.IsText),
 			IsText:    data.IsText,
 			SizeBytes: len(data.Content),

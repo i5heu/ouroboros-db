@@ -185,14 +185,19 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 
 	// Parse metadata for createdAt if present
 	var createdAt int64
+	var title string
 	if len(data.MetaData) > 0 {
 		var meta struct {
 			CreatedAt string `json:"created_at"`
+			Title     string `json:"title,omitempty"`
 		}
-		if err := json.Unmarshal(data.MetaData, &meta); err == nil && meta.CreatedAt != "" {
-			if t, err := time.Parse(time.RFC3339Nano, meta.CreatedAt); err == nil {
-				createdAt = t.UnixNano()
+		if err := json.Unmarshal(data.MetaData, &meta); err == nil {
+			if meta.CreatedAt != "" {
+				if t, err := time.Parse(time.RFC3339Nano, meta.CreatedAt); err == nil {
+					createdAt = t.UnixNano()
+				}
 			}
+			title = meta.Title
 		}
 	}
 
@@ -204,6 +209,7 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 		"createdAt":  createdAt,
 		"childCount": len(data.Children),
 		"parent":     data.Parent.String(),
+		"title":      title,
 	}
 
 	if !isText {

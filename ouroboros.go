@@ -58,6 +58,7 @@ type StoreOptions struct {
 	ReedSolomonShards       uint8
 	ReedSolomonParityShards uint8
 	MimeType                string
+	Title                   string
 }
 
 // Config configures the database instance. Only Paths[0] is used at the
@@ -81,10 +82,12 @@ type RetrievedData struct {
 	Parent    hash.Hash
 	Children  []hash.Hash
 	CreatedAt time.Time
+	Title     string
 }
 
 type storedMetadata struct {
 	CreatedAt time.Time `json:"created_at"`
+	Title     string    `json:"title,omitempty"`
 }
 
 // defaultLogger returns a logger that writes text logs to stderr at Info level.
@@ -240,7 +243,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	}
 
 	// TODO allow additional user-defined metadata but server set CreatedAt is mandatory
-	metaBytes, err := encodeMetadata(storedMetadata{CreatedAt: time.Now().UTC()})
+	metaBytes, err := encodeMetadata(storedMetadata{CreatedAt: time.Now().UTC(), Title: opts.Title})
 	if err != nil {
 		return hash.Hash{}, fmt.Errorf("encode metadata: %w", err)
 	}
@@ -343,6 +346,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 	}
 
 	var createdAt time.Time
+	var title string
 	if len(data.MetaData) > 0 {
 		meta, metaErr := decodeMetadata(data.MetaData)
 		if metaErr != nil {
@@ -351,6 +355,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 			}
 		} else {
 			createdAt = meta.CreatedAt
+			title = meta.Title
 		}
 	}
 
@@ -362,6 +367,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		Parent:    parent,
 		Children:  data.Children,
 		CreatedAt: createdAt,
+		Title:     title,
 	}, nil
 }
 

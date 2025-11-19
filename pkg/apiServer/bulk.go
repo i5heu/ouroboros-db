@@ -29,6 +29,7 @@ type bulkDataRecord struct {
 	IsText         bool   `json:"isText,omitempty"`
 	SizeBytes      int    `json:"sizeBytes,omitempty"`
 	CreatedAt      string `json:"createdAt,omitempty"`
+	Title          string `json:"title,omitempty"`
 	Content        string `json:"content,omitempty"`
 	EncodedContent string `json:"encodedContent,omitempty"`
 	Error          string `json:"error,omitempty"`
@@ -122,6 +123,7 @@ func (s *Server) fetchBulkRecord(r *http.Request, keyHex string, includeBinary b
 		MimeType:  normalizeMime(data.MimeType, data.IsText),
 		IsText:    data.IsText,
 		SizeBytes: len(data.Content),
+		Title:     data.Title,
 	}
 	if !data.CreatedAt.IsZero() {
 		record.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)

@@ -24,6 +24,7 @@ export type MessageRecord = {
     encodedContent?: string;
     createdAt?: string;
     attachmentName?: string;
+    title?: string;
     cachedAt?: number;
 };
 

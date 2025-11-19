@@ -95,6 +95,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // PA
 		ReedSolomonShards:       shards,
 		ReedSolomonParityShards: parity,
 		MimeType:                mimeType,
+		Title:                   strings.TrimSpace(meta.Title),
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -178,6 +179,9 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 	w.Header().Set("X-Ouroboros-Mime", mimeType)
 	if !data.CreatedAt.IsZero() {
 		w.Header().Set("X-Ouroboros-Created-At", data.CreatedAt.UTC().Format(time.RFC3339Nano))
+	}
+	if strings.TrimSpace(data.Title) != "" {
+		w.Header().Set("X-Ouroboros-Title", data.Title)
 	}
 	if !data.Parent.IsZero() {
 		w.Header().Set("X-Ouroboros-Parent", data.Parent.String())

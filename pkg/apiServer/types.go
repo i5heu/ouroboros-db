@@ -31,6 +31,7 @@ type createMetadata struct {
 	MimeType                string   `json:"mime_type"`
 	IsText                  *bool    `json:"is_text"`
 	Filename                string   `json:"filename"`
+	Title                   string   `json:"title,omitempty"`
 }
 
 type AuthFunc func(req *http.Request, db *ouroboros.OuroborosDB) error
