@@ -327,12 +327,18 @@ func extractParagraphsFromSectionNode(n *html.Node) []string {
 		if node != n && isSectionNode(node) {
 			return
 		}
-		if node.Type == html.ElementNode && node.Data == "p" {
-			text := strings.TrimSpace(nodeText(node))
-			if text != "" {
-				paras = append(paras, text)
+		if node.Type == html.ElementNode {
+			switch node.Data {
+			case "p", "li", "dd", "dt", "blockquote":
+				text := strings.TrimSpace(nodeText(node))
+				if text != "" {
+					if node.Data == "li" {
+						text = "• " + text
+					}
+					paras = append(paras, text)
+				}
+				return
 			}
-			return
 		}
 		for c := node.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)

@@ -53,6 +53,13 @@ func TestCreateThreadFromArticle_DB(t *testing.T) {
 		<h2>Section A</h2>
 		<p>Para A1</p>
 		<p>Para A2</p>
+		</section>
+		<section data-mw-section-id="2">
+			<h2>References</h2>
+			<ol>
+				<li>Ref DB Item 1</li>
+				<li>Ref DB Item 2</li>
+			</ol>
 	</section>
 	</body></html>`
 			_, _ = w.Write([]byte(html))
@@ -122,6 +129,8 @@ func TestCreateThreadFromArticle_DB(t *testing.T) {
 	leadParagraphFound := false
 	var sectionNode cryptHash.Hash
 	sectionFound := false
+	var referencesNode cryptHash.Hash
+	referencesFound := false
 	for _, child := range children {
 		childData, err := db.GetData(context.Background(), child)
 		if err != nil {
@@ -134,12 +143,19 @@ func TestCreateThreadFromArticle_DB(t *testing.T) {
 			sectionNode = child
 			sectionFound = true
 		}
+		if childData.Title == "References" && string(childData.Content) == "References" {
+			referencesNode = child
+			referencesFound = true
+		}
 	}
 	if !leadParagraphFound {
 		t.Fatalf("expected a lead paragraph child with title metadata")
 	}
 	if !sectionFound {
 		t.Fatalf("expected to find stored section node")
+	}
+	if !referencesFound {
+		t.Fatalf("expected to find references section node")
 	}
 	sectionChildren, err := db.ListChildren(context.Background(), sectionNode)
 	if err != nil {
@@ -158,6 +174,24 @@ func TestCreateThreadFromArticle_DB(t *testing.T) {
 	}
 	if !sectionParagraphFound {
 		t.Fatalf("expected section paragraph child to inherit section title metadata")
+	}
+	referenceChildren, err := db.ListChildren(context.Background(), referencesNode)
+	if err != nil {
+		t.Fatalf("list references children: %v", err)
+	}
+	referenceItemFound := false
+	for _, child := range referenceChildren {
+		childData, err := db.GetData(context.Background(), child)
+		if err != nil {
+			t.Fatalf("get reference child data: %v", err)
+		}
+		if childData.Title == "References" && strings.Contains(string(childData.Content), "Ref DB Item 1") {
+			referenceItemFound = true
+			break
+		}
+	}
+	if !referenceItemFound {
+		t.Fatalf("expected references list item child to inherit references title metadata")
 	}
 }
 
@@ -178,6 +212,12 @@ func TestCreateThreadFromArticleHTTP(t *testing.T) {
 		<h2>Section B</h2>
 		<p>Para B1</p>
 		<p>Para B2</p>
+		</section>
+		<section data-mw-section-id="2">
+			<h2>References</h2>
+			<ul>
+				<li>Ref HTTP Item 1</li>
+			</ul>
 	</section>
 	</body></html>`
 			_, _ = w.Write([]byte(html))
@@ -230,6 +270,7 @@ func TestCreateThreadFromArticleHTTP(t *testing.T) {
 	// ensure some posts had metadata title for the root or sections
 	foundRootTitle := false
 	foundSectionTitle := false
+	foundReferencesTitle := false
 	for _, p := range posted {
 		if p == nil {
 			continue
@@ -240,6 +281,8 @@ func TestCreateThreadFromArticleHTTP(t *testing.T) {
 				foundRootTitle = true
 			case "Section B":
 				foundSectionTitle = true
+			case "References":
+				foundReferencesTitle = true
 			}
 		}
 	}
@@ -248,6 +291,9 @@ func TestCreateThreadFromArticleHTTP(t *testing.T) {
 	}
 	if !foundSectionTitle {
 		t.Fatalf("expected to see a POST with section title metadata for paragraphs, got %+v", posted)
+	}
+	if !foundReferencesTitle {
+		t.Fatalf("expected to see a POST with references title metadata for list items, got %+v", posted)
 	}
 }
 
@@ -270,6 +316,12 @@ func TestMockDataMain_DB_Run(t *testing.T) {
 <section data-mw-section-id="1">
 	<h2>Section M</h2>
 	<p>Para M1</p>
+	</section>
+	<section data-mw-section-id="2">
+		<h2>References</h2>
+		<ul>
+			<li>Main Ref Item</li>
+		</ul>
 </section>
 </body></html>`
 			_, _ = w.Write([]byte(html))
@@ -344,6 +396,12 @@ func TestMockDataMain_DB_Run_UserAgent(t *testing.T) {
 			html := `<html><body>
 	<section data-mw-section-id="0">
 		<p>UA paragraph</p>
+	</section>
+	<section data-mw-section-id="1">
+		<h2>External links</h2>
+		<ul>
+			<li>UA Ref Item</li>
+		</ul>
 	</section>
 	</body></html>`
 			_, _ = w.Write([]byte(html))
