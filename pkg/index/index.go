@@ -97,6 +97,8 @@ func (idx *Indexer) ReindexAll() error { //A
 			}
 		}
 	}
+
+	idx.log.Info("reindex: completed", "total_indexed", len(visited))
 	return nil
 }
 
