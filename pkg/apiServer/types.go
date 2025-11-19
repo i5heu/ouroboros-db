@@ -14,6 +14,15 @@ type listResponse struct {
 	Keys []string `json:"keys"`
 }
 
+type searchRequest struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+type searchResponse struct {
+	Keys []string `json:"keys"`
+}
+
 type createMetadata struct {
 	ReedSolomonShards       uint8    `json:"reed_solomon_shards"`
 	ReedSolomonParityShards uint8    `json:"reed_solomon_parity_shards"`

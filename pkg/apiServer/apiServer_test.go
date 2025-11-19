@@ -19,8 +19,12 @@ import (
 
 	"log/slog"
 
+	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
+	enc "github.com/i5heu/ouroboros-db/pkg/encoding"
+	indexpkg "github.com/i5heu/ouroboros-db/pkg/index"
+	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
 func TestCreateAndList(t *testing.T) { // A
@@ -347,6 +351,133 @@ func newAPIHarness(t *testing.T, auth AuthFunc, opts ...Option) *apiHarness { //
 		t:         t,
 		server:    New(db, baseOpts...),
 		authCalls: &counter,
+	}
+}
+
+func TestSearchEndpoint(t *testing.T) {
+	// Create a KV and indexer separate from the DB used by the server
+	dir := t.TempDir()
+	// Create key file for KV
+	keyPath := filepath.Join(dir, "ouroboros.key")
+	asyncCrypt, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("failed to create async crypt: %v", err)
+	}
+	if err := asyncCrypt.SaveToFile(keyPath); err != nil {
+		t.Fatalf("failed to save key file: %v", err)
+	}
+	c, err := crypt.NewFromFile(keyPath)
+	if err != nil {
+		t.Fatalf("crypt new from file: %v", err)
+	}
+	kvCfg := &ouroboroskv.Config{Paths: []string{filepath.Join(dir, "kv")}, MinimumFreeSpace: 1, Logger: testLogger()}
+	kv, err := ouroboroskv.Init(c, kvCfg)
+	if err != nil {
+		t.Fatalf("init kv: %v", err)
+	}
+	t.Cleanup(func() { _ = kv.Close() })
+
+	idx := indexpkg.NewIndexer(kv)
+	t.Cleanup(func() { _ = idx.Close() })
+
+	// write data and index
+	content := []byte("hello from search test")
+	encContent, err := enc.EncodeContentWithMimeType(content, "text/plain; charset=utf-8")
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	metaBytes, _ := json.Marshal(map[string]string{"created_at": time.Now().UTC().Format(time.RFC3339Nano)})
+	data := ouroboroskv.Data{Content: encContent, MetaData: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
+	key, err := kv.WriteData(data)
+	if err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := idx.IndexHash(key); err != nil {
+		t.Fatalf("index hash: %v", err)
+	}
+
+	// start server with indexer
+	db, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+	server := New(db, WithLogger(testLogger()), WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error { return nil }), WithIndexer(idx))
+
+	body, _ := json.Marshal(map[string]any{"query": "hello"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Keys) == 0 || resp.Keys[0] != key.String() {
+		t.Fatalf("expected search to return key %s, got %+v", key.String(), resp.Keys)
+	}
+}
+
+func TestSearchEndpoint_UsingDBIndexer(t *testing.T) {
+	db, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+
+	// store a text payload using DB; indexing should happen automatically
+	content := []byte("db index test")
+	key, err := db.StoreData(context.Background(), content, ouroboros.StoreOptions{MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("store data: %v", err)
+	}
+
+	// Wait until DB's indexer finds the record
+	idx := db.Indexer()
+	if idx == nil {
+		t.Fatalf("expected indexer on db")
+	}
+	timeout := time.After(2 * time.Second)
+	tick := time.Tick(20 * time.Millisecond)
+	found := false
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timeout waiting for db indexing")
+		case <-tick:
+			res, err := idx.TextSearch("db index test", 10)
+			if err != nil {
+				continue
+			}
+			for _, r := range res {
+				if r == key {
+					found = true
+					break
+				}
+			}
+			if found {
+				goto indexed
+			}
+		}
+	}
+indexed:
+
+	// Start a server that uses the DB indexer by default
+	server := New(db, WithLogger(testLogger()), WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error { return nil }))
+
+	body, _ := json.Marshal(map[string]any{"query": "db index test"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Keys) == 0 || resp.Keys[0] != key.String() {
+		t.Fatalf("expected search to return created key %s, got %+v", key.String(), resp.Keys)
 	}
 }
 

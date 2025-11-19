@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
@@ -118,6 +119,61 @@ func TestNewOuroborosDB_Success(t *testing.T) { // A
 	}
 	if _, err := db.kvHandle(); err != nil {
 		t.Errorf("Expected kv to be initialized after Start, got: %v", err)
+	}
+}
+
+func TestStoreData_AutoIndexes(t *testing.T) {
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+	cfg := Config{Paths: []string{testDir}, MinimumFreeGB: 1, Logger: testLogger()}
+	db, err := New(cfg)
+	if err != nil {
+		t.Fatalf("new db: %v", err)
+	}
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("start db: %v", err)
+	}
+	defer func() { _ = db.CloseWithoutContext() }()
+
+	// ensure indexer is present
+	idx := db.Indexer()
+	if idx == nil {
+		t.Fatalf("expected indexer to be created on Start")
+	}
+
+	// store a text payload
+	content := []byte("auto index me")
+	key, err := db.StoreData(context.Background(), content, StoreOptions{MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("store data failed: %v", err)
+	}
+
+	// Poll until indexer finds the key (async indexing)
+	timeout := time.After(2 * time.Second)
+	tick := time.Tick(20 * time.Millisecond)
+	found := false
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timeout waiting for auto-indexing")
+		case <-tick:
+			res, err := idx.TextSearch("auto index me", 10)
+			if err != nil {
+				// ignore transient errors; keep polling
+				continue
+			}
+			for _, r := range res {
+				if r == key {
+					found = true
+					break
+				}
+			}
+			if found {
+				return
+			}
+		}
 	}
 }
 

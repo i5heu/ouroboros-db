@@ -46,6 +46,55 @@ func (idx *Indexer) Close() error {
 	return idx.bi.Close()
 }
 
+// ReindexAll will walk the KV store and index all present records. This is a convenience
+// initial population for the in-memory index. It returns an error on failure to list roots
+// or read data from the store; individual record failures are logged and indexing continues.
+func (idx *Indexer) ReindexAll() error { //A
+	kv := idx.kv.Load()
+	if kv == nil {
+		return fmt.Errorf("kv handle not available")
+	}
+
+	keys, err := kv.ListRootKeys()
+	if err != nil {
+		return fmt.Errorf("list root keys: %w", err)
+	}
+
+	visited := make(map[string]struct{})
+	queue := make([]hash.Hash, 0, len(keys))
+	queue = append(queue, keys...)
+	for len(queue) > 0 {
+		k := queue[0]
+		queue = queue[1:]
+		keyStr := k.String()
+		if _, ok := visited[keyStr]; ok {
+			continue
+		}
+		visited[keyStr] = struct{}{}
+
+		// Index the item; continue on error
+		if err := idx.IndexHash(k); err != nil {
+			// don't fail the entire reindex on single record error; log and continue
+			// but index package should not import slog/log to avoid cycles.
+			// For now, continue.
+		}
+
+		children, err := kv.GetChildren(k)
+		if err != nil {
+			continue
+		}
+		for _, c := range children {
+			if c.IsZero() {
+				continue
+			}
+			if _, ok := visited[c.String()]; !ok {
+				queue = append(queue, c)
+			}
+		}
+	}
+	return nil
+}
+
 // We will not implement ReindexAll for now
 // func (idx *Indexer) ReindexAll() error {
 // 	// this needs to be done in batches and in a separate goroutine
@@ -113,7 +162,7 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 	return idx.bi.Index(cr.String(), doc)
 }
 
-func (idx *Indexer) RemoveHash(cr hash.Hash) error {
+func (idx *Indexer) RemoveHash(cr hash.Hash) error { //A
 	if idx == nil {
 		return fmt.Errorf("indexer is nil")
 	}

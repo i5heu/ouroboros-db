@@ -283,6 +283,49 @@ func (s *Server) handleAuthProcess(w http.ResponseWriter, r *http.Request) { // 
 	s.authProcess(r.Context(), w, req)
 }
 
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) { // A
+	if r.Method != http.MethodPost {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.indexer == nil {
+		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		return
+	}
+
+	var req searchRequest
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.Query) == "" {
+		http.Error(w, "query is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := req.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 25
+	}
+
+	hashes, err := s.indexer.TextSearch(req.Query, limit)
+	if err != nil {
+		s.log.Error("search failed", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	resp := searchResponse{Keys: make([]string, 0, len(hashes))}
+	for _, h := range hashes {
+		resp.Keys = append(resp.Keys, h.String())
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func parseByteRange(header string, size int) (int, int, error) {
 	if size <= 0 {
 		return 0, 0, fmt.Errorf("invalid size for range")

@@ -6,6 +6,7 @@ import (
 
 	ouroboros "github.com/i5heu/ouroboros-db"
 	"github.com/i5heu/ouroboros-db/internal/browserCrypt"
+	indexpkg "github.com/i5heu/ouroboros-db/pkg/index"
 )
 
 const (
@@ -19,6 +20,7 @@ type Server struct {
 	log       *slog.Logger
 	auth      AuthFunc
 	authStore browserCrypt.AuthStore
+	indexer   *indexpkg.Indexer
 }
 
 func New(db *ouroboros.OuroborosDB, opts ...Option) *Server { // A
@@ -36,6 +38,11 @@ func New(db *ouroboros.OuroborosDB, opts ...Option) *Server { // A
 		opt(s)
 	}
 
+	// If an indexer wasn't provided via options, use the db's indexer if available.
+	if s.indexer == nil && db != nil {
+		s.indexer = db.Indexer()
+	}
+
 	s.routes()
 	return s
 }
@@ -50,6 +57,7 @@ func (s *Server) routes() { // AC
 	s.mux.HandleFunc("GET /meta/thread/{key}/stream", s.handleThreadNodeStream)
 	s.mux.HandleFunc("GET /authProcess", s.handleAuthProcess)
 	s.mux.HandleFunc("POST /authProcess", s.handleAuthProcess)
+	s.mux.HandleFunc("POST /search", s.handleSearch)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC

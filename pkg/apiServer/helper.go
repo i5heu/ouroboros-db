@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	indexpkg "github.com/i5heu/ouroboros-db/pkg/index"
+
 	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 )
 
@@ -36,6 +38,14 @@ func WithAuth(auth AuthFunc) Option { // HC
 	return func(s *Server) {
 		if auth != nil {
 			s.auth = auth
+		}
+	}
+}
+
+func WithIndexer(idx *indexpkg.Indexer) Option { // AC
+	return func(s *Server) {
+		if idx != nil {
+			s.indexer = idx
 		}
 	}
 }

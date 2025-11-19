@@ -20,6 +20,7 @@ import (
 	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/pkg/encoding"
+	indexpkg "github.com/i5heu/ouroboros-db/pkg/index"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
@@ -29,12 +30,20 @@ type OuroborosDB struct {
 	log    *slog.Logger
 	config Config
 
-	crypt *crypt.Crypt
-	kv    atomic.Pointer[ouroboroskv.KV]
+	crypt   *crypt.Crypt
+	kv      atomic.Pointer[ouroboroskv.KV]
+	indexer *indexpkg.Indexer
 
 	started   atomic.Bool
 	startOnce sync.Once
 	closeOnce sync.Once
+}
+
+// Indexer returns the internal indexer instance. Mainly used for integration or
+// in tests to interact with the index.
+func (ou *OuroborosDB) Indexer() *indexpkg.Indexer {
+	// It's safe to return the pointer directly.
+	return ou.indexer
 }
 
 var (
@@ -136,6 +145,14 @@ func (ou *OuroborosDB) Start(ctx context.Context) error { // PA
 		ou.crypt = c
 		ou.kv.Store(kv)
 
+		// Initialize indexer to keep a Bleve index synchronized with the KV content.
+		ou.indexer = indexpkg.NewIndexer(kv)
+		// Populate index synchronously on startup; do not run this in the background
+		// to avoid races with DB close during tests and short-lived instances.
+		if err := ou.indexer.ReindexAll(); err != nil {
+			ou.log.Warn("indexer reindex failed", "error", err)
+		}
+
 		ou.started.Store(true)
 		ou.log.Info("OuroborosDB started", "path", dataRoot)
 	})
@@ -162,6 +179,12 @@ func (ou *OuroborosDB) Close(ctx context.Context) error { // A
 		if kv := ou.kv.Swap(nil); kv != nil {
 			if err := kv.Close(); err != nil {
 				closeErr = errors.Join(closeErr, fmt.Errorf("close kv: %w", err))
+			}
+		}
+		// Close indexer if it exists
+		if ou.indexer != nil {
+			if err := ou.indexer.Close(); err != nil {
+				closeErr = errors.Join(closeErr, fmt.Errorf("close indexer: %w", err))
 			}
 		}
 		// Add crypt teardown here if the crypt package provides one.
@@ -241,6 +264,13 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	dataHash, err := kv.WriteData(data)
 	if err != nil {
 		return hash.Hash{}, err
+	}
+
+	// After successful write, index the new data asynchronously if indexer is present.
+	if ou.indexer != nil {
+		go func(h hash.Hash) {
+			_ = ou.indexer.IndexHash(h)
+		}(dataHash)
 	}
 
 	return dataHash, nil
