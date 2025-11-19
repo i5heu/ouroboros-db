@@ -19,7 +19,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
-	api "github.com/i5heu/ouroboros-db/apiServer"
+	api "github.com/i5heu/ouroboros-db/pkg/apiServer"
 )
 
 // newTempStartedDB creates and starts an OuroborosDB instance backed by a

@@ -14,8 +14,8 @@ import (
 
 	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	ouroboros "github.com/i5heu/ouroboros-db"
-	"github.com/i5heu/ouroboros-db/browserCrypt"
-	browserAuth "github.com/i5heu/ouroboros-db/browserCrypt"
+	"github.com/i5heu/ouroboros-db/internal/browserCrypt"
+	browserAuth "github.com/i5heu/ouroboros-db/internal/browserCrypt"
 )
 
 type authProcessReq struct {

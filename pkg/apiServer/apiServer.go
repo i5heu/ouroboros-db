@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	ouroboros "github.com/i5heu/ouroboros-db"
-	"github.com/i5heu/ouroboros-db/browserCrypt"
+	"github.com/i5heu/ouroboros-db/internal/browserCrypt"
 )
 
 const (

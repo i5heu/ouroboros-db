@@ -11,7 +11,7 @@ import (
 
 	crypt "github.com/i5heu/ouroboros-crypt"
 	cryptkeys "github.com/i5heu/ouroboros-crypt/pkg/keys"
-	enc "github.com/i5heu/ouroboros-db/encoding"
+	enc "github.com/i5heu/ouroboros-db/pkg/encoding"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 

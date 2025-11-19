@@ -10,7 +10,7 @@ import (
 	"github.com/blevesearch/bleve/v2"
 
 	hash "github.com/i5heu/ouroboros-crypt/pkg/hash"
-	"github.com/i5heu/ouroboros-db/encoding"
+	"github.com/i5heu/ouroboros-db/pkg/encoding"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
