@@ -18,7 +18,7 @@ import (
 	"time"
 
 	crypt "github.com/i5heu/ouroboros-crypt"
-	"github.com/i5heu/ouroboros-crypt/hash"
+	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/encoding"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )

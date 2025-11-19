@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	cryptHash "github.com/i5heu/ouroboros-crypt/hash"
+	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	ouroboros "github.com/i5heu/ouroboros-db"
 	"github.com/i5heu/ouroboros-db/browserCrypt"
 	browserAuth "github.com/i5heu/ouroboros-db/browserCrypt"

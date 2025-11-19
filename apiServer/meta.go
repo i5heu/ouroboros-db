@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	cryptHash "github.com/i5heu/ouroboros-crypt/hash"
+	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 )
 
 const (

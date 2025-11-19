@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/i5heu/ouroboros-crypt/keys"
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 

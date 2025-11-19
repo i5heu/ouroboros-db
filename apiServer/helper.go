@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	cryptHash "github.com/i5heu/ouroboros-crypt/hash"
+	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 )
 
 func parseHash(value string) (cryptHash.Hash, error) { // A

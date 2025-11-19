@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 
 	"github.com/blevesearch/bleve/v2"
+
+	hash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
@@ -17,7 +19,7 @@ type Indexer struct {
 	bi bleve.Index
 }
 
-func NewIndexer() *Indexer {
+func NewIndexer(kv *ouroboroskv.KV) *Indexer {
 	index, err := bleve.NewMemOnly(bleve.NewIndexMapping())
 	if err != nil {
 		panic(err)
@@ -26,5 +28,18 @@ func NewIndexer() *Indexer {
 	_ = index
 	return &Indexer{
 		bi: index,
+		kv: atomic.Pointer[ouroboroskv.KV]{},
 	}
+}
+
+func (idx *Indexer) Close() error {
+	return idx.bi.Close()
+}
+
+func (idx *Indexer) ReindexAll() error {
+	return nil
+}
+
+func (idx *Indexer) IndexHash(cr hash.Hash) error {
+	return nil
 }

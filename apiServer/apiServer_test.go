@@ -19,7 +19,7 @@ import (
 
 	"log/slog"
 
-	"github.com/i5heu/ouroboros-crypt/keys"
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
 )
 
