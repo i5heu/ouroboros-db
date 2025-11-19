@@ -1,3 +1,4 @@
+// (moved functions will be defined below)
 package main
 
 import (
@@ -18,27 +19,406 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/html"
 
 	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	keys "github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
 )
 
+// rateLimiter controls requests per second for external API calls.
+type rateLimiter struct {
+	tokens chan struct{}
+}
+
+func newRateLimiter(rps int) *rateLimiter {
+	if rps <= 0 {
+		rps = 1
+	}
+	rl := &rateLimiter{tokens: make(chan struct{}, rps)}
+	// Seed the bucket to allow immediate bursts up to capacity
+	for i := 0; i < rps; i++ {
+		rl.tokens <- struct{}{}
+	}
+	interval := time.Second / time.Duration(rps)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			select {
+			case rl.tokens <- struct{}{}:
+			default:
+				// channel full, skip refill
+			}
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) acquire() {
+	<-rl.tokens
+}
+
+// global Wikipedia API rate limiter (default 100 rps). Create in main.
+var wikiLimiter *rateLimiter
+
+const wikiUserAgent = "ouroboros-mockData/1.0 (+https://github.com/i5heu/ouroboros-db)"
+
+func wikiGET(u string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", wikiUserAgent)
+	return http.DefaultClient.Do(req)
+}
+
+// Wiki section representation
+type WikiSection struct {
+	Level      int
+	Title      string
+	Paragraphs []string
+}
+
+// fetchRandomWikipediaTitles queries MediaWiki API for random article titles in the given language
+func fetchRandomWikipediaTitles(lang string, limit int) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	titles := make([]string, 0, limit)
+	for len(titles) < limit {
+		title, err := fetchRandomWikipediaTitle(lang)
+		if err != nil {
+			return nil, err
+		}
+		titles = append(titles, title)
+		fmt.Println("fetched wiki title:", title)
+	}
+	return titles, nil
+}
+
+func fetchRandomWikipediaTitle(lang string) (string, error) {
+	u := fmt.Sprintf("https://%s.wikipedia.org/api/rest_v1/page/random/title", lang)
+	wikiLimiter.acquire()
+	resp, err := wikiGET(u)
+	if err != nil {
+		return "", err
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode >= 300 {
+		if fallback := extractBadIntegerValue(body); fallback != "" {
+			return fetchSpecificWikipediaTitle(lang, fallback)
+		}
+		return "", fmt.Errorf("wiki random title request failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return parseTitleFromBody(body)
+}
+
+func fetchSpecificWikipediaTitle(lang, title string) (string, error) {
+	encoded := url.PathEscape(title)
+	u := fmt.Sprintf("https://%s.wikipedia.org/api/rest_v1/page/title/%s", lang, encoded)
+	wikiLimiter.acquire()
+	resp, err := wikiGET(u)
+	if err != nil {
+		return "", err
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("wiki title request failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return parseTitleFromBody(body)
+}
+
+func parseTitleFromBody(body []byte) (string, error) {
+	var parsed struct {
+		Items []struct {
+			Title string `json:"title"`
+		} `json:"items"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", err
+	}
+	if len(parsed.Items) > 0 && parsed.Items[0].Title != "" {
+		return parsed.Items[0].Title, nil
+	}
+	if parsed.Title != "" {
+		return parsed.Title, nil
+	}
+	return "", fmt.Errorf("title not found in response")
+}
+
+func extractBadIntegerValue(body []byte) string {
+	var apiErr struct {
+		ErrorKey string `json:"errorKey"`
+		Name     string `json:"name"`
+		Value    string `json:"value"`
+	}
+	if err := json.Unmarshal(body, &apiErr); err != nil {
+		return ""
+	}
+	if apiErr.ErrorKey == "badinteger" && apiErr.Name == "id" && apiErr.Value != "" {
+		return apiErr.Value
+	}
+	return ""
+}
+
+// fetchArticleMobileSections fetches article sections via the mobile-html endpoint only.
+func fetchArticleMobileSections(lang, title string) ([]WikiSection, error) {
+	return fetchArticleMobileHTMLSections(lang, title)
+}
+
+func fetchArticleMobileHTMLSections(lang, title string) ([]WikiSection, error) {
+	encoded := url.PathEscape(title)
+	u := fmt.Sprintf("https://%s.wikipedia.org/api/rest_v1/page/mobile-html/%s", lang, encoded)
+	wikiLimiter.acquire()
+	resp, err := wikiGET(u)
+	if err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("wiki mobile html request failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	sections := collectSectionsFromHTML(doc)
+	if len(sections) == 0 {
+		return nil, fmt.Errorf("no sections parsed from mobile html")
+	}
+	return sections, nil
+}
+
+func collectSectionsFromHTML(root *html.Node) []WikiSection {
+	sections := []WikiSection{}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if isSectionNode(n) {
+			if ws, ok := buildWikiSectionFromNode(n); ok {
+				sections = append(sections, ws)
+			}
+			// still walk children to capture nested sections
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(root)
+	return sections
+}
+
+func isSectionNode(n *html.Node) bool {
+	if n == nil || n.Type != html.ElementNode || n.Data != "section" {
+		return false
+	}
+	for _, attr := range n.Attr {
+		if attr.Key == "data-mw-section-id" {
+			return true
+		}
+	}
+	return false
+}
+
+func buildWikiSectionFromNode(n *html.Node) (WikiSection, bool) {
+	sectionID := getAttr(n, "data-mw-section-id")
+	if sectionID == "" {
+		return WikiSection{}, false
+	}
+	level := 0
+	if sectionID != "0" {
+		level = headingLevelForSection(n)
+	}
+	title := headingTitleForSection(n)
+	paras := extractParagraphsFromSectionNode(n)
+	return WikiSection{Level: level, Title: title, Paragraphs: paras}, true
+}
+
+func getAttr(n *html.Node, key string) string {
+	for _, attr := range n.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+func headingLevelForSection(n *html.Node) int {
+	head := findHeadingNode(n)
+	if head == nil {
+		return 1
+	}
+	switch head.Data {
+	case "h2":
+		return 1
+	case "h3":
+		return 2
+	case "h4":
+		return 3
+	case "h5":
+		return 4
+	case "h6":
+		return 5
+	default:
+		return 1
+	}
+}
+
+func headingTitleForSection(n *html.Node) string {
+	head := findHeadingNode(n)
+	if head == nil {
+		return ""
+	}
+	return strings.TrimSpace(nodeText(head))
+}
+
+func findHeadingNode(n *html.Node) *html.Node {
+	var heading *html.Node
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if heading != nil {
+			return
+		}
+		if node != n && isSectionNode(node) {
+			return
+		}
+		if node.Type == html.ElementNode {
+			switch node.Data {
+			case "h2", "h3", "h4", "h5", "h6":
+				heading = node
+				return
+			}
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+			if heading != nil {
+				return
+			}
+		}
+	}
+	walk(n)
+	return heading
+}
+
+func extractParagraphsFromSectionNode(n *html.Node) []string {
+	paras := []string{}
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node != n && isSectionNode(node) {
+			return
+		}
+		if node.Type == html.ElementNode && node.Data == "p" {
+			text := strings.TrimSpace(nodeText(node))
+			if text != "" {
+				paras = append(paras, text)
+			}
+			return
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return paras
+}
+
+func nodeText(n *html.Node) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.TextNode {
+			b.WriteString(node.Data)
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return b.String()
+}
+
+// extractParagraphsFromHTML extracts visible paragraph strings from a chunk of HTML
+func extractParagraphsFromHTML(htmlStr string) []string {
+	if htmlStr == "" {
+		return nil
+	}
+	doc, err := html.Parse(strings.NewReader(htmlStr))
+	if err != nil {
+		return nil
+	}
+	paras := []string{}
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "p" {
+			// Collect text content
+			var b strings.Builder
+			var g func(*html.Node)
+			g = func(c *html.Node) {
+				if c.Type == html.TextNode {
+					b.WriteString(c.Data)
+				}
+				for c := c.FirstChild; c != nil; c = c.NextSibling {
+					g(c)
+				}
+			}
+			g(n)
+			s := strings.TrimSpace(b.String())
+			if s != "" {
+				paras = append(paras, s)
+			}
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(doc)
+	return paras
+}
+
 func main() {
-	// parameters
-	threads := flag.Int("threads", 100, "number of threads to create")
-	messages := flag.Int("messages", 30, "messages per thread to create")
-	path := flag.String("path", "./data", "data directory (where ouroboros.key will live)")
-	httpMode := flag.Bool("http", false, "POST data via API server instead of writing DB directly")
-	serverAddr := flag.String("server", "http://localhost:8083", "server address when using HTTP mode")
-	otkKeyB64 := flag.String("otk-key", "", "base64 one-time key generated by server (only for HTTP mode)")
-	otkNonceB64 := flag.String("otk-nonce", "", "base64 one-time key nonce generated by server (only for HTTP mode)")
-	randSeed := flag.Int64("seed", time.Now().UnixNano(), "rand seed - useful for reproducible trees")
-	flag.Parse()
+	if err := run(os.Args[1:]); err != nil {
+		slog.Error("mockData failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string) error {
+	fs := flag.NewFlagSet("mockData", flag.ContinueOnError)
+	threads := fs.Int("threads", 100, "number of threads to create")
+	messages := fs.Int("messages", 30, "messages per thread to create")
+	path := fs.String("path", "./data", "data directory (where ouroboros.key will live)")
+	httpMode := fs.Bool("http", false, "POST data via API server instead of writing DB directly")
+	serverAddr := fs.String("server", "http://localhost:8083", "server address when using HTTP mode")
+	otkKeyB64 := fs.String("otk-key", "", "base64 one-time key generated by server (only for HTTP mode)")
+	otkNonceB64 := fs.String("otk-nonce", "", "base64 one-time key nonce generated by server (only for HTTP mode)")
+	randSeed := fs.Int64("seed", time.Now().UnixNano(), "rand seed - useful for reproducible trees")
+	wikiLang := fs.String("wiki-lang", "en", "Wikipedia language (e.g., en, de, fr)")
+	wikiRps := fs.Int("wiki-rps", 20, "Max Wikipedia requests per second (<=20)")
+	articleFile := fs.String("articles-file", "", "optional file containing article titles (one per line)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	// setup logger
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
@@ -50,16 +430,13 @@ func main() {
 		slog.Info("no keyfile found - generating new one", "path", keyFile)
 		a, err := keys.NewAsyncCrypt()
 		if err != nil {
-			slog.Error("failed to generate keypair", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to generate keypair: %w", err)
 		}
 		if err := a.SaveToFile(keyFile); err != nil {
-			slog.Error("failed to save key file", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to save key file: %w", err)
 		}
 	} else if err != nil {
-		slog.Error("failed to stat keyfile", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to stat keyfile: %w", err)
 	}
 
 	// init DB - we construct DB only when using direct DB mode (default)
@@ -70,14 +447,11 @@ func main() {
 		var err error
 		db, err = ouroboros.New(cfg)
 		if err != nil {
-			slog.Error("failed to construct DB", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to construct DB: %w", err)
 		}
 
-		ctx := context.Background()
 		if err := db.Start(ctx); err != nil {
-			slog.Error("failed to start DB", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to start DB: %w", err)
 		}
 	}
 
@@ -88,14 +462,12 @@ func main() {
 	var httpAuthData *httpAuth
 	if *httpMode {
 		if *otkKeyB64 == "" || *otkNonceB64 == "" {
-			slog.Error("http mode requires -otk-key and -otk-nonce (base64)")
-			os.Exit(1)
+			return fmt.Errorf("http mode requires -otk-key and -otk-nonce (base64)")
 		}
 		var err error
 		httpAuthData, err = initHTTPAuth(*serverAddr, *otkKeyB64, *otkNonceB64)
 		if err != nil {
-			slog.Error("failed to initialize HTTP auth", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to initialize HTTP auth: %w", err)
 		}
 	}
 
@@ -103,14 +475,50 @@ func main() {
 	var wg sync.WaitGroup
 	startTime := time.Now()
 
+	// initialize wiki limiter (default up to 100 rps) - clamp to 100
+	rps := *wikiRps
+	if rps <= 0 {
+		rps = 1
+	}
+	if rps > 100 {
+		rps = 100
+	}
+	wikiLimiter = newRateLimiter(rps)
 	wg.Add(*threads)
+	// Prepare list of article titles
+	titles := make([]string, 0, *threads)
+	if *articleFile != "" {
+		data, err := os.ReadFile(*articleFile)
+		if err != nil {
+			return fmt.Errorf("failed to read articles-file: %w", err)
+		}
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			t := strings.TrimSpace(string(line))
+			if t != "" {
+				titles = append(titles, t)
+			}
+			if len(titles) >= *threads {
+				break
+			}
+		}
+	}
+	if len(titles) < *threads {
+		remaining := *threads - len(titles)
+		randTitles, err := fetchRandomWikipediaTitles(*wikiLang, remaining)
+		if err != nil {
+			return fmt.Errorf("failed to fetch random wiki titles: %w", err)
+		}
+		titles = append(titles, randTitles...)
+	}
+
 	for i := 0; i < *threads; i++ {
 		go func(tIdx int) {
 			defer wg.Done()
+			articleTitle := titles[tIdx]
 			if *httpMode {
-				createThreadHTTP(*serverAddr, httpAuthData, tIdx, *messages)
+				createThreadHTTP(*serverAddr, httpAuthData, tIdx, *messages, articleTitle, *wikiLang)
 			} else {
-				createThread(ctx, db, tIdx, *messages)
+				createThread(ctx, db, tIdx, *messages, articleTitle, *wikiLang)
 			}
 		}(i)
 	}
@@ -124,13 +532,22 @@ func main() {
 			slog.Warn("error closing DB", "error", err)
 		}
 	}
+	return nil
 }
 
 // createThread builds a root node followed by a forest of messages that are
 // parented to previous nodes in the same thread to build nested levels.
-func createThread(ctx context.Context, db *ouroboros.OuroborosDB, threadIdx, messages int) {
-	// Each thread has a root message
+func createThread(ctx context.Context, db *ouroboros.OuroborosDB, threadIdx, messages int, articleTitle, lang string) {
+	// Each thread will be a Wikipedia article root
+	// If articleTitle empty, fallback to random generated thread
 	rootContent := []byte(fmt.Sprintf("Thread %d root", threadIdx))
+	if articleTitle != "" {
+		// fetch article and create nodes by section
+		if err := createThreadFromArticle(ctx, db, lang, articleTitle, messages); err != nil {
+			slog.Error("failed to create thread from article", "thread", threadIdx, "error", err)
+		}
+		return
+	}
 	rootHash, err := db.StoreData(ctx, rootContent, ouroboros.StoreOptions{MimeType: "text/plain; charset=utf-8"})
 	if err != nil {
 		slog.Error("failed to create thread root", "thread", threadIdx, "error", err)
@@ -248,10 +665,17 @@ func initHTTPAuth(serverAddr, otkKeyB64, otkNonceB64 string) (*httpAuth, error) 
 }
 
 // createThreadHTTP uses server API to create the thread and messages using the given auth.
-func createThreadHTTP(serverAddr string, auth *httpAuth, threadIdx, messages int) {
+func createThreadHTTP(serverAddr string, auth *httpAuth, threadIdx, messages int, articleTitle, lang string) {
+	// if articleTitle provided, create thread from article via HTTP
+	if articleTitle != "" {
+		if err := createThreadHTTPFromArticle(serverAddr, auth, lang, articleTitle, messages); err != nil {
+			slog.Error("failed to create thread from article (http)", "thread", threadIdx, "error", err)
+		}
+		return
+	}
 	// create root message
 	rootContent := []byte(fmt.Sprintf("Thread %d root", threadIdx))
-	rootKey, err := postDataHTTP(serverAddr, auth, rootContent, "text/plain; charset=utf-8", "", nil)
+	rootKey, err := postDataHTTP(serverAddr, auth, rootContent, "text/plain; charset=utf-8", "", "", nil)
 	if err != nil {
 		slog.Error("failed to create thread root (http)", "thread", threadIdx, "error", err)
 		return
@@ -284,7 +708,7 @@ func createThreadHTTP(serverAddr string, auth *httpAuth, threadIdx, messages int
 			mime = "text/plain; charset=utf-8"
 		}
 
-		key, err := postDataHTTP(serverAddr, auth, content, mime, parent, nil)
+		key, err := postDataHTTP(serverAddr, auth, content, mime, parent, "", nil)
 		if err != nil {
 			slog.Warn("failed to store message (http)", "thread", threadIdx, "index", m, "error", err)
 			return
@@ -303,7 +727,7 @@ func computeDepthHTTP(keys []string, parent string) int {
 }
 
 // headers := optional extra headers map
-func postDataHTTP(serverAddr string, auth *httpAuth, content []byte, mime, parent string, headers map[string]string) (string, error) {
+func postDataHTTP(serverAddr string, auth *httpAuth, content []byte, mime, parent, title string, headers map[string]string) (string, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	partHeader := make(textproto.MIMEHeader)
@@ -321,6 +745,9 @@ func postDataHTTP(serverAddr string, auth *httpAuth, content []byte, mime, paren
 	metadata := map[string]any{}
 	if parent != "" {
 		metadata["parent"] = parent
+	}
+	if title != "" {
+		metadata["title"] = title
 	}
 	if len(metadata) > 0 {
 		metaBytes, _ := json.Marshal(metadata)
@@ -398,4 +825,141 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// createThreadFromArticle creates a thread and child messages from a Wikipedia article by language and title
+func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lang, title string, maxMessages int) error {
+	sections, err := fetchArticleMobileSections(lang, title)
+	if err != nil {
+		return err
+	}
+
+	// root content: use lead first paragraph if present
+	rootContent := title
+	if len(sections) > 0 && len(sections[0].Paragraphs) > 0 {
+		rootContent = sections[0].Paragraphs[0]
+	}
+	// store root with title metadata
+	rootHash, err := db.StoreData(ctx, []byte(rootContent), ouroboros.StoreOptions{MimeType: "text/plain; charset=utf-8", Title: title})
+	if err != nil {
+		return err
+	}
+
+	// map of level to parentHash for nested sections
+	levelParents := make(map[int]cryptHash.Hash)
+	levelParents[0] = rootHash
+
+	// handle lead paragraphs (level 0) as children of root
+	if len(sections) > 0 {
+		for _, p := range sections[0].Paragraphs {
+			if p == "" {
+				continue
+			}
+			if maxMessages <= 0 {
+				return nil
+			}
+			if _, err := db.StoreData(ctx, []byte(p), ouroboros.StoreOptions{Parent: rootHash, MimeType: "text/plain; charset=utf-8"}); err != nil {
+				slog.Warn("failed to store paragraph", "title", title, "error", err)
+			}
+			maxMessages--
+		}
+	}
+
+	// process remaining sections
+	for i := 1; i < len(sections); i++ {
+		s := sections[i]
+		// find parent: nearest lower-level parent
+		parent := rootHash
+		for l := s.Level - 1; l >= 0; l-- {
+			if h, ok := levelParents[l]; ok {
+				parent = h
+				break
+			}
+		}
+		// create a section node using the title as the content and metadata
+		sectionHash, err := db.StoreData(ctx, []byte(s.Title), ouroboros.StoreOptions{Parent: parent, MimeType: "text/plain; charset=utf-8", Title: s.Title})
+		if err != nil {
+			slog.Warn("failed to store section", "title", s.Title, "error", err)
+			continue
+		}
+		levelParents[s.Level] = sectionHash
+		// create paragraph nodes under this section node
+		for _, p := range s.Paragraphs {
+			if p == "" {
+				continue
+			}
+			if maxMessages <= 0 {
+				return nil
+			}
+			if _, err := db.StoreData(ctx, []byte(p), ouroboros.StoreOptions{Parent: sectionHash, MimeType: "text/plain; charset=utf-8"}); err != nil {
+				slog.Warn("failed to store paragraph", "section", s.Title, "error", err)
+			}
+			maxMessages--
+		}
+	}
+	return nil
+}
+
+// createThreadHTTPFromArticle creates thread and child messages via HTTP posts using given auth
+func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title string, maxMessages int) error {
+	sections, err := fetchArticleMobileSections(lang, title)
+	if err != nil {
+		return err
+	}
+	// root content: first lead paragraph or the title
+	rootContent := title
+	if len(sections) > 0 && len(sections[0].Paragraphs) > 0 {
+		rootContent = sections[0].Paragraphs[0]
+	}
+	rootKey, err := postDataHTTP(serverAddr, auth, []byte(rootContent), "text/plain; charset=utf-8", "", title, nil)
+	if err != nil {
+		return err
+	}
+	levelParents := make(map[int]string)
+	// level 0 is root
+	levelParents[0] = rootKey
+	// lead paragraphs (level 0)
+	if len(sections) > 0 {
+		for _, p := range sections[0].Paragraphs {
+			if p == "" {
+				continue
+			}
+			if maxMessages <= 0 {
+				return nil
+			}
+			if _, err := postDataHTTP(serverAddr, auth, []byte(p), "text/plain; charset=utf-8", rootKey, "", nil); err != nil {
+				slog.Warn("failed to post paragraph", "title", title, "error", err)
+			}
+			maxMessages--
+		}
+	}
+	for i := 1; i < len(sections); i++ {
+		s := sections[i]
+		parent := rootKey
+		for l := s.Level - 1; l >= 0; l-- {
+			if h, ok := levelParents[l]; ok {
+				parent = h
+				break
+			}
+		}
+		sectionKey, err := postDataHTTP(serverAddr, auth, []byte(s.Title), "text/plain; charset=utf-8", parent, s.Title, nil)
+		if err != nil {
+			slog.Warn("failed to post section", "title", s.Title, "error", err)
+			continue
+		}
+		levelParents[s.Level] = sectionKey
+		for _, p := range s.Paragraphs {
+			if p == "" {
+				continue
+			}
+			if maxMessages <= 0 {
+				return nil
+			}
+			if _, err := postDataHTTP(serverAddr, auth, []byte(p), "text/plain; charset=utf-8", sectionKey, "", nil); err != nil {
+				slog.Warn("failed to post paragraph", "section", s.Title, "error", err)
+			}
+			maxMessages--
+		}
+	}
+	return nil
 }
