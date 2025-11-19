@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	keys "github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
 )
@@ -118,6 +119,46 @@ func TestCreateThreadFromArticle_DB(t *testing.T) {
 	if len(children) == 0 {
 		t.Fatalf("expected at least one child under root")
 	}
+	leadParagraphFound := false
+	var sectionNode cryptHash.Hash
+	sectionFound := false
+	for _, child := range children {
+		childData, err := db.GetData(context.Background(), child)
+		if err != nil {
+			t.Fatalf("get child data: %v", err)
+		}
+		if childData.Title == "Test Article DB" && strings.Contains(string(childData.Content), "Lead paragraph DB") {
+			leadParagraphFound = true
+		}
+		if childData.Title == "Section A" && string(childData.Content) == "Section A" {
+			sectionNode = child
+			sectionFound = true
+		}
+	}
+	if !leadParagraphFound {
+		t.Fatalf("expected a lead paragraph child with title metadata")
+	}
+	if !sectionFound {
+		t.Fatalf("expected to find stored section node")
+	}
+	sectionChildren, err := db.ListChildren(context.Background(), sectionNode)
+	if err != nil {
+		t.Fatalf("list section children: %v", err)
+	}
+	sectionParagraphFound := false
+	for _, child := range sectionChildren {
+		childData, err := db.GetData(context.Background(), child)
+		if err != nil {
+			t.Fatalf("get section child data: %v", err)
+		}
+		if childData.Title == "Section A" && strings.Contains(string(childData.Content), "Para A1") {
+			sectionParagraphFound = true
+			break
+		}
+	}
+	if !sectionParagraphFound {
+		t.Fatalf("expected section paragraph child to inherit section title metadata")
+	}
 }
 
 func TestCreateThreadFromArticleHTTP(t *testing.T) {
@@ -187,18 +228,26 @@ func TestCreateThreadFromArticleHTTP(t *testing.T) {
 	}
 
 	// ensure some posts had metadata title for the root or sections
-	found := false
+	foundRootTitle := false
+	foundSectionTitle := false
 	for _, p := range posted {
 		if p == nil {
 			continue
 		}
-		if t, ok := p["title"].(string); ok && t == "Test Article HTTP" {
-			found = true
-			break
+		if t, ok := p["title"].(string); ok {
+			switch t {
+			case "Test Article HTTP":
+				foundRootTitle = true
+			case "Section B":
+				foundSectionTitle = true
+			}
 		}
 	}
-	if !found {
-		t.Fatalf("expected to see a POST with title metadata, got %+v", posted)
+	if !foundRootTitle {
+		t.Fatalf("expected to see a POST with root title metadata, got %+v", posted)
+	}
+	if !foundSectionTitle {
+		t.Fatalf("expected to see a POST with section title metadata for paragraphs, got %+v", posted)
 	}
 }
 

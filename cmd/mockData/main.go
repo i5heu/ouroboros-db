@@ -833,6 +833,12 @@ func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lan
 	if err != nil {
 		return err
 	}
+	headingTitle := func(sectionTitle string) string {
+		if strings.TrimSpace(sectionTitle) != "" {
+			return sectionTitle
+		}
+		return title
+	}
 
 	// root content: use lead first paragraph if present
 	rootContent := title
@@ -851,6 +857,7 @@ func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lan
 
 	// handle lead paragraphs (level 0) as children of root
 	if len(sections) > 0 {
+		leadTitle := headingTitle(sections[0].Title)
 		for _, p := range sections[0].Paragraphs {
 			if p == "" {
 				continue
@@ -858,7 +865,7 @@ func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lan
 			if maxMessages <= 0 {
 				return nil
 			}
-			if _, err := db.StoreData(ctx, []byte(p), ouroboros.StoreOptions{Parent: rootHash, MimeType: "text/plain; charset=utf-8"}); err != nil {
+			if _, err := db.StoreData(ctx, []byte(p), ouroboros.StoreOptions{Parent: rootHash, MimeType: "text/plain; charset=utf-8", Title: leadTitle}); err != nil {
 				slog.Warn("failed to store paragraph", "title", title, "error", err)
 			}
 			maxMessages--
@@ -868,6 +875,7 @@ func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lan
 	// process remaining sections
 	for i := 1; i < len(sections); i++ {
 		s := sections[i]
+		sectionTitle := headingTitle(s.Title)
 		// find parent: nearest lower-level parent
 		parent := rootHash
 		for l := s.Level - 1; l >= 0; l-- {
@@ -877,7 +885,7 @@ func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lan
 			}
 		}
 		// create a section node using the title as the content and metadata
-		sectionHash, err := db.StoreData(ctx, []byte(s.Title), ouroboros.StoreOptions{Parent: parent, MimeType: "text/plain; charset=utf-8", Title: s.Title})
+		sectionHash, err := db.StoreData(ctx, []byte(sectionTitle), ouroboros.StoreOptions{Parent: parent, MimeType: "text/plain; charset=utf-8", Title: sectionTitle})
 		if err != nil {
 			slog.Warn("failed to store section", "title", s.Title, "error", err)
 			continue
@@ -891,7 +899,7 @@ func createThreadFromArticle(ctx context.Context, db *ouroboros.OuroborosDB, lan
 			if maxMessages <= 0 {
 				return nil
 			}
-			if _, err := db.StoreData(ctx, []byte(p), ouroboros.StoreOptions{Parent: sectionHash, MimeType: "text/plain; charset=utf-8"}); err != nil {
+			if _, err := db.StoreData(ctx, []byte(p), ouroboros.StoreOptions{Parent: sectionHash, MimeType: "text/plain; charset=utf-8", Title: sectionTitle}); err != nil {
 				slog.Warn("failed to store paragraph", "section", s.Title, "error", err)
 			}
 			maxMessages--
@@ -905,6 +913,12 @@ func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title 
 	sections, err := fetchArticleMobileSections(lang, title)
 	if err != nil {
 		return err
+	}
+	headingTitle := func(sectionTitle string) string {
+		if strings.TrimSpace(sectionTitle) != "" {
+			return sectionTitle
+		}
+		return title
 	}
 	// root content: first lead paragraph or the title
 	rootContent := title
@@ -920,6 +934,7 @@ func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title 
 	levelParents[0] = rootKey
 	// lead paragraphs (level 0)
 	if len(sections) > 0 {
+		leadTitle := headingTitle(sections[0].Title)
 		for _, p := range sections[0].Paragraphs {
 			if p == "" {
 				continue
@@ -927,7 +942,7 @@ func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title 
 			if maxMessages <= 0 {
 				return nil
 			}
-			if _, err := postDataHTTP(serverAddr, auth, []byte(p), "text/plain; charset=utf-8", rootKey, "", nil); err != nil {
+			if _, err := postDataHTTP(serverAddr, auth, []byte(p), "text/plain; charset=utf-8", rootKey, leadTitle, nil); err != nil {
 				slog.Warn("failed to post paragraph", "title", title, "error", err)
 			}
 			maxMessages--
@@ -935,6 +950,7 @@ func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title 
 	}
 	for i := 1; i < len(sections); i++ {
 		s := sections[i]
+		sectionTitle := headingTitle(s.Title)
 		parent := rootKey
 		for l := s.Level - 1; l >= 0; l-- {
 			if h, ok := levelParents[l]; ok {
@@ -942,7 +958,7 @@ func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title 
 				break
 			}
 		}
-		sectionKey, err := postDataHTTP(serverAddr, auth, []byte(s.Title), "text/plain; charset=utf-8", parent, s.Title, nil)
+		sectionKey, err := postDataHTTP(serverAddr, auth, []byte(sectionTitle), "text/plain; charset=utf-8", parent, sectionTitle, nil)
 		if err != nil {
 			slog.Warn("failed to post section", "title", s.Title, "error", err)
 			continue
@@ -955,7 +971,7 @@ func createThreadHTTPFromArticle(serverAddr string, auth *httpAuth, lang, title 
 			if maxMessages <= 0 {
 				return nil
 			}
-			if _, err := postDataHTTP(serverAddr, auth, []byte(p), "text/plain; charset=utf-8", sectionKey, "", nil); err != nil {
+			if _, err := postDataHTTP(serverAddr, auth, []byte(p), "text/plain; charset=utf-8", sectionKey, sectionTitle, nil); err != nil {
 				slog.Warn("failed to post paragraph", "section", s.Title, "error", err)
 			}
 			maxMessages--
