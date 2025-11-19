@@ -16,6 +16,7 @@ OuroborosDB (c) 2024 Mia Heidenstedt and contributors
  
 SPDX-License-Identifier: AGPL-3.0
 
+
 ## HTTP API
 
 The reference server in `cmd/server` now exposes a lightweight HTTP API on port 8083. Start the binary and the REST endpoints below become available.
@@ -128,3 +129,13 @@ func criticalFunction() { // PHC
     // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
 }
 ```
+## Wikipedia content used by mockData
+
+The `cmd/mockData` tool does fetch and store small excerpts from Wikipedia for testing/demos. Wikipedia content is licensed under CC BY-SA 3.0 and GFDL: please follow those licenses (provide attribution, links to original articles, and indicate changes) if you reuse or redistribute any fetched Wikipedia content. See the canonical license pages for details:
+
+- https://en.wikipedia.org/wiki/Wikipedia:Copyrights
+
+
+## License
+ouroboros-db © 2025 Mia Heidenstedt and contributors   
+SPDX-License-Identifier: AGPL-3.0  
