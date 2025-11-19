@@ -9,6 +9,11 @@ import (
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
+	"github.com/blevesearch/bleve/v2/analysis/analyzer/custom"
+	"github.com/blevesearch/bleve/v2/analysis/token/edgengram"
+	"github.com/blevesearch/bleve/v2/analysis/token/lowercase"
+	"github.com/blevesearch/bleve/v2/analysis/tokenizer/unicode"
+	"github.com/blevesearch/bleve/v2/mapping"
 
 	hash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/pkg/encoding"
@@ -27,13 +32,54 @@ type Indexer struct {
 	bi bleve.Index
 }
 
+const (
+	contentAnalyzerName    = "contentEdgeNgram"
+	contentTokenFilterName = "contentEdgeFilter"
+)
+
+func buildIndexMapping() (mapping.IndexMapping, error) { //A
+	defaultMapping := bleve.NewDocumentMapping()
+	contentField := bleve.NewTextFieldMapping()
+	contentField.Analyzer = contentAnalyzerName
+	defaultMapping.AddFieldMappingsAt("content", contentField)
+
+	idxMapping := bleve.NewIndexMapping()
+	idxMapping.DefaultMapping = defaultMapping
+	idxMapping.DefaultAnalyzer = contentAnalyzerName
+
+	if err := idxMapping.AddCustomTokenFilter(contentTokenFilterName, map[string]any{
+		"type": edgengram.Name,
+		"min":  3.0,
+		"max":  25.0,
+	}); err != nil {
+		return nil, fmt.Errorf("add token filter: %w", err)
+	}
+
+	if err := idxMapping.AddCustomAnalyzer(contentAnalyzerName, map[string]any{
+		"type":      custom.Name,
+		"tokenizer": unicode.Name,
+		"token_filters": []string{
+			lowercase.Name,
+			contentTokenFilterName,
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("add analyzer: %w", err)
+	}
+
+	return idxMapping, nil
+}
+
 func NewIndexer(kv *ouroboroskv.KV, logger *slog.Logger) *Indexer { //A
-	index, err := bleve.NewMemOnly(bleve.NewIndexMapping())
+	mapping, err := buildIndexMapping()
 	if err != nil {
 		panic(err)
 	}
 
-	_ = index
+	index, err := bleve.NewMemOnly(mapping)
+	if err != nil {
+		panic(err)
+	}
+
 	idx := &Indexer{
 		log: logger,
 		bi:  index,
@@ -46,7 +92,7 @@ func NewIndexer(kv *ouroboroskv.KV, logger *slog.Logger) *Indexer { //A
 	return idx
 }
 
-func (idx *Indexer) Close() error {
+func (idx *Indexer) Close() error { //AC
 	return idx.bi.Close()
 }
 
@@ -187,8 +233,9 @@ func (idx *Indexer) TextSearch(query string, limit int) ([]hash.Hash, error) { /
 		limit = 25
 	}
 
-	q := bleve.NewQueryStringQuery(query)
-	search := bleve.NewSearchRequestOptions(q, limit, 0, false)
+	match := bleve.NewMatchQuery(query)
+	match.Analyzer = contentAnalyzerName
+	search := bleve.NewSearchRequestOptions(match, limit, 0, false)
 	// Sort by relevance (default), caller can override if needed
 	search.Fields = []string{"key"}
 
