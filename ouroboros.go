@@ -33,7 +33,8 @@ type OuroborosDB struct {
 	config Config
 
 	crypt   *crypt.Crypt
-	kv      atomic.Pointer[ouroboroskv.KV]
+	kvMu    sync.RWMutex
+	kv      ouroboroskv.Store
 	indexer *indexpkg.Indexer
 
 	started   atomic.Bool
@@ -144,7 +145,9 @@ func (ou *OuroborosDB) Start(ctx context.Context) error { // PA
 		}
 
 		ou.crypt = c
-		ou.kv.Store(kv)
+		ou.kvMu.Lock()
+		ou.kv = kv
+		ou.kvMu.Unlock()
 
 		// Initialize indexer to keep a Bleve index synchronized with the KV content.
 		ou.indexer = indexpkg.NewIndexer(kv, ou.log)
@@ -177,7 +180,11 @@ func (ou *OuroborosDB) Run(ctx context.Context) error { // A
 func (ou *OuroborosDB) Close(ctx context.Context) error { // A
 	var closeErr error
 	ou.closeOnce.Do(func() {
-		if kv := ou.kv.Swap(nil); kv != nil {
+		ou.kvMu.Lock()
+		kv := ou.kv
+		ou.kv = nil
+		ou.kvMu.Unlock()
+		if kv != nil {
 			if err := kv.Close(); err != nil {
 				closeErr = errors.Join(closeErr, fmt.Errorf("close kv: %w", err))
 			}
@@ -201,12 +208,14 @@ func (ou *OuroborosDB) CloseWithoutContext() error { // A
 	return ou.Close(context.Background())
 }
 
-func (ou *OuroborosDB) kvHandle() (*ouroboroskv.KV, error) { // A
+func (ou *OuroborosDB) kvHandle() (ouroboroskv.Store, error) { // A
 	if !ou.started.Load() {
 		return nil, ErrNotStarted
 	}
 
-	kv := ou.kv.Load()
+	ou.kvMu.RLock()
+	kv := ou.kv
+	ou.kvMu.RUnlock()
 	if kv == nil {
 		return nil, ErrClosed
 	}
@@ -245,7 +254,7 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	}
 
 	data := ouroboroskv.Data{
-		MetaData:       metaBytes,
+		Meta:           metaBytes,
 		Content:        encodedContent,
 		RSDataSlices:   opts.ReedSolomonShards,
 		RSParitySlices: opts.ReedSolomonParityShards,
@@ -333,8 +342,8 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 
 	var createdAt time.Time
 	var title string
-	if len(data.MetaData) > 0 {
-		md, metaErr := decodeMetadata(data.MetaData)
+	if len(data.Meta) > 0 {
+		md, metaErr := decodeMetadata(data.Meta)
 		if metaErr != nil {
 			if ou.log != nil {
 				ou.log.Warn("failed to decode metadata", "error", metaErr, "key", key.String())

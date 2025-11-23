@@ -385,7 +385,7 @@ func TestSearchEndpoint(t *testing.T) {
 	content := []byte("hello from search test")
 	encContent := content
 	metaBytes, _ := json.Marshal(map[string]string{"created_at": time.Now().UTC().Format(time.RFC3339Nano), "mime_type": "text/plain; charset=utf-8"})
-	data := ouroboroskv.Data{Content: encContent, MetaData: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
+	data := ouroboroskv.Data{Content: encContent, Meta: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
 	key, err := kv.WriteData(data)
 	if err != nil {
 		t.Fatalf("write data: %v", err)

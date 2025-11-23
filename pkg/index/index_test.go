@@ -44,7 +44,7 @@ func setupTestKeyFile(tb testing.TB, testDir string) string {
 	return keyPath
 }
 
-func newInitializedKV(tb testing.TB, dir string) (*ouroboroskv.KV, func()) {
+func newInitializedKV(tb testing.TB, dir string) (ouroboroskv.Store, func()) {
 	tb.Helper()
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -88,7 +88,7 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal meta: %v", err)
 	}
-	data := ouroboroskv.Data{Content: encContent, MetaData: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
+	data := ouroboroskv.Data{Content: encContent, Meta: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
 	key, err := kv.WriteData(data)
 	if err != nil {
 		t.Fatalf("store data: %v", err)
@@ -127,7 +127,7 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal meta parent: %v", err)
 	}
-	p := ouroboroskv.Data{Content: encParentContent, MetaData: metaParent, RSDataSlices: 4, RSParitySlices: 2}
+	p := ouroboroskv.Data{Content: encParentContent, Meta: metaParent, RSDataSlices: 4, RSParitySlices: 2}
 	parentKey, err := kv.WriteData(p)
 	if err != nil {
 		t.Fatalf("store parent: %v", err)
@@ -139,7 +139,7 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal child1 meta: %v", err)
 	}
-	d1 := ouroboroskv.Data{Content: encChild1, MetaData: metaChild1, Parent: parentKey, RSDataSlices: 4, RSParitySlices: 2}
+	d1 := ouroboroskv.Data{Content: encChild1, Meta: metaChild1, Parent: parentKey, RSDataSlices: 4, RSParitySlices: 2}
 	if _, err = kv.WriteData(d1); err != nil {
 		t.Fatalf("store child1: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal child2 meta: %v", err)
 	}
-	d2 := ouroboroskv.Data{Content: encChild2, MetaData: metaChild2, Parent: parentKey, RSDataSlices: 4, RSParitySlices: 2}
+	d2 := ouroboroskv.Data{Content: encChild2, Meta: metaChild2, Parent: parentKey, RSDataSlices: 4, RSParitySlices: 2}
 	child2, err := kv.WriteData(d2)
 	if err != nil {
 		t.Fatalf("store child2: %v", err)
@@ -168,7 +168,7 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 		t.Fatalf("read child2: %v", err)
 	}
 	var md meta.Metadata
-	if err := json.Unmarshal(ch2.MetaData, &md); err != nil {
+	if err := json.Unmarshal(ch2.Meta, &md); err != nil {
 		t.Fatalf("unmarshal child2 metadata: %v", err)
 	}
 	t2 := md.CreatedAt

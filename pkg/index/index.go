@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/analysis/analyzer/custom"
@@ -27,7 +26,7 @@ import (
 type Indexer struct {
 	log *slog.Logger
 
-	kv atomic.Pointer[ouroboroskv.KV]
+	kv ouroboroskv.Store
 	bi bleve.Index
 }
 
@@ -68,7 +67,7 @@ func buildIndexMapping() (mapping.IndexMapping, error) { //A
 	return idxMapping, nil
 }
 
-func NewIndexer(kv *ouroboroskv.KV, logger *slog.Logger) *Indexer { //A
+func NewIndexer(kv ouroboroskv.Store, logger *slog.Logger) *Indexer { //A
 	mapping, err := buildIndexMapping()
 	if err != nil {
 		panic(err)
@@ -82,11 +81,7 @@ func NewIndexer(kv *ouroboroskv.KV, logger *slog.Logger) *Indexer { //A
 	idx := &Indexer{
 		log: logger,
 		bi:  index,
-		kv:  atomic.Pointer[ouroboroskv.KV]{},
-	}
-	// Store kv pointer for the indexer to be able to fetch data for indexing
-	if kv != nil {
-		idx.kv.Store(kv)
+		kv:  kv,
 	}
 	return idx
 }
@@ -99,7 +94,7 @@ func (idx *Indexer) Close() error { //AC
 // initial population for the in-memory index. It returns an error on failure to list roots
 // or read data from the store; individual record failures are logged and indexing continues.
 func (idx *Indexer) ReindexAll() error { //A
-	kv := idx.kv.Load()
+	kv := idx.kv
 	if kv == nil {
 		return fmt.Errorf("kv handle not available")
 	}
@@ -157,7 +152,7 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 	if idx == nil {
 		return fmt.Errorf("indexer is nil")
 	}
-	kv := idx.kv.Load()
+	kv := idx.kv
 	if kv == nil {
 		return fmt.Errorf("kv handle not available")
 	}
@@ -176,9 +171,9 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 	// Parse metadata for createdAt, title and mime type if present
 	var createdAt int64
 	var title string
-	if len(data.MetaData) > 0 {
+	if len(data.Meta) > 0 {
 		var md meta.Metadata
-		if err := json.Unmarshal(data.MetaData, &md); err == nil {
+		if err := json.Unmarshal(data.Meta, &md); err == nil {
 			if !md.CreatedAt.IsZero() {
 				createdAt = md.CreatedAt.UnixNano()
 			}
@@ -260,7 +255,7 @@ func (idx *Indexer) LastChildActivity(hash hash.Hash) (int64, error) { //A
 	if idx == nil {
 		return 0, fmt.Errorf("indexer is nil")
 	}
-	kv := idx.kv.Load()
+	kv := idx.kv
 	if kv == nil {
 		return 0, fmt.Errorf("kv handle not available")
 	}
@@ -274,11 +269,11 @@ func (idx *Indexer) LastChildActivity(hash hash.Hash) (int64, error) { //A
 		if err != nil {
 			continue
 		}
-		if len(data.MetaData) == 0 {
+		if len(data.Meta) == 0 {
 			continue
 		}
 		var md meta.Metadata
-		if err := json.Unmarshal(data.MetaData, &md); err != nil {
+		if err := json.Unmarshal(data.Meta, &md); err != nil {
 			continue
 		}
 		if md.CreatedAt.IsZero() {
