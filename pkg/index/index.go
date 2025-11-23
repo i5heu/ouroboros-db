@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/analysis/analyzer/custom"
@@ -16,7 +15,7 @@ import (
 	"github.com/blevesearch/bleve/v2/mapping"
 
 	hash "github.com/i5heu/ouroboros-crypt/pkg/hash"
-	"github.com/i5heu/ouroboros-db/pkg/encoding"
+	"github.com/i5heu/ouroboros-db/pkg/meta"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
@@ -169,35 +168,27 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 		return fmt.Errorf("read data: %w", err)
 	}
 
-	// Decode content and optional mime header
-	content, payloadHeader, isMime, err := encoding.DecodeContent(data.Content)
-	if err != nil {
-		return fmt.Errorf("decode content: %w", err)
-	}
+	// Content is stored raw; metadata stores MIME type.
+	content := data.Content
 	mimeType := ""
 	isText := false
-	if isMime && len(payloadHeader) > 0 {
-		mimeType = string(payloadHeader)
-		if strings.HasPrefix(mimeType, "text/") {
-			isText = true
-		}
-	}
 
-	// Parse metadata for createdAt if present
+	// Parse metadata for createdAt, title and mime type if present
 	var createdAt int64
 	var title string
 	if len(data.MetaData) > 0 {
-		var meta struct {
-			CreatedAt string `json:"created_at"`
-			Title     string `json:"title,omitempty"`
-		}
-		if err := json.Unmarshal(data.MetaData, &meta); err == nil {
-			if meta.CreatedAt != "" {
-				if t, err := time.Parse(time.RFC3339Nano, meta.CreatedAt); err == nil {
-					createdAt = t.UnixNano()
+		var md meta.Metadata
+		if err := json.Unmarshal(data.MetaData, &md); err == nil {
+			if !md.CreatedAt.IsZero() {
+				createdAt = md.CreatedAt.UnixNano()
+			}
+			title = md.Title
+			if md.MimeType != "" {
+				mimeType = md.MimeType
+				if strings.HasPrefix(mimeType, "text/") {
+					isText = true
 				}
 			}
-			title = meta.Title
 		}
 	}
 
@@ -286,19 +277,15 @@ func (idx *Indexer) LastChildActivity(hash hash.Hash) (int64, error) { //A
 		if len(data.MetaData) == 0 {
 			continue
 		}
-		var meta struct {
-			CreatedAt string `json:"created_at"`
-		}
-		if err := json.Unmarshal(data.MetaData, &meta); err != nil {
+		var md meta.Metadata
+		if err := json.Unmarshal(data.MetaData, &md); err != nil {
 			continue
 		}
-		if meta.CreatedAt == "" {
+		if md.CreatedAt.IsZero() {
 			continue
 		}
-		t, err := time.Parse(time.RFC3339Nano, meta.CreatedAt)
-		if err != nil {
-			continue
-		}
+		t := md.CreatedAt
+		// md.CreatedAt is a time.Time parsed by Unmarshal; if it's zero we'd have already continued.
 		if t.UnixNano() > last {
 			last = t.UnixNano()
 		}

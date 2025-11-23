@@ -22,7 +22,8 @@ import (
 	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
-	enc "github.com/i5heu/ouroboros-db/pkg/encoding"
+
+	// encoding was removed; mime type is stored in metadata
 	indexpkg "github.com/i5heu/ouroboros-db/pkg/index"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
@@ -382,11 +383,8 @@ func TestSearchEndpoint(t *testing.T) {
 
 	// write data and index
 	content := []byte("hello from search test")
-	encContent, err := enc.EncodeContentWithMimeType(content, "text/plain; charset=utf-8")
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	metaBytes, _ := json.Marshal(map[string]string{"created_at": time.Now().UTC().Format(time.RFC3339Nano)})
+	encContent := content
+	metaBytes, _ := json.Marshal(map[string]string{"created_at": time.Now().UTC().Format(time.RFC3339Nano), "mime_type": "text/plain; charset=utf-8"})
 	data := ouroboroskv.Data{Content: encContent, MetaData: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
 	key, err := kv.WriteData(data)
 	if err != nil {

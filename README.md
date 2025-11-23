@@ -77,15 +77,11 @@ Retrieve a stored entry by its hexadecimal hash. The response includes a base64 
 }
 ```
 
-### Payload header format
+### Payload metadata and MIME type
 
-Stored objects reserve the first 256 bytes for metadata:
+MIME type is stored in the metadata JSON under the `mime_type` key and is no longer encoded into the payload bytes. The server and clients use the `mime_type` metadata field to determine whether the content should be treated as text or binary. When `mime_type` is omitted, the payload is considered text and the server will default to `text/plain; charset=utf-8` for text content and `application/octet-stream` for binary content.
 
-- Byte `0`: the most significant bit (MSB) marks text payloads. When set (`1`), the payload is treated as UTF-8 text and no MIME is stored.
-- Bytes `1-255`: when the MSB is `0`, these bytes contain an ASCII/UTF-8 MIME type string padded with zeros. Empty or whitespace-only MIME values fall back to text handling.
-- Remaining bytes: the original payload content.
-
-This layout allows fast retrieval of text/binary hints without additional metadata calls.
+Note: An older payload header format (which encoded mime information into the first 256 bytes of the content) is deprecated and not used by recent versions of the server.
 
 
 ## Development Notes

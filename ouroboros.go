@@ -19,8 +19,10 @@ import (
 
 	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
-	"github.com/i5heu/ouroboros-db/pkg/encoding"
+
+	// MIME type previously encoded in content is now stored in metadata.
 	indexpkg "github.com/i5heu/ouroboros-db/pkg/index"
+	meta "github.com/i5heu/ouroboros-db/pkg/meta"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
@@ -85,11 +87,7 @@ type RetrievedData struct {
 	Title     string
 }
 
-type storedMetadata struct {
-	CreatedAt time.Time `json:"created_at"`
-	Title     string    `json:"title,omitempty"`
-}
-
+// Use shared metadata type from pkg/meta
 // defaultLogger returns a logger that writes text logs to stderr at Info level.
 // Applications can inject their own slog.Logger for JSON, different levels, etc.
 func defaultLogger() *slog.Logger { // A
@@ -237,13 +235,11 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 
 	opts.applyDefaults()
 
-	encodedContent, err := encoding.EncodeContentWithMimeType(content, opts.MimeType)
-	if err != nil {
-		return hash.Hash{}, err
-	}
+	// Store content raw. MimeType lives in the metadata JSON instead of being encoded into the payload.
+	encodedContent := content
 
 	// TODO allow additional user-defined metadata but server set CreatedAt is mandatory
-	metaBytes, err := encodeMetadata(storedMetadata{CreatedAt: time.Now().UTC(), Title: opts.Title})
+	metaBytes, err := encodeMetadata(meta.Metadata{CreatedAt: time.Now().UTC(), Title: opts.Title, MimeType: opts.MimeType})
 	if err != nil {
 		return hash.Hash{}, fmt.Errorf("encode metadata: %w", err)
 	}
@@ -325,20 +321,10 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
-	content, payloadHeader, isMime, err := encoding.DecodeContent(data.Content)
-	if err != nil {
-		return RetrievedData{}, err
-	}
-
+	// Content is stored raw in the data payload and the MIME type is stored in metadata.
+	content := data.Content
 	isText := false
 	returnedMime := ""
-	if isMime {
-		// Trim any trailing zero bytes from the MIME type in the payload header.
-		mimeTypeBytes := bytes.TrimRight(payloadHeader, "\x00")
-
-		returnedMime = string(mimeTypeBytes)
-		isText = strings.HasPrefix(returnedMime, "text/")
-	}
 
 	parent := data.Parent
 	if indexedParent, err := kv.GetParent(key); err == nil && !indexedParent.IsZero() {
@@ -348,14 +334,18 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 	var createdAt time.Time
 	var title string
 	if len(data.MetaData) > 0 {
-		meta, metaErr := decodeMetadata(data.MetaData)
+		md, metaErr := decodeMetadata(data.MetaData)
 		if metaErr != nil {
 			if ou.log != nil {
 				ou.log.Warn("failed to decode metadata", "error", metaErr, "key", key.String())
 			}
 		} else {
-			createdAt = meta.CreatedAt
-			title = meta.Title
+			createdAt = md.CreatedAt
+			title = md.Title
+			if md.MimeType != "" {
+				returnedMime = md.MimeType
+				isText = strings.HasPrefix(returnedMime, "text/")
+			}
 		}
 	}
 
@@ -371,22 +361,22 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 	}, nil
 }
 
-func encodeMetadata(meta storedMetadata) ([]byte, error) { // PHC
-	return json.Marshal(meta)
+func encodeMetadata(m meta.Metadata) ([]byte, error) { // PHC
+	return json.Marshal(m)
 }
 
-// decodeMetadata parses JSON-encoded metadata from the given raw bytes into a storedMetadata value.
+// decodeMetadata parses JSON-encoded metadata from the given raw bytes into a meta.Metadata value.
 //
-// Empty or whitespace-only input is treated as absent metadata and results in a zero-value storedMetadata and a nil error.
-// On success it returns the decoded storedMetadata and a nil error; if JSON decoding fails the error is returned wrapped with context ("decode metadata:").
-func decodeMetadata(raw []byte) (storedMetadata, error) { // PHC
+// Empty or whitespace-only input is treated as absent metadata and results in a zero-value meta.Metadata and a nil error.
+// On success it returns the decoded meta.Metadata and a nil error; if JSON decoding fails the error is returned wrapped with context ("decode metadata:").
+func decodeMetadata(raw []byte) (meta.Metadata, error) { // PHC
 	if len(raw) == 0 || len(bytes.TrimSpace(raw)) == 0 {
-		return storedMetadata{}, nil
+		return meta.Metadata{}, nil
 	}
 
-	var meta storedMetadata
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		return storedMetadata{}, fmt.Errorf("decode metadata: %w", err)
+	var md meta.Metadata
+	if err := json.Unmarshal(raw, &md); err != nil {
+		return meta.Metadata{}, fmt.Errorf("decode metadata: %w", err)
 	}
-	return meta, nil
+	return md, nil
 }

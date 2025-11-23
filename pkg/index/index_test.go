@@ -11,7 +11,9 @@ import (
 
 	crypt "github.com/i5heu/ouroboros-crypt"
 	cryptkeys "github.com/i5heu/ouroboros-crypt/pkg/keys"
-	enc "github.com/i5heu/ouroboros-db/pkg/encoding"
+
+	// MIME type is now stored in metadata
+	meta "github.com/i5heu/ouroboros-db/pkg/meta"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
 
@@ -79,15 +81,10 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	idx := NewIndexer(kv, testLogger())
 	defer idx.Close()
 
-	// store a text payload by writing raw data to KV (with encoding)
+	// store a text payload by writing raw data to KV with mime in meta
 	content := []byte("hello world from test indexer")
-	encContent, err := enc.EncodeContentWithMimeType(content, "text/plain")
-	if err != nil {
-		t.Fatalf("encode content: %v", err)
-	}
-	metaBytes, err := json.Marshal(struct {
-		CreatedAt string `json:"created_at"`
-	}{CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+	encContent := content
+	metaBytes, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain"})
 	if err != nil {
 		t.Fatalf("marshal meta: %v", err)
 	}
@@ -125,13 +122,8 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	}
 
 	// Test LastChildActivity
-	encParentContent, err := enc.EncodeContentWithMimeType([]byte("parent"), "text/plain")
-	if err != nil {
-		t.Fatalf("encode parent content: %v", err)
-	}
-	metaParent, err := json.Marshal(struct {
-		CreatedAt string `json:"created_at"`
-	}{CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+	encParentContent := []byte("parent")
+	metaParent, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain"})
 	if err != nil {
 		t.Fatalf("marshal meta parent: %v", err)
 	}
@@ -142,13 +134,8 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	}
 
 	// create two children with a short delay so we can detect last activity
-	encChild1, err := enc.EncodeContentWithMimeType([]byte("child1"), "text/plain")
-	if err != nil {
-		t.Fatalf("encode child1: %v", err)
-	}
-	metaChild1, err := json.Marshal(struct {
-		CreatedAt string `json:"created_at"`
-	}{CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+	encChild1 := []byte("child1")
+	metaChild1, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain"})
 	if err != nil {
 		t.Fatalf("marshal child1 meta: %v", err)
 	}
@@ -157,13 +144,8 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 		t.Fatalf("store child1: %v", err)
 	}
 	time.Sleep(10 * time.Millisecond)
-	encChild2, err := enc.EncodeContentWithMimeType([]byte("child2"), "text/plain")
-	if err != nil {
-		t.Fatalf("encode child2: %v", err)
-	}
-	metaChild2, err := json.Marshal(struct {
-		CreatedAt string `json:"created_at"`
-	}{CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+	encChild2 := []byte("child2")
+	metaChild2, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain"})
 	if err != nil {
 		t.Fatalf("marshal child2 meta: %v", err)
 	}
@@ -185,13 +167,11 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read child2: %v", err)
 	}
-	var meta struct {
-		CreatedAt string `json:"created_at"`
-	}
-	if err := json.Unmarshal(ch2.MetaData, &meta); err != nil {
+	var md meta.Metadata
+	if err := json.Unmarshal(ch2.MetaData, &md); err != nil {
 		t.Fatalf("unmarshal child2 metadata: %v", err)
 	}
-	t2, err := time.Parse(time.RFC3339Nano, meta.CreatedAt)
+	t2 := md.CreatedAt
 	if err != nil {
 		t.Fatalf("parse child2 createdAt: %v", err)
 	}
