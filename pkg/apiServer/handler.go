@@ -73,6 +73,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // PA
 		}
 	}
 
+	editOfHash, err := parseHash(meta.EditOf)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid edit_of hash: %v", err), http.StatusBadRequest)
+		return
+	}
+
 	shards := meta.ReedSolomonShards
 	if shards == 0 {
 		shards = defaultDataShards
@@ -97,6 +103,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // PA
 		ReedSolomonParityShards: parity,
 		MimeType:                mimeType,
 		Title:                   strings.TrimSpace(meta.Title),
+		EditOf:                  editOfHash,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -165,9 +172,18 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 		return
 	}
 
-	mimeType := strings.TrimSpace(data.MimeType)
+	effective := data
+	if !data.SuggestedEdit.IsZero() {
+		if latest, latestErr := s.db.GetData(r.Context(), data.SuggestedEdit); latestErr == nil {
+			effective = latest
+		} else {
+			s.log.Warn("failed to load suggested edit", "error", latestErr, "requested", keyHex, "suggested", data.SuggestedEdit.String())
+		}
+	}
+
+	mimeType := strings.TrimSpace(effective.MimeType)
 	if mimeType == "" {
-		if data.IsText {
+		if effective.IsText {
 			mimeType = "text/plain; charset=utf-8"
 		} else {
 			mimeType = "application/octet-stream"
@@ -175,21 +191,28 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 	}
 
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("X-Ouroboros-Key", keyHex)
-	w.Header().Set("X-Ouroboros-Is-Text", strconv.FormatBool(data.IsText))
+	w.Header().Set("X-Ouroboros-Key", effective.Key.String())
+	w.Header().Set("X-Ouroboros-Requested-Key", keyHex)
+	if !data.SuggestedEdit.IsZero() {
+		w.Header().Set("X-Ouroboros-Suggested-Edit", data.SuggestedEdit.String())
+	}
+	if !effective.EditOf.IsZero() {
+		w.Header().Set("X-Ouroboros-Edit-Of", effective.EditOf.String())
+	}
+	w.Header().Set("X-Ouroboros-Is-Text", strconv.FormatBool(effective.IsText))
 	w.Header().Set("X-Ouroboros-Mime", mimeType)
-	if !data.CreatedAt.IsZero() {
-		w.Header().Set("X-Ouroboros-Created-At", data.CreatedAt.UTC().Format(time.RFC3339Nano))
+	if !effective.CreatedAt.IsZero() {
+		w.Header().Set("X-Ouroboros-Created-At", effective.CreatedAt.UTC().Format(time.RFC3339Nano))
 	}
-	if strings.TrimSpace(data.Title) != "" {
-		w.Header().Set("X-Ouroboros-Title", data.Title)
+	if strings.TrimSpace(effective.Title) != "" {
+		w.Header().Set("X-Ouroboros-Title", effective.Title)
 	}
-	if !data.Parent.IsZero() {
-		w.Header().Set("X-Ouroboros-Parent", data.Parent.String())
+	if !effective.Parent.IsZero() {
+		w.Header().Set("X-Ouroboros-Parent", effective.Parent.String())
 	}
-	if len(data.Children) > 0 {
-		children := make([]string, 0, len(data.Children))
-		for _, child := range data.Children {
+	if len(effective.Children) > 0 {
+		children := make([]string, 0, len(effective.Children))
+		for _, child := range effective.Children {
 			if child.IsZero() {
 				continue
 			}
@@ -202,8 +225,8 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	status := http.StatusOK
-	responseBody := data.Content
-	totalSize := len(data.Content)
+	responseBody := effective.Content
+	totalSize := len(effective.Content)
 	if rangeHeader := strings.TrimSpace(r.Header.Get("Range")); rangeHeader != "" {
 		start, end, err := parseByteRange(rangeHeader, totalSize)
 		if err != nil {
@@ -487,15 +510,32 @@ func (s *Server) handleLookupWithData(w http.ResponseWriter, r *http.Request) {
 		if getErr != nil {
 			record.Error = getErr.Error()
 		} else {
-			record.Found = true
-			record.MimeType = msgData.MimeType
-			record.IsText = msgData.IsText
-			record.SizeBytes = len(msgData.Content)
-			if !msgData.CreatedAt.IsZero() {
-				record.CreatedAt = msgData.CreatedAt.Format(time.RFC3339Nano)
+			effective := msgData
+			if !msgData.SuggestedEdit.IsZero() {
+				if latest, latestErr := s.db.GetData(r.Context(), msgData.SuggestedEdit); latestErr == nil {
+					effective = latest
+				} else {
+					s.log.Warn("failed to hydrate suggested edit", "error", latestErr, "key", h.String(), "edit", msgData.SuggestedEdit.String())
+				}
 			}
-			if msgData.Title != "" {
-				record.Title = msgData.Title
+			record.Found = true
+			record.MimeType = effective.MimeType
+			record.IsText = effective.IsText
+			record.SizeBytes = len(effective.Content)
+			if !effective.CreatedAt.IsZero() {
+				record.CreatedAt = effective.CreatedAt.Format(time.RFC3339Nano)
+			}
+			if effective.Title != "" {
+				record.Title = effective.Title
+			}
+			if !msgData.SuggestedEdit.IsZero() {
+				record.SuggestedEdit = msgData.SuggestedEdit.String()
+			}
+			if !effective.EditOf.IsZero() {
+				record.EditOf = effective.EditOf.String()
+			}
+			if effective.Key != h {
+				record.ResolvedKey = effective.Key.String()
 			}
 
 			// Get computed_id
@@ -504,8 +544,8 @@ func (s *Server) handleLookupWithData(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Include content for text messages
-			if msgData.IsText && len(msgData.Content) <= 1024*1024 {
-				record.Content = string(msgData.Content)
+			if effective.IsText && len(effective.Content) <= 1024*1024 {
+				record.Content = string(effective.Content)
 			}
 		}
 

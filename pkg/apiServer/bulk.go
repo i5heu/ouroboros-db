@@ -24,6 +24,9 @@ type bulkDataRequest struct {
 
 type bulkDataRecord struct {
 	Key            string `json:"key"`
+	ResolvedKey    string `json:"resolvedKey,omitempty"`
+	SuggestedEdit  string `json:"suggestedEdit,omitempty"`
+	EditOf         string `json:"editOf,omitempty"`
 	Found          bool   `json:"found"`
 	MimeType       string `json:"mimeType,omitempty"`
 	IsText         bool   `json:"isText,omitempty"`
@@ -118,16 +121,34 @@ func (s *Server) fetchBulkRecord(r *http.Request, keyHex string, includeBinary b
 		}
 	}
 
+	effective := data
+	if !data.SuggestedEdit.IsZero() {
+		if latest, latestErr := s.db.GetData(ctx, data.SuggestedEdit); latestErr == nil {
+			effective = latest
+		} else {
+			s.log.Warn("failed to hydrate suggested edit", "error", latestErr, "key", keyHex, "edit", data.SuggestedEdit.String())
+		}
+	}
+
 	record := bulkDataRecord{
 		Key:       keyHex,
 		Found:     true,
-		MimeType:  normalizeMime(data.MimeType, data.IsText),
-		IsText:    data.IsText,
-		SizeBytes: len(data.Content),
-		Title:     data.Title,
+		MimeType:  normalizeMime(effective.MimeType, effective.IsText),
+		IsText:    effective.IsText,
+		SizeBytes: len(effective.Content),
+		Title:     effective.Title,
 	}
-	if !data.CreatedAt.IsZero() {
-		record.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)
+	if !effective.CreatedAt.IsZero() {
+		record.CreatedAt = effective.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !data.SuggestedEdit.IsZero() {
+		record.SuggestedEdit = data.SuggestedEdit.String()
+	}
+	if !effective.EditOf.IsZero() {
+		record.EditOf = effective.EditOf.String()
+	}
+	if effective.Key != key {
+		record.ResolvedKey = effective.Key.String()
 	}
 	// Include computed_id if indexer is available
 	if s.indexer != nil {
@@ -136,13 +157,13 @@ func (s *Server) fetchBulkRecord(r *http.Request, keyHex string, includeBinary b
 		}
 	}
 
-	if data.IsText {
-		record.Content = string(data.Content)
+	if effective.IsText {
+		record.Content = string(effective.Content)
 		return record
 	}
 
 	if includeBinary {
-		record.EncodedContent = base64.StdEncoding.EncodeToString(data.Content)
+		record.EncodedContent = base64.StdEncoding.EncodeToString(effective.Content)
 	}
 
 	return record

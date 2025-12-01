@@ -17,6 +17,9 @@ export type ThreadSummaryRecord = {
 
 export type MessageRecord = {
     key: string;
+    resolvedKey?: string;
+    suggestedEdit?: string;
+    editOf?: string;
     mimeType: string;
     isText: boolean;
     sizeBytes: number;

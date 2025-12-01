@@ -36,6 +36,9 @@ type computedIDResponse struct {
 // lookupWithDataRecord is used in the combined lookup+data endpoint response
 type lookupWithDataRecord struct {
 	Key            string `json:"key"`
+	ResolvedKey    string `json:"resolvedKey,omitempty"`
+	SuggestedEdit  string `json:"suggestedEdit,omitempty"`
+	EditOf         string `json:"editOf,omitempty"`
 	Found          bool   `json:"found"`
 	MimeType       string `json:"mimeType,omitempty"`
 	IsText         bool   `json:"isText,omitempty"`
@@ -57,6 +60,7 @@ type createMetadata struct {
 	IsText                  *bool    `json:"is_text"`
 	Filename                string   `json:"filename"`
 	Title                   string   `json:"title,omitempty"`
+	EditOf                  string   `json:"edit_of,omitempty"`
 }
 
 type AuthFunc func(req *http.Request, db *ouroboros.OuroborosDB) error

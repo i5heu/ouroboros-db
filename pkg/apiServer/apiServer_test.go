@@ -20,6 +20,7 @@ import (
 	"log/slog"
 
 	crypt "github.com/i5heu/ouroboros-crypt"
+	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
 
@@ -171,6 +172,85 @@ func TestGetBinaryData(t *testing.T) { // A
 
 	if !bytes.Equal(getRec.Body.Bytes(), payload) {
 		t.Fatalf("expected binary content to match original")
+	}
+}
+
+func TestGetReturnsLatestEdit(t *testing.T) {
+	db, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+
+	server := New(db, WithLogger(testLogger()), WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error {
+		return nil // bypass auth for tests
+	}))
+
+	originalPayload := []byte("v1")
+	baseReq := newMultipartRequest(
+		t,
+		http.MethodPost,
+		"/data",
+		originalPayload,
+		"v1.txt",
+		"text/plain; charset=utf-8",
+		map[string]any{
+			"mime_type": "text/plain; charset=utf-8",
+		},
+	)
+	baseRec := httptest.NewRecorder()
+	server.ServeHTTP(baseRec, baseReq)
+	if baseRec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, baseRec.Code)
+	}
+	var baseResp createResponse
+	decodeJSONResponse(t, baseRec, &baseResp)
+
+	editedPayload := []byte("v2")
+	editReq := newMultipartRequest(
+		t,
+		http.MethodPost,
+		"/data",
+		editedPayload,
+		"v2.txt",
+		"text/plain; charset=utf-8",
+		map[string]any{
+			"mime_type": "text/plain; charset=utf-8",
+			"edit_of":   baseResp.Key,
+		},
+	)
+	editRec := httptest.NewRecorder()
+	server.ServeHTTP(editRec, editReq)
+	if editRec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, editRec.Code)
+	}
+	var editResp createResponse
+	decodeJSONResponse(t, editRec, &editResp)
+
+	// Ensure the indexer knows about both records so edit resolution works deterministically in tests.
+	baseHash, _ := cryptHash.HashHexadecimal(baseResp.Key)
+	editHash, _ := cryptHash.HashHexadecimal(editResp.Key)
+	if err := server.indexer.IndexHash(baseHash); err != nil {
+		t.Fatalf("index base: %v", err)
+	}
+	if err := server.indexer.IndexHash(editHash); err != nil {
+		t.Fatalf("index edit: %v", err)
+	}
+
+	getRec := httptest.NewRecorder()
+	server.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/data/"+baseResp.Key, nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, getRec.Code)
+	}
+
+	if body := getRec.Body.Bytes(); string(body) != string(editedPayload) {
+		t.Fatalf("expected latest edit content, got %q", string(body))
+	}
+	if resolved := getRec.Header().Get("X-Ouroboros-Key"); resolved != editResp.Key {
+		t.Fatalf("expected X-Ouroboros-Key to reflect edit key, got %q", resolved)
+	}
+	if requested := getRec.Header().Get("X-Ouroboros-Requested-Key"); requested != baseResp.Key {
+		t.Fatalf("expected requested key header to match original, got %q", requested)
+	}
+	if suggested := getRec.Header().Get("X-Ouroboros-Suggested-Edit"); suggested != editResp.Key {
+		t.Fatalf("expected suggested edit header to point to latest edit, got %q", suggested)
 	}
 }
 

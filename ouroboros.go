@@ -62,6 +62,8 @@ type StoreOptions struct {
 	ReedSolomonParityShards uint8
 	MimeType                string
 	Title                   string
+	// EditOf marks this entry as an edit of another hash.
+	EditOf hash.Hash
 }
 
 // Config configures the database instance. Only Paths[0] is used at the
@@ -86,6 +88,10 @@ type RetrievedData struct {
 	Children  []hash.Hash
 	CreatedAt time.Time
 	Title     string
+	// SuggestedEdit holds the most recent edit hash (if any) for the requested key.
+	SuggestedEdit hash.Hash
+	// EditOf indicates that this record is an edit of another hash (parsed from metadata).
+	EditOf hash.Hash
 }
 
 // Use shared metadata type from pkg/meta
@@ -223,6 +229,32 @@ func (ou *OuroborosDB) kvHandle() (ouroboroskv.Store, error) { // A
 	return kv, nil
 }
 
+// resolveLatestEdit walks the edit chain (if any) and returns the newest edit hash for the given key.
+// The second return value indicates whether a newer edit was found.
+func (ou *OuroborosDB) resolveLatestEdit(key hash.Hash) (hash.Hash, bool) {
+	if ou.indexer == nil {
+		return key, false
+	}
+
+	current := key
+	seen := map[string]struct{}{key.String(): {}}
+	for {
+		next, ok := ou.indexer.LatestEditFor(current)
+		if !ok || next.IsZero() {
+			break
+		}
+		nextStr := next.String()
+		if _, exists := seen[nextStr]; exists {
+			// break potential cycles
+			break
+		}
+		seen[nextStr] = struct{}{}
+		current = next
+	}
+
+	return current, current != key
+}
+
 func (opts *StoreOptions) applyDefaults() { // HC
 	if opts.ReedSolomonShards == 0 {
 		opts.ReedSolomonShards = 4
@@ -248,7 +280,17 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	encodedContent := content
 
 	// TODO allow additional user-defined metadata but server set CreatedAt is mandatory
-	metaBytes, err := encodeMetadata(meta.Metadata{CreatedAt: time.Now().UTC(), Title: opts.Title, MimeType: opts.MimeType})
+	metaBytes, err := encodeMetadata(meta.Metadata{
+		CreatedAt: time.Now().UTC(),
+		Title:     opts.Title,
+		MimeType:  opts.MimeType,
+		EditOf: func() string {
+			if opts.EditOf.IsZero() {
+				return ""
+			}
+			return opts.EditOf.String()
+		}(),
+	})
 	if err != nil {
 		return hash.Hash{}, fmt.Errorf("encode metadata: %w", err)
 	}
@@ -320,6 +362,8 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
+	resolvedKey, hasEdit := ou.resolveLatestEdit(key)
+
 	kv, err := ou.kvHandle()
 	if err != nil {
 		return RetrievedData{}, err
@@ -342,6 +386,7 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 
 	var createdAt time.Time
 	var title string
+	var editOf hash.Hash
 	if len(data.Meta) > 0 {
 		md, metaErr := decodeMetadata(data.Meta)
 		if metaErr != nil {
@@ -355,18 +400,30 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 				returnedMime = md.MimeType
 				isText = strings.HasPrefix(returnedMime, "text/")
 			}
+			if strings.TrimSpace(md.EditOf) != "" {
+				if parsed, err := hash.HashHexadecimal(md.EditOf); err == nil {
+					editOf = parsed
+				}
+			}
 		}
 	}
 
+	suggestedEdit := hash.Hash{}
+	if hasEdit {
+		suggestedEdit = resolvedKey
+	}
+
 	return RetrievedData{
-		Key:       key,
-		Content:   content,
-		MimeType:  returnedMime,
-		IsText:    isText,
-		Parent:    parent,
-		Children:  data.Children,
-		CreatedAt: createdAt,
-		Title:     title,
+		Key:           key,
+		Content:       content,
+		MimeType:      returnedMime,
+		IsText:        isText,
+		Parent:        parent,
+		Children:      data.Children,
+		CreatedAt:     createdAt,
+		Title:         title,
+		SuggestedEdit: suggestedEdit,
+		EditOf:        editOf,
 	}, nil
 }
 

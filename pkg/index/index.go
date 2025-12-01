@@ -37,6 +37,15 @@ type Indexer struct {
 
 	// hashToComputedID maps hash string to its computed_id for quick lookups
 	hashToComputedID map[string]string
+
+	// latestEdits maps a base hash (string) to the most recent edit hash and its timestamp.
+	editMu      sync.RWMutex
+	latestEdits map[string]editEntry
+}
+
+type editEntry struct {
+	hash      hash.Hash
+	createdAt int64
 }
 
 const (
@@ -93,6 +102,7 @@ func NewIndexer(kv ouroboroskv.Store, logger *slog.Logger) *Indexer { //A
 		kv:               kv,
 		computedIDIndex:  make(map[string][]hash.Hash),
 		hashToComputedID: make(map[string]string),
+		latestEdits:      make(map[string]editEntry),
 	}
 	return idx
 }
@@ -109,6 +119,15 @@ func (idx *Indexer) ReindexAll() error { //A
 	if kv == nil {
 		return fmt.Errorf("kv handle not available")
 	}
+
+	// Reset in-memory indices before rebuilding.
+	idx.computedIDMu.Lock()
+	idx.computedIDIndex = make(map[string][]hash.Hash)
+	idx.hashToComputedID = make(map[string]string)
+	idx.computedIDMu.Unlock()
+	idx.editMu.Lock()
+	idx.latestEdits = make(map[string]editEntry)
+	idx.editMu.Unlock()
 
 	keys, err := kv.ListRootKeys()
 	if err != nil {
@@ -182,6 +201,7 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 	// Parse metadata for createdAt, title and mime type if present
 	var createdAt int64
 	var title string
+	var editOf hash.Hash
 	if len(data.Meta) > 0 {
 		var md meta.Metadata
 		if err := json.Unmarshal(data.Meta, &md); err == nil {
@@ -193,6 +213,11 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 				mimeType = md.MimeType
 				if strings.HasPrefix(mimeType, "text/") {
 					isText = true
+				}
+			}
+			if strings.TrimSpace(md.EditOf) != "" {
+				if parsed, err := hash.HashHexadecimal(md.EditOf); err == nil {
+					editOf = parsed
 				}
 			}
 		}
@@ -220,6 +245,12 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 	if computedID != "" {
 		doc["computedId"] = computedID
 		idx.storeComputedID(computedID, cr)
+	}
+
+	// Track latest edit mapping if this record edits another hash
+	if !editOf.IsZero() {
+		idx.storeLatestEdit(editOf, cr, createdAt)
+		doc["editOf"] = editOf.String()
 	}
 
 	return idx.bi.Index(cr.String(), doc)
@@ -463,6 +494,37 @@ func (idx *Indexer) storeComputedID(computedID string, h hash.Hash) {
 	}
 
 	idx.hashToComputedID[hashStr] = computedID
+}
+
+// storeLatestEdit records the newest edit for a given base hash based on createdAt.
+func (idx *Indexer) storeLatestEdit(base hash.Hash, edit hash.Hash, createdAt int64) {
+	if idx == nil || base.IsZero() || edit.IsZero() {
+		return
+	}
+
+	idx.editMu.Lock()
+	defer idx.editMu.Unlock()
+
+	entry, exists := idx.latestEdits[base.String()]
+	if !exists || createdAt > entry.createdAt || (createdAt == entry.createdAt && edit.String() > entry.hash.String()) {
+		idx.latestEdits[base.String()] = editEntry{hash: edit, createdAt: createdAt}
+	}
+}
+
+// LatestEditFor returns the most recent edit for the given base hash, if any.
+func (idx *Indexer) LatestEditFor(base hash.Hash) (hash.Hash, bool) {
+	if idx == nil {
+		return hash.Hash{}, false
+	}
+
+	idx.editMu.RLock()
+	defer idx.editMu.RUnlock()
+
+	entry, ok := idx.latestEdits[base.String()]
+	if !ok {
+		return hash.Hash{}, false
+	}
+	return entry.hash, true
 }
 
 // LookupByComputedID returns all hashes that have the given computed_id.

@@ -8,6 +8,7 @@ export type ThreadSummaryPayload = {
     childCount: number;
     createdAt?: string;
     computedId?: string;
+    suggestedEdit?: string;
 };
 
 export type ThreadNodePayload = {
@@ -21,10 +22,15 @@ export type ThreadNodePayload = {
     depth: number;
     children: string[];
     computedId?: string;
+    suggestedEdit?: string;
+    editOf?: string;
 };
 
 export type BulkDataRecord = {
     key: string;
+    resolvedKey?: string;
+    suggestedEdit?: string;
+    editOf?: string;
     found: boolean;
     mimeType?: string;
     isText?: boolean;

@@ -21,6 +21,10 @@ export type Message = {
     depth?: number;
     title?: string;
     computedId?: string;
+    // When an edited version exists, resolvedKey/suggestedEdit point to the latest hash.
+    resolvedKey?: string;
+    suggestedEdit?: string;
+    editOf?: string;
 };
 
 export type LookupResult = {

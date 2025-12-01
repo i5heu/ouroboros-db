@@ -106,6 +106,8 @@
 	let newThreadRootPath: number[] | null = null;
 	let titleInputEl: HTMLInputElement | null = null;
 	let titleEditing = false;
+	let editMode = false;
+	let editTargetPath: number[] | null = null;
 
 	const applyTitleToSelected = (title: string) => {
 		if (!selectedPath) return;
@@ -164,10 +166,12 @@
 	$: canSend =
 		statusState !== 'sending' &&
 		!newThreadMode &&
-		(inputValue.trim().length > 0 ||
-			(selectedPendingAttachment &&
-				selectedPendingAttachment.isText === false &&
-				selectedPendingAttachment.status === 'pending'));
+		(editMode
+			? inputValue.trim().length > 0
+			: inputValue.trim().length > 0 ||
+				(selectedPendingAttachment &&
+					selectedPendingAttachment.isText === false &&
+					selectedPendingAttachment.status === 'pending'));
 
 	// When we select a pending attachment, ensure the title input shows the title or filename
 	$: if (
@@ -618,7 +622,10 @@
 			createdAt: node.createdAt,
 			createdAtMs,
 			title: node.title,
-			computedId: node.computedId
+			computedId: node.computedId,
+			resolvedKey: node.key,
+			suggestedEdit: node.suggestedEdit,
+			editOf: node.editOf
 		};
 	};
 
@@ -634,6 +641,12 @@
 				message.parentKey = nodeParentKey(node.parent);
 				if (node.computedId) {
 					message.computedId = node.computedId;
+				}
+				if (node.suggestedEdit) {
+					message.suggestedEdit = node.suggestedEdit;
+				}
+				if (node.editOf) {
+					message.editOf = node.editOf;
 				}
 				if (!node.isText) {
 					message.content = attachmentLabel(node.mimeType, node.sizeBytes ?? 0);
@@ -696,6 +709,18 @@
 			return;
 		}
 		updateMessageAtPath(path, (message) => {
+			if (record.resolvedKey) {
+				message.resolvedKey = record.resolvedKey;
+				if (record.resolvedKey !== record.key) {
+					keyToPath.set(record.resolvedKey, path);
+				}
+			}
+			if (record.suggestedEdit) {
+				message.suggestedEdit = record.suggestedEdit;
+			}
+			if (record.editOf) {
+				message.editOf = record.editOf;
+			}
 			if (record.content !== undefined) {
 				message.content = record.content === '' ? '[empty]' : record.content;
 			}
@@ -830,6 +855,9 @@
 			(payload.isText ? 'text/plain; charset=utf-8' : 'application/octet-stream');
 		const record: MessageRecord = {
 			key: payload.key,
+			resolvedKey: payload.resolvedKey ?? payload.key,
+			suggestedEdit: payload.suggestedEdit,
+			editOf: payload.editOf,
 			mimeType: mime,
 			isText: Boolean(payload.isText),
 			sizeBytes:
@@ -1091,9 +1119,15 @@
 		const isText = headerIsText ? headerIsText.toLowerCase() === 'true' : node.isText;
 		const createdAt = response.headers.get('X-Ouroboros-Created-At') ?? node.createdAt;
 		const headerTitle = response.headers.get('X-Ouroboros-Title');
+		const resolvedKey = response.headers.get('X-Ouroboros-Key') ?? node.key;
+		const suggestedEdit = response.headers.get('X-Ouroboros-Suggested-Edit') ?? undefined;
+		const editOf = response.headers.get('X-Ouroboros-Edit-Of') ?? undefined;
 		const resolvedSize = node.sizeBytes ?? 0;
 		return {
 			key: node.key,
+			resolvedKey,
+			suggestedEdit: suggestedEdit || undefined,
+			editOf: editOf || undefined,
 			mimeType,
 			isText,
 			sizeBytes: resolvedSize,
@@ -1332,6 +1366,15 @@
 
 	const setSelectedPath = (path: number[] | null) => {
 		selectedPath = path ? [...path] : null;
+		if (
+			editMode &&
+			(!editTargetPath ||
+				!path ||
+				editTargetPath.length !== path.length ||
+				editTargetPath.some((v, idx) => path![idx] !== v))
+		) {
+			cancelEdit();
+		}
 		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
 		if (message?.key) {
 			rememberLastKey(message.key);
@@ -1494,6 +1537,9 @@
 			(message.isText && message.content ? encodeToBase64(message.content) : undefined);
 		return {
 			key: message.key ?? '',
+			resolvedKey: message.resolvedKey ?? message.key,
+			suggestedEdit: message.suggestedEdit,
+			editOf: message.editOf,
 			mimeType: normalizedMime,
 			isText: message.isText ?? true,
 			sizeBytes:
@@ -1736,8 +1782,12 @@
 		}
 	};
 
+	const canEditMessage = (message: Message | null): boolean => {
+		return Boolean(message && message.key && message.isText && message.status === 'saved');
+	};
+
 	const addMessage = async () => {
-		if (newThreadMode) return;
+		if (newThreadMode || editMode) return;
 		const trimmed = inputValue.trim();
 		if (!trimmed) return;
 
@@ -1778,10 +1828,12 @@
 	};
 
 	const openFilePicker = () => {
+		if (editMode) return;
 		fileInput?.click();
 	};
 
 	const handleFileSelection = async (event: Event) => {
+		if (editMode) return;
 		const input = event.target as HTMLInputElement | null;
 		const files = input?.files;
 		if (!files || files.length === 0) {
@@ -1835,10 +1887,145 @@
 		}
 	};
 
+	const startEditingSelected = async () => {
+		if (!selectedPath) return;
+		const target = getMessageAtPath(messages, selectedPath);
+		if (!canEditMessage(target)) return;
+
+		editMode = true;
+		editTargetPath = [...selectedPath];
+		statusState = 'idle';
+		statusText = '';
+
+		// Ensure the message is hydrated so the textarea shows the latest text.
+		if (target?.key && (!target.content || target.content === textLoadingPlaceholder)) {
+			await enqueueBulkHydration(target.key);
+			const refreshed = getMessageAtPath(messages, selectedPath);
+			if (refreshed?.content) {
+				inputValue = refreshed.content;
+			}
+		} else {
+			inputValue = target?.content ?? '';
+		}
+		inputTitle = target?.title ?? '';
+	};
+
+	const cancelEdit = () => {
+		editMode = false;
+		editTargetPath = null;
+		inputValue = '';
+		inputTitle = '';
+		if (statusState === 'success') {
+			statusState = 'idle';
+			statusText = '';
+		}
+	};
+
+	const submitEdit = async () => {
+		if (!editMode || !editTargetPath) return;
+		const target = getMessageAtPath(messages, editTargetPath);
+		if (!target || !target.key || !target.isText) {
+			cancelEdit();
+			return;
+		}
+
+		const trimmedContent = inputValue.trim();
+		if (!trimmedContent) {
+			statusState = 'error';
+			statusText = 'Cannot save an empty edit.';
+			return;
+		}
+
+		const mimeType =
+			target.mimeType?.trim() ||
+			(target.isText ? 'text/plain; charset=utf-8' : 'application/octet-stream');
+		const title = inputTitle.trim() || target.title || '';
+		const base64Content = encodeToBase64(trimmedContent);
+		const sizeBytes = calculateBase64Size(base64Content);
+
+		activeSaves += 1;
+		statusState = 'sending';
+		statusText = 'Saving edit…';
+
+		const metadata: Record<string, unknown> = {
+			reed_solomon_shards: 0,
+			reed_solomon_parity_shards: 0,
+			mime_type: mimeType,
+			is_text: true,
+			filename: 'message.txt',
+			edit_of: target.key
+		};
+		if (target.parentKey) {
+			metadata.parent = target.parentKey;
+		}
+		if (title) {
+			metadata.title = title;
+		}
+
+		const contentBytes = decodeBase64ToUint8(base64Content);
+		const blob = new Blob([contentBytes], { type: mimeType });
+		const formData = new FormData();
+		formData.append('file', blob, 'message.txt');
+		formData.append('metadata', JSON.stringify(metadata));
+
+		try {
+			const response = await fetch(`${API_BASE_URL}/data`, {
+				method: 'POST',
+				body: formData,
+				headers: await withAuthHeaders()
+			});
+
+			if (!response.ok) {
+				const message = (await response.text()) || `Request failed with status ${response.status}`;
+				throw new Error(message);
+			}
+
+			const body: { key?: string } = await response.json();
+			const key = body.key ?? '';
+
+			updateMessageAtPath(editTargetPath, (message) => {
+				message.content = trimmedContent;
+				message.encodedContent = base64Content;
+				message.sizeBytes = sizeBytes;
+				message.title = title || undefined;
+				message.suggestedEdit = key || message.suggestedEdit;
+				message.resolvedKey = key || message.resolvedKey || message.key;
+				message.status = 'saved';
+				delete message.error;
+			});
+
+			const updated = getMessageAtPath(messages, editTargetPath);
+			if (updated && updated.key) {
+				persistMessageRecord(messageToRecord(updated));
+			}
+
+			statusState = 'success';
+			statusText = key ? `Edit saved with key ${key}` : 'Edit saved.';
+			editMode = false;
+			editTargetPath = null;
+			inputValue = '';
+			inputTitle = '';
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			statusState = 'error';
+			statusText = `Failed to save edit: ${errorMessage}`;
+		} finally {
+			activeSaves = Math.max(activeSaves - 1, 0);
+			if (activeSaves === 0 && statusState === 'sending') {
+				statusState = 'idle';
+				statusText = '';
+			}
+		}
+	};
+
 	const handleKeydown = (event: KeyboardEvent) => {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
-			addMessage();
+			if (editMode) {
+				void submitEdit();
+			} else {
+				addMessage();
+			}
 		}
 	};
 </script>
@@ -1977,6 +2164,22 @@
 									📋
 								{/if}
 							</button>
+						</div>
+					{/if}
+					{#if !newThreadMode && canEditMessage(selectedMessage)}
+						<div class="edit-controls">
+							<button
+								type="button"
+								on:click={() => void startEditingSelected()}
+								disabled={statusState === 'sending'}
+							>
+								{editMode ? 'Editing…' : 'Edit message'}
+							</button>
+							{#if editMode}
+								<button type="button" on:click={cancelEdit} disabled={statusState === 'sending'}>
+									Cancel edit
+								</button>
+							{/if}
 						</div>
 					{/if}
 					{#if newThreadMode}
@@ -2129,10 +2332,13 @@
 							}}
 						/>
 						{#if !(selectedPendingAttachment && !selectedPendingAttachment.isText && selectedPendingAttachment.status === 'pending')}
+							{#if editMode}
+								<div class="edit-banner">Editing message</div>
+							{/if}
 							<textarea
 								bind:value={inputValue}
 								rows="3"
-								placeholder="Type a message and press Enter"
+								placeholder={editMode ? 'Edit message and press Enter' : 'Type a message and press Enter'}
 								on:keydown={handleKeydown}
 							></textarea>
 						{:else}
@@ -2157,7 +2363,7 @@
 						class:attached={selectedPendingAttachment &&
 							selectedPendingAttachment.status === 'pending'}
 						on:click={openFilePicker}
-						disabled={statusState === 'sending'}
+						disabled={statusState === 'sending' || editMode}
 					>
 						{#if selectedPendingAttachment && selectedPendingAttachment.status === 'pending' && !selectedPendingAttachment.isText}
 							Attached
@@ -2168,6 +2374,10 @@
 					<button
 						type="button"
 						on:click={() => {
+							if (editMode) {
+								void submitEdit();
+								return;
+							}
 							const selectedMsg = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
 							if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
 								void persistMessage(selectedPath!);
@@ -2180,7 +2390,11 @@
 						}}
 						disabled={!canSend}
 					>
-						{statusState === 'sending' ? 'Sending…' : 'Send'}
+						{#if editMode}
+							{statusState === 'sending' ? 'Saving…' : 'Save edit'}
+						{:else}
+							{statusState === 'sending' ? 'Sending…' : 'Send'}
+						{/if}
 					</button>
 					<input
 						type="file"
@@ -2596,6 +2810,19 @@
 		border-radius: 0.4rem;
 		border: 1px solid var(--border);
 		font-size: 0.8rem;
+	}
+
+	.edit-controls {
+		grid-column: 1 / -1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.edit-banner {
+		margin-bottom: 0.25rem;
+		font-weight: 600;
+		color: var(--accent);
 	}
 
 	.computed-id-label {

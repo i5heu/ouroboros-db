@@ -20,28 +20,31 @@ const (
 )
 
 type threadSummary struct {
-	Key        string `json:"key"`
-	Preview    string `json:"preview"`
-	Title      string `json:"title,omitempty"`
-	MimeType   string `json:"mimeType"`
-	IsText     bool   `json:"isText"`
-	SizeBytes  int    `json:"sizeBytes"`
-	ChildCount int    `json:"childCount"`
-	CreatedAt  string `json:"createdAt,omitempty"`
-	ComputedID string `json:"computedId,omitempty"`
+	Key           string `json:"key"`
+	Preview       string `json:"preview"`
+	Title         string `json:"title,omitempty"`
+	MimeType      string `json:"mimeType"`
+	IsText        bool   `json:"isText"`
+	SizeBytes     int    `json:"sizeBytes"`
+	ChildCount    int    `json:"childCount"`
+	CreatedAt     string `json:"createdAt,omitempty"`
+	ComputedID    string `json:"computedId,omitempty"`
+	SuggestedEdit string `json:"suggestedEdit,omitempty"`
 }
 
 type threadNode struct {
-	Key        string   `json:"key"`
-	Parent     string   `json:"parent,omitempty"`
-	Title      string   `json:"title,omitempty"`
-	MimeType   string   `json:"mimeType"`
-	IsText     bool     `json:"isText"`
-	SizeBytes  int      `json:"sizeBytes"`
-	CreatedAt  string   `json:"createdAt,omitempty"`
-	Depth      int      `json:"depth"`
-	Children   []string `json:"children"`
-	ComputedID string   `json:"computedId,omitempty"`
+	Key           string   `json:"key"`
+	Parent        string   `json:"parent,omitempty"`
+	Title         string   `json:"title,omitempty"`
+	MimeType      string   `json:"mimeType"`
+	IsText        bool     `json:"isText"`
+	SizeBytes     int      `json:"sizeBytes"`
+	CreatedAt     string   `json:"createdAt,omitempty"`
+	Depth         int      `json:"depth"`
+	Children      []string `json:"children"`
+	ComputedID    string   `json:"computedId,omitempty"`
+	SuggestedEdit string   `json:"suggestedEdit,omitempty"`
+	EditOf        string   `json:"editOf,omitempty"`
 }
 
 func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
@@ -106,19 +109,32 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("failed to hydrate thread summary", "error", err, "key", roots[idx].key.String())
 			continue
 		}
+		effective := data
+		if !data.SuggestedEdit.IsZero() {
+			if latest, latestErr := s.db.GetData(ctx, data.SuggestedEdit); latestErr == nil {
+				effective = latest
+			} else {
+				s.log.Warn("failed to hydrate suggested edit for summary", "error", latestErr, "key", roots[idx].key.String(), "edit", data.SuggestedEdit.String())
+			}
+		}
 		summary := threadSummary{
 			Key:        data.Key.String(),
-			Title:      data.Title,
-			MimeType:   normalizeMime(data.MimeType, data.IsText),
-			IsText:     data.IsText,
-			SizeBytes:  len(data.Content),
+			Title:      effective.Title,
+			MimeType:   normalizeMime(effective.MimeType, effective.IsText),
+			IsText:     effective.IsText,
+			SizeBytes:  len(effective.Content),
 			ChildCount: len(data.Children),
 		}
-		if !data.CreatedAt.IsZero() {
-			summary.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)
+		if !effective.CreatedAt.IsZero() {
+			summary.CreatedAt = effective.CreatedAt.UTC().Format(time.RFC3339Nano)
 		}
-		if data.IsText {
-			summary.Preview = clipString(string(data.Content), 240)
+		if data.SuggestedEdit.IsZero() {
+			summary.SuggestedEdit = ""
+		} else {
+			summary.SuggestedEdit = data.SuggestedEdit.String()
+		}
+		if effective.IsText {
+			summary.Preview = clipString(string(effective.Content), 240)
 		} else {
 			summary.Preview = binaryPreview(summary.MimeType, summary.SizeBytes)
 		}
@@ -174,8 +190,9 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type queueItem struct {
-		key   cryptHash.Hash
-		depth int
+		key    cryptHash.Hash
+		depth  int
+		parent cryptHash.Hash
 	}
 
 	queue := []queueItem{{key: rootKey, depth: 0}}
@@ -198,25 +215,51 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 		}
 		seen[keyLabel] = struct{}{}
 
-		data, err := s.db.GetData(r.Context(), item.key)
+		baseData, err := s.db.GetData(r.Context(), item.key)
 		if err != nil {
 			s.log.Warn("failed to stream node", "error", err, "key", keyLabel)
 			continue
 		}
 
+		if !item.parent.IsZero() && !baseData.EditOf.IsZero() && baseData.EditOf == item.parent {
+			// Skip explicit edit-reply nodes; the latest edit is surfaced via SuggestedEdit on the parent.
+			continue
+		}
+
+		nodeData := baseData
+		if !baseData.SuggestedEdit.IsZero() {
+			if latest, latestErr := s.db.GetData(r.Context(), baseData.SuggestedEdit); latestErr == nil {
+				nodeData = latest
+			} else {
+				s.log.Warn("failed to hydrate suggested edit for node", "error", latestErr, "key", keyLabel, "edit", baseData.SuggestedEdit.String())
+			}
+		}
+
 		node := threadNode{
-			Key:       data.Key.String(),
-			Title:     data.Title,
-			MimeType:  normalizeMime(data.MimeType, data.IsText),
-			IsText:    data.IsText,
-			SizeBytes: len(data.Content),
+			Key:       baseData.Key.String(),
+			Title:     nodeData.Title,
+			MimeType:  normalizeMime(nodeData.MimeType, nodeData.IsText),
+			IsText:    nodeData.IsText,
+			SizeBytes: len(nodeData.Content),
 			Depth:     item.depth,
+			SuggestedEdit: func() string {
+				if baseData.SuggestedEdit.IsZero() {
+					return ""
+				}
+				return baseData.SuggestedEdit.String()
+			}(),
+			EditOf: func() string {
+				if nodeData.EditOf.IsZero() {
+					return ""
+				}
+				return nodeData.EditOf.String()
+			}(),
 		}
-		if !data.CreatedAt.IsZero() {
-			node.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)
+		if !nodeData.CreatedAt.IsZero() {
+			node.CreatedAt = nodeData.CreatedAt.UTC().Format(time.RFC3339Nano)
 		}
-		if !data.Parent.IsZero() {
-			node.Parent = data.Parent.String()
+		if !baseData.Parent.IsZero() {
+			node.Parent = baseData.Parent.String()
 		}
 		// Include computed_id if indexer is available
 		if s.indexer != nil {
@@ -224,14 +267,14 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 				node.ComputedID = cid
 			}
 		}
-		node.Children = make([]string, 0, len(data.Children))
-		for _, child := range data.Children {
+		node.Children = make([]string, 0, len(baseData.Children))
+		for _, child := range baseData.Children {
 			if child.IsZero() {
 				continue
 			}
 			node.Children = append(node.Children, child.String())
 			if depthLimit < 0 || item.depth+1 <= depthLimit {
-				queue = append(queue, queueItem{key: child, depth: item.depth + 1})
+				queue = append(queue, queueItem{key: child, depth: item.depth + 1, parent: item.key})
 			}
 		}
 

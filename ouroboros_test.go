@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	cryptHash "github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboroskv "github.com/i5heu/ouroboros-kv"
 )
@@ -174,6 +175,68 @@ func TestStoreData_AutoIndexes(t *testing.T) {
 				return
 			}
 		}
+	}
+}
+
+func TestGetDataSuggestsLatestEdit(t *testing.T) {
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+	cfg := Config{Paths: []string{testDir}, MinimumFreeGB: 1, Logger: testLogger()}
+	db, err := New(cfg)
+	if err != nil {
+		t.Fatalf("new db: %v", err)
+	}
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("start db: %v", err)
+	}
+	defer func() { _ = db.CloseWithoutContext() }()
+
+	baseContent := []byte("base")
+	baseKey, err := db.StoreData(context.Background(), baseContent, StoreOptions{MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("store base: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	editContent := []byte("edit")
+	editKey, err := db.StoreData(context.Background(), editContent, StoreOptions{
+		MimeType: "text/plain; charset=utf-8",
+		EditOf:   baseKey,
+	})
+	if err != nil {
+		t.Fatalf("store edit: %v", err)
+	}
+
+	// Force index updates so edit resolution is available synchronously.
+	if idx := db.Indexer(); idx != nil {
+		if err := idx.IndexHash(baseKey); err != nil {
+			t.Fatalf("index base: %v", err)
+		}
+		if err := idx.IndexHash(editKey); err != nil {
+			t.Fatalf("index edit: %v", err)
+		}
+	}
+
+	data, err := db.GetData(context.Background(), baseKey)
+	if err != nil {
+		t.Fatalf("get data: %v", err)
+	}
+	if data.SuggestedEdit.IsZero() || data.SuggestedEdit != editKey {
+		t.Fatalf("expected suggested edit %s, got %s", editKey.String(), data.SuggestedEdit.String())
+	}
+	if data.EditOf != (cryptHash.Hash{}) {
+		t.Fatalf("expected base record to have empty EditOf, got %s", data.EditOf.String())
+	}
+	if string(data.Content) != string(baseContent) {
+		t.Fatalf("expected original content to be returned, got %q", string(data.Content))
+	}
+
+	resolved, changed := db.resolveLatestEdit(baseKey)
+	if !changed || resolved != editKey {
+		t.Fatalf("expected resolveLatestEdit to return edit %s, got %s (changed=%v)", editKey.String(), resolved.String(), changed)
 	}
 }
 
