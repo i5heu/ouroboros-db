@@ -630,6 +630,64 @@
 	};
 
 	const upsertNodeFromStream = (node: ThreadNodePayload) => {
+		// If this node is an edit of another message, do NOT display it separately.
+		// Instead, update the original message to point to this edit, and register
+		// the edit key so subsequent edits in the chain can find the original.
+		// EXCEPTION: If messages is empty, this is the first/root node being streamed
+		// (e.g., from a search selection), so we should display it even if it's an edit.
+		if (node.editOf && messages.length > 0) {
+			// Walk the edit chain to find the original (non-edit) message
+			let originalKey = node.editOf;
+			let visited = new Set<string>();
+			while (originalKey && !visited.has(originalKey)) {
+				visited.add(originalKey);
+				const path = keyToPath.get(originalKey);
+				if (path) {
+					const msg = getMessageAtPath(messages, path);
+					if (msg && msg.editOf) {
+						// This message is itself an edit, keep walking back
+						originalKey = msg.editOf;
+					} else {
+						// Found the original message
+						break;
+					}
+				} else {
+					break;
+				}
+			}
+
+			const originalPath = keyToPath.get(originalKey);
+			if (originalPath) {
+				updateMessageAtPath(originalPath, (message) => {
+					// Update the original message with the edit's content metadata
+					message.mimeType = node.mimeType;
+					message.isText = node.isText;
+					message.sizeBytes = node.sizeBytes;
+					// Keep original createdAt to preserve position in sort order
+					if (node.computedId) {
+						message.computedId = node.computedId;
+					}
+					// Track that this message has been edited and store the edit key
+					message.suggestedEdit = node.key;
+					message.resolvedKey = node.key;
+					if (node.title) {
+						message.title = node.title;
+						if (!message.attachmentName) {
+							message.attachmentName = node.title;
+						}
+					}
+				});
+				// Register the edit key to point to the original's path
+				if (node.key) {
+					keyToPath.set(node.key, originalPath);
+				}
+				requestMessageHydration(node);
+				return;
+			}
+			// If original not found, skip this edit entirely - don't create a duplicate
+			return;
+		}
+
 		const existingPath = node.key ? keyToPath.get(node.key) : undefined;
 		if (existingPath) {
 			updateMessageAtPath(existingPath, (message) => {
@@ -1076,9 +1134,21 @@
 		if (!node.key) {
 			return;
 		}
-		const cached = await readCachedMessageRecord(node.key);
+		// Use suggestedEdit key if available - this points to the latest edit content
+		const hydrateKey = node.suggestedEdit || node.key;
+
+		// Map the hydration key to the original's path BEFORE hydrating,
+		// so when the result comes back, applyRecordToMessage can find it
+		if (hydrateKey !== node.key) {
+			const path = keyToPath.get(node.key);
+			if (path) {
+				keyToPath.set(hydrateKey, path);
+			}
+		}
+
+		const cached = await readCachedMessageRecord(hydrateKey);
 		if (cached) {
-			applyRecordToMessage(cached);
+			applyRecordToMessage({ ...cached, key: node.key });
 			return;
 		}
 		// For text nodes, we hydrate via the bulk worker (it will provide content
@@ -1086,14 +1156,15 @@
 		// (could be large) and instead perform a small Range fetch to get headers
 		// such as X-Ouroboros-Title.
 		if (node.isText) {
-			await enqueueBulkHydration(node.key);
+			await enqueueBulkHydration(hydrateKey);
 			return;
 		}
 		try {
-			const record = await fetchMessageMetadata(node);
+			const record = await fetchMessageMetadata({ ...node, key: hydrateKey });
 			if (record) {
+				// Store with the hydrate key but apply to the original message
 				persistMessageRecord(record);
-				applyRecordToMessage(record);
+				applyRecordToMessage({ ...record, key: node.key });
 			}
 		} catch (error) {
 			console.warn('Failed to fetch message metadata', error);
@@ -1262,6 +1333,14 @@
 				const current = [...prefix, index];
 				if (node.key) {
 					map.set(node.key, current);
+				}
+				// Also map suggestedEdit and resolvedKey to the same path,
+				// so hydration results from edit keys can find the original message
+				if (node.suggestedEdit && node.suggestedEdit !== node.key) {
+					map.set(node.suggestedEdit, current);
+				}
+				if (node.resolvedKey && node.resolvedKey !== node.key) {
+					map.set(node.resolvedKey, current);
 				}
 				traverse(node.children, current);
 			});
@@ -1953,7 +2032,10 @@
 			mime_type: mimeType,
 			is_text: true,
 			filename: 'message.txt',
-			edit_of: target.key
+			// Use resolvedKey or suggestedEdit if available - this ensures edits form
+			// a chain (Test1 → Test2 → Test3 → Test4) rather than all pointing to the
+			// original (Test1 ← Test2, Test1 ← Test3, Test1 ← Test4).
+			edit_of: target.resolvedKey || target.suggestedEdit || target.key
 		};
 		if (target.parentKey) {
 			metadata.parent = target.parentKey;
@@ -1996,7 +2078,15 @@
 
 			const updated = getMessageAtPath(messages, editTargetPath);
 			if (updated && updated.key) {
-				persistMessageRecord(messageToRecord(updated));
+				// Cache with both the original key AND the new edit key.
+				// On reload, we'll hydrate using suggestedEdit (the new key),
+				// so it needs to be in the cache.
+				const record = messageToRecord(updated);
+				persistMessageRecord(record);
+				if (key && key !== updated.key) {
+					// Also cache under the new edit key so hydration can find it
+					persistMessageRecord({ ...record, key: key });
+				}
 			}
 
 			statusState = 'success';
@@ -2739,6 +2829,7 @@
 		top: 0;
 		background: var(--surface-raised);
 		padding: 0.75rem;
+		z-index: 100;
 	}
 
 	.conversation-header h1 {

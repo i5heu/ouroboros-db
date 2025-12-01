@@ -316,11 +316,14 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		return hash.Hash{}, err
 	}
 
-	// After successful write, index the new data asynchronously if indexer is present.
+	// After successful write, index the new data. This must be synchronous
+	// so that edit chain resolution works correctly on subsequent reads.
+	// Previously this was async which caused race conditions where the index
+	// wasn't updated in time for reload requests.
 	if ou.indexer != nil {
-		go func(h hash.Hash) {
-			_ = ou.indexer.IndexHash(h)
-		}(dataHash)
+		if err := ou.indexer.IndexHash(dataHash); err != nil && ou.log != nil {
+			ou.log.Warn("failed to index new data", "error", err, "key", dataHash.String())
+		}
 	}
 
 	return dataHash, nil

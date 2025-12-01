@@ -249,10 +249,13 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 				return baseData.SuggestedEdit.String()
 			}(),
 			EditOf: func() string {
-				if nodeData.EditOf.IsZero() {
+				// Use baseData.EditOf, not nodeData.EditOf, because we want to know
+				// if THIS node (by its original key) is an edit, not whether the
+				// suggested edit content is an edit of something else.
+				if baseData.EditOf.IsZero() {
 					return ""
 				}
-				return nodeData.EditOf.String()
+				return baseData.EditOf.String()
 			}(),
 		}
 		if !nodeData.CreatedAt.IsZero() {

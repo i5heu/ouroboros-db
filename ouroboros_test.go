@@ -240,6 +240,106 @@ func TestGetDataSuggestsLatestEdit(t *testing.T) {
 	}
 }
 
+func TestGetDataSuggestsLatestEditChained(t *testing.T) {
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+	cfg := Config{Paths: []string{testDir}, MinimumFreeGB: 1, Logger: testLogger()}
+	db, err := New(cfg)
+	if err != nil {
+		t.Fatalf("new db: %v", err)
+	}
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("start db: %v", err)
+	}
+	defer func() { _ = db.CloseWithoutContext() }()
+
+	// Create original message (Test1)
+	test1Content := []byte("Test1")
+	test1Key, err := db.StoreData(context.Background(), test1Content, StoreOptions{MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("store test1: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Edit Test1 -> Test2
+	test2Content := []byte("Test2")
+	test2Key, err := db.StoreData(context.Background(), test2Content, StoreOptions{
+		MimeType: "text/plain; charset=utf-8",
+		EditOf:   test1Key,
+	})
+	if err != nil {
+		t.Fatalf("store test2: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Edit Test2 -> Test3
+	test3Content := []byte("Test3")
+	test3Key, err := db.StoreData(context.Background(), test3Content, StoreOptions{
+		MimeType: "text/plain; charset=utf-8",
+		EditOf:   test2Key,
+	})
+	if err != nil {
+		t.Fatalf("store test3: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Edit Test3 -> Test10
+	test10Content := []byte("Test10")
+	test10Key, err := db.StoreData(context.Background(), test10Content, StoreOptions{
+		MimeType: "text/plain; charset=utf-8",
+		EditOf:   test3Key,
+	})
+	if err != nil {
+		t.Fatalf("store test10: %v", err)
+	}
+
+	// Force index updates so edit resolution is available synchronously.
+	idx := db.Indexer()
+	if idx != nil {
+		for _, k := range []cryptHash.Hash{test1Key, test2Key, test3Key, test10Key} {
+			if err := idx.IndexHash(k); err != nil {
+				t.Fatalf("index %s: %v", k.String(), err)
+			}
+		}
+	}
+
+	// Verify the edit chain resolves correctly from Test1 to Test10
+	resolved, changed := db.resolveLatestEdit(test1Key)
+	if !changed || resolved != test10Key {
+		t.Fatalf("expected resolveLatestEdit(test1) to return test10 %s, got %s (changed=%v)",
+			test10Key.String(), resolved.String(), changed)
+	}
+
+	// Verify GetData on test1 returns suggestedEdit pointing to test10
+	data, err := db.GetData(context.Background(), test1Key)
+	if err != nil {
+		t.Fatalf("get data: %v", err)
+	}
+	if data.SuggestedEdit.IsZero() || data.SuggestedEdit != test10Key {
+		t.Fatalf("expected suggested edit %s, got %s", test10Key.String(), data.SuggestedEdit.String())
+	}
+
+	// Verify the original content is returned (not the edit content)
+	if string(data.Content) != string(test1Content) {
+		t.Fatalf("expected original content %q, got %q", string(test1Content), string(data.Content))
+	}
+
+	// Verify that intermediate edits also resolve to test10
+	resolvedFrom2, _ := db.resolveLatestEdit(test2Key)
+	if resolvedFrom2 != test10Key {
+		t.Fatalf("expected resolveLatestEdit(test2) to return test10 %s, got %s",
+			test10Key.String(), resolvedFrom2.String())
+	}
+
+	resolvedFrom3, _ := db.resolveLatestEdit(test3Key)
+	if resolvedFrom3 != test10Key {
+		t.Fatalf("expected resolveLatestEdit(test3) to return test10 %s, got %s",
+			test10Key.String(), resolvedFrom3.String())
+	}
+}
+
 func TestNewOuroborosDB_WithDefaultLogger(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })
