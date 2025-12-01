@@ -399,6 +399,9 @@
 			{/if}
 		</div>
 	{:else}
+		{#if message.title}
+			<div class="message-title">{message.title}</div>
+		{/if}
 		<p>{message.content}</p>
 	{/if}
 	{#if createdAtLabel}
@@ -507,6 +510,13 @@
 	.message p {
 		margin: 0;
 		line-height: 1.5;
+	}
+
+	.message-title {
+		margin: 0 0 0.25rem 0;
+		font-weight: 700;
+		color: var(--text-primary, #e5e7eb);
+		font-size: 0.95rem;
 	}
 
 	.attachment {

@@ -84,6 +84,8 @@
 
 	let messages: Message[] = [];
 	let inputValue = '';
+	// Optional title for message being composed
+	let inputTitle = '';
 	let nextId = 1;
 	let selectedPath: number[] | null = null;
 	let selectedMessage: Message | null = null;
@@ -1469,13 +1471,16 @@
 			encodedContent: base64Content,
 			mimeType: 'text/plain; charset=utf-8',
 			isText: true,
-			sizeBytes: textBytes.length
+			sizeBytes: textBytes.length,
+			title: inputTitle.trim() ? inputTitle.trim() : undefined
 		};
 
 		const newPath = insertMessage(newMessage, parentPath);
 		inputValue = '';
 
 		void persistMessage(newPath);
+		// reset title input for next message
+		inputTitle = '';
 	};
 
 	const openFilePicker = () => {
@@ -1517,11 +1522,14 @@
 					mimeType,
 					isText: false,
 					sizeBytes: file.size,
-					attachmentName: file.name || undefined
+					attachmentName: file.name || undefined,
+					title: inputTitle.trim() ? inputTitle.trim() : undefined
 				};
 
 				const newPath = insertMessage(newMessage, parentPath);
 				await persistMessage(newPath);
+				// keep the same behavior as text messages: clear title after send
+				inputTitle = '';
 			} catch (error) {
 				console.error('Failed to attach file', error);
 				statusState = 'error';
@@ -1758,12 +1766,31 @@
 						</button>
 					</div>
 				{:else}
-					<textarea
-						bind:value={inputValue}
-						rows="3"
-						placeholder="Type a message and press Enter"
-						on:keydown={handleKeydown}
-					></textarea>
+					<div class="message-input-wrapper">
+						<input
+							type="text"
+							placeholder="Optional title"
+							bind:value={inputTitle}
+							class="title-input-mobile"
+							on:keydown={(e) => {
+								if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim().length > 0) {
+									// prevent sending the message on enter in the title input
+									e.preventDefault();
+									// move focus to the message textarea
+									const ta = document.querySelector(
+										'.input-area textarea'
+									) as HTMLTextAreaElement | null;
+									ta?.focus();
+								}
+							}}
+						/>
+						<textarea
+							bind:value={inputValue}
+							rows="3"
+							placeholder="Type a message and press Enter"
+							on:keydown={handleKeydown}
+						></textarea>
+					</div>
 					<button
 						type="button"
 						class="attach-button"
@@ -2219,6 +2246,17 @@
 		background: var(--surface-raised);
 		padding: 1rem 0;
 		z-index: 5;
+	}
+
+	.message-input-wrapper {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+		min-width: 0;
+	}
+
+	.input-area .title-input-mobile {
+		min-width: 0; /* allow shrinking inside the input-area */
 	}
 
 	:global(:root) {
