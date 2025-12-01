@@ -2,6 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import type { Message } from '../types';
 	import { fetchAttachmentBlob, fetchAttachmentRange } from '../apiClient';
+	import { renderMarkdown } from '../markdown';
 
 	export let message: Message;
 	export let level = 0;
@@ -50,6 +51,7 @@
 	let videoPreviewSource: string | null = null;
 	let childNodes: Message[] = [];
 	let computedIdCopied = false;
+	let renderedMarkdown = '';
 
 	const closeModal = () => {
 		modalAttachment = null;
@@ -199,6 +201,7 @@
 	$: attachmentDisplayUrl = encodedDataUrl ?? attachmentUrl ?? null;
 	$: videoPreviewSource = videoPreviewUrl ?? attachmentDisplayUrl;
 	$: childNodes = (message.children ?? []) as Message[];
+	$: renderedMarkdown = !isAttachment ? renderMarkdown(message.content ?? '') : '';
 
 	const loadAttachmentBlob = async () => {
 		if (!message.key) return;
@@ -426,7 +429,13 @@
 		{#if message.title}
 			<div class="message-title">{message.title}</div>
 		{/if}
-		<p>{message.content}</p>
+		{#if renderedMarkdown}
+			<div class="message-body" aria-label="Message body">
+				{@html renderedMarkdown}
+			</div>
+		{:else}
+			<p class="message-plain">{message.content}</p>
+		{/if}
 	{/if}
 	{#if createdAtLabel}
 		<div class="timestamp">Created {createdAtLabel}</div>
@@ -557,6 +566,78 @@
 		white-space: pre-wrap;
 		/* Ensure long words still wrap */
 		word-break: break-word;
+	}
+
+	.message-plain {
+		margin: 0;
+		line-height: 1.5;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.message-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		line-height: 1.5;
+	}
+
+	.message-body :global(*) {
+		max-width: 100%;
+	}
+
+	.message-body :global(p),
+	.message-body :global(li),
+	.message-body :global(td),
+	.message-body :global(th) {
+		margin: 0;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.message-body :global(p + p),
+	.message-body :global(p + ul),
+	.message-body :global(p + ol),
+	.message-body :global(ul + p),
+	.message-body :global(ol + p),
+	.message-body :global(blockquote + p) {
+		margin-top: 0.35rem;
+	}
+
+	.message-body :global(ul),
+	.message-body :global(ol) {
+		padding-left: 1.25rem;
+	}
+
+	.message-body :global(blockquote) {
+		margin: 0;
+		padding-left: 0.85rem;
+		border-left: 3px solid rgba(148, 163, 184, 0.4);
+		color: #cbd5f5;
+	}
+
+	.message-body :global(code) {
+		font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+		font-size: 0.9em;
+		background: rgba(15, 23, 42, 0.65);
+		padding: 0.1rem 0.25rem;
+		border-radius: 0.25rem;
+	}
+
+	.message-body :global(pre) {
+		font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+		font-size: 0.85rem;
+		background: rgba(15, 23, 42, 0.75);
+		padding: 0.65rem;
+		border-radius: 0.4rem;
+		overflow-x: auto;
+		white-space: pre;
+	}
+
+	.message-body :global(a) {
+		color: #93c5fd;
+		text-decoration: underline;
+		word-break: break-all;
 	}
 
 	.message-title {
