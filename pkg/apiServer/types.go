@@ -32,6 +32,7 @@ type createMetadata struct {
 	IsText                  *bool    `json:"is_text"`
 	Filename                string   `json:"filename"`
 	Title                   string   `json:"title,omitempty"`
+	EditOf                  string   `json:"edit_of,omitempty"`
 }
 
 type AuthFunc func(req *http.Request, db *ouroboros.OuroborosDB) error

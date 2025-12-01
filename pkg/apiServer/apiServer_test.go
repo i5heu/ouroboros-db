@@ -174,6 +174,74 @@ func TestGetBinaryData(t *testing.T) { // A
 	}
 }
 
+func TestGetReturnsLatestEdit(t *testing.T) { // A
+	db, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+
+	server := New(db, WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error { return nil }))
+
+	originalPayload := []byte("original message")
+	originalReq := newMultipartRequest(
+		t,
+		http.MethodPost,
+		"/data",
+		originalPayload,
+		"message.txt",
+		"text/plain; charset=utf-8",
+		map[string]any{"mime_type": "text/plain; charset=utf-8"},
+	)
+	originalRec := httptest.NewRecorder()
+	server.ServeHTTP(originalRec, originalReq)
+	if originalRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for original message, got %d", originalRec.Code)
+	}
+	var createResp struct {
+		Key string `json:"key"`
+	}
+	decodeJSONResponse(t, originalRec, &createResp)
+
+	time.Sleep(2 * time.Millisecond)
+
+	editPayload := []byte("updated message")
+	editReq := newMultipartRequest(
+		t,
+		http.MethodPost,
+		"/data",
+		editPayload,
+		"message.txt",
+		"text/plain; charset=utf-8",
+		map[string]any{"mime_type": "text/plain; charset=utf-8", "edit_of": createResp.Key},
+	)
+	editRec := httptest.NewRecorder()
+	server.ServeHTTP(editRec, editReq)
+	if editRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for edit message, got %d", editRec.Code)
+	}
+	var editResp struct {
+		Key string `json:"key"`
+	}
+	decodeJSONResponse(t, editRec, &editResp)
+
+	getRec := httptest.NewRecorder()
+	server.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/data/"+createResp.Key, nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", getRec.Code)
+	}
+
+	if body := getRec.Body.Bytes(); !bytes.Equal(body, editPayload) {
+		t.Fatalf("expected latest edit payload, got %q", string(body))
+	}
+	if resolved := getRec.Header().Get("X-Ouroboros-Key"); resolved != editResp.Key {
+		t.Fatalf("expected X-Ouroboros-Key to reflect resolved edit key %s, got %s", editResp.Key, resolved)
+	}
+	if requested := getRec.Header().Get("X-Ouroboros-Requested-Key"); requested != createResp.Key {
+		t.Fatalf("expected X-Ouroboros-Requested-Key to be %s, got %s", createResp.Key, requested)
+	}
+	if editOf := getRec.Header().Get("X-Ouroboros-Edit-Of"); editOf != createResp.Key {
+		t.Fatalf("expected X-Ouroboros-Edit-Of to be %s, got %s", createResp.Key, editOf)
+	}
+}
+
 func TestCreateTextWithExplicitMIME(t *testing.T) { // A
 	db, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)

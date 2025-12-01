@@ -1,5 +1,7 @@
 export type ThreadSummaryPayload = {
     key: string;
+    resolvedKey?: string;
+    editOf?: string;
     preview: string;
     title?: string;
     mimeType: string;
@@ -11,6 +13,8 @@ export type ThreadSummaryPayload = {
 
 export type ThreadNodePayload = {
     key: string;
+    resolvedKey?: string;
+    editOf?: string;
     parent?: string;
     title?: string;
     mimeType: string;
@@ -23,6 +27,8 @@ export type ThreadNodePayload = {
 
 export type BulkDataRecord = {
     key: string;
+    resolvedKey?: string;
+    editOf?: string;
     found: boolean;
     mimeType?: string;
     isText?: boolean;

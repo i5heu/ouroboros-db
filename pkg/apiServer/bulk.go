@@ -24,6 +24,8 @@ type bulkDataRequest struct {
 
 type bulkDataRecord struct {
 	Key            string `json:"key"`
+	ResolvedKey    string `json:"resolvedKey,omitempty"`
+	EditOf         string `json:"editOf,omitempty"`
 	Found          bool   `json:"found"`
 	MimeType       string `json:"mimeType,omitempty"`
 	IsText         bool   `json:"isText,omitempty"`
@@ -124,6 +126,16 @@ func (s *Server) fetchBulkRecord(r *http.Request, keyHex string, includeBinary b
 		IsText:    data.IsText,
 		SizeBytes: len(data.Content),
 		Title:     data.Title,
+	}
+	resolvedKey := data.ResolvedKey
+	if resolvedKey.IsZero() {
+		resolvedKey = data.Key
+	}
+	if resolvedKey != data.Key {
+		record.ResolvedKey = resolvedKey.String()
+	}
+	if !data.EditOf.IsZero() {
+		record.EditOf = data.EditOf.String()
 	}
 	if !data.CreatedAt.IsZero() {
 		record.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)
