@@ -941,7 +941,7 @@
 
 		return date.toLocaleString(undefined, {
 			dateStyle: 'medium',
-			timeStyle: 'short'
+			timeStyle: 'medium'
 		});
 	};
 
