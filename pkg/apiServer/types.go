@@ -33,6 +33,21 @@ type computedIDResponse struct {
 	ComputedID string `json:"computed_id"`
 }
 
+// lookupWithDataRecord is used in the combined lookup+data endpoint response
+type lookupWithDataRecord struct {
+	Key            string `json:"key"`
+	Found          bool   `json:"found"`
+	MimeType       string `json:"mimeType,omitempty"`
+	IsText         bool   `json:"isText,omitempty"`
+	SizeBytes      int    `json:"sizeBytes,omitempty"`
+	CreatedAt      string `json:"createdAt,omitempty"`
+	Content        string `json:"content,omitempty"`
+	EncodedContent string `json:"encodedContent,omitempty"`
+	Error          string `json:"error,omitempty"`
+	Title          string `json:"title,omitempty"`
+	ComputedID     string `json:"computedId,omitempty"`
+}
+
 type createMetadata struct {
 	ReedSolomonShards       uint8    `json:"reed_solomon_shards"`
 	ReedSolomonParityShards uint8    `json:"reed_solomon_parity_shards"`

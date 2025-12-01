@@ -59,6 +59,7 @@ func (s *Server) routes() { // AC
 	s.mux.HandleFunc("POST /authProcess", s.handleAuthProcess)
 	s.mux.HandleFunc("POST /search", s.handleSearch)
 	s.mux.HandleFunc("GET /lookup/", s.handleLookupByComputedID)
+	s.mux.HandleFunc("GET /lookupData/", s.handleLookupWithData)
 	s.mux.HandleFunc("GET /computedId/{key}", s.handleGetComputedID)
 }
 

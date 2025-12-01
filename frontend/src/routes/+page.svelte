@@ -9,6 +9,7 @@
 		searchThreadSummaries,
 		streamBulkMessages,
 		lookupByComputedId,
+		lookupWithData,
 		type ThreadNodePayload,
 		type ThreadSummaryPayload,
 		type BulkDataRecord
@@ -19,6 +20,7 @@
 		writeMessageRecords,
 		type MessageRecord
 	} from '../lib/indexedDb2';
+	import { terminateCacheWorker } from '../lib/cacheClient';
 
 	// Prefer VITE_OUROBOROS_API when set; default to same origin so dev-server proxy reduces CORS
 	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? '';
@@ -449,6 +451,13 @@
 		return query.includes(':') && !query.startsWith('http');
 	};
 
+	// Simple in-memory cache for computed_id lookups
+	const computedIdCache = new Map<string, { keys: string[]; timestamp: number }>();
+	const COMPUTED_ID_CACHE_TTL = 60000; // 1 minute
+
+	// Cache for message summaries (for search results)
+	const messageSummaryCache = new Map<string, ThreadSummaryPayload>();
+
 	const performSearch = async (query: string) => {
 		// Abort previous search
 		searchAbort?.abort();
@@ -466,45 +475,63 @@
 		threadsLoading = true;
 		const controller = new AbortController();
 		searchAbort = controller;
+
 		try {
+			const trimmedQuery = query.trim();
 			let results: ThreadSummaryPayload[] = [];
 
 			// If query looks like a computed_id, try lookup first
-			if (isComputedIdQuery(query.trim())) {
+			if (isComputedIdQuery(trimmedQuery)) {
 				try {
-					const lookupResult = await lookupByComputedId({
-						apiBaseUrl: API_BASE_URL,
-						computedId: query.trim(),
-						getHeaders: buildAuthHeaders
-					});
-					console.log('lookupResult:', lookupResult);
-					if (controller.signal.aborted) return;
-
-					// If we found matches, fetch their summaries
-					if (lookupResult.keys && lookupResult.keys.length > 0) {
-						console.log('Fetching bulk for keys:', lookupResult.keys);
-						await streamBulkMessages({
-							apiBaseUrl: API_BASE_URL,
-							keys: lookupResult.keys,
-							includeBinary: false,
-							getHeaders: buildAuthHeaders,
-							onRecord: (record) => {
-								console.log('Bulk record:', record);
-								if (!record || !record.key || !record.found) return;
-								const preview = record.content ?? '';
-								results.push({
-									key: record.key,
-									preview: preview.slice(0, 240),
-									title: record.title,
-									mimeType: record.mimeType ?? 'application/octet-stream',
-									isText: Boolean(record.isText),
-									sizeBytes: record.sizeBytes ?? 0,
-									childCount: 0,
-									createdAt: record.createdAt
-								});
+					// Check in-memory cache first (instant)
+					const cached = computedIdCache.get(trimmedQuery);
+					if (cached && Date.now() - cached.timestamp < COMPUTED_ID_CACHE_TTL) {
+						// Use cached keys - check message cache
+						for (const key of cached.keys) {
+							const cachedSummary = messageSummaryCache.get(key);
+							if (cachedSummary) {
+								results.push(cachedSummary);
 							}
-						});
-						console.log('Results after bulk:', results);
+						}
+						// If we have all cached, use them
+						if (results.length === cached.keys.length && results.length > 0) {
+							threadSummaries = results;
+							threadsLoading = false;
+							return;
+						}
+					}
+
+					// Use the combined endpoint - single request for lookup + data
+					const fetchedKeys: string[] = [];
+					await lookupWithData({
+						apiBaseUrl: API_BASE_URL,
+						computedId: trimmedQuery,
+						signal: controller.signal,
+						getHeaders: buildAuthHeaders,
+						onRecord: (record) => {
+							if (!record || !record.key || !record.found) return;
+							fetchedKeys.push(record.key);
+							const preview = record.content ?? '';
+							const summary: ThreadSummaryPayload = {
+								key: record.key,
+								preview: preview.slice(0, 240),
+								title: record.title,
+								mimeType: record.mimeType ?? 'application/octet-stream',
+								isText: Boolean(record.isText),
+								sizeBytes: record.sizeBytes ?? 0,
+								childCount: 0,
+								createdAt: record.createdAt,
+								computedId: record.computedId
+							};
+							// Cache the summary
+							messageSummaryCache.set(record.key, summary);
+							results.push(summary);
+						}
+					});
+
+					// Cache the computed_id -> keys mapping
+					if (fetchedKeys.length > 0) {
+						computedIdCache.set(trimmedQuery, { keys: fetchedKeys, timestamp: Date.now() });
 					}
 				} catch (lookupErr) {
 					// If computed_id lookup fails, fall back to regular search
@@ -516,7 +543,7 @@
 			if (results.length === 0) {
 				results = await searchThreadSummaries({
 					apiBaseUrl: API_BASE_URL,
-					query: query.trim(),
+					query: trimmedQuery,
 					limit: 50,
 					getHeaders: buildAuthHeaders
 				});
@@ -537,9 +564,10 @@
 
 	const onSearchInputChanged = (value: string) => {
 		if (searchTimer) clearTimeout(searchTimer);
+		// Shorter debounce for faster response
 		searchTimer = setTimeout(() => {
 			void performSearch(value);
-		}, 300);
+		}, 150);
 	};
 
 	const attemptInitialSelection = () => {
@@ -1528,6 +1556,7 @@
 		searchAbort?.abort();
 		if (searchTimer) clearTimeout(searchTimer);
 		resetHydrationWorker();
+		terminateCacheWorker();
 	});
 
 	$: if (authStatusText !== lastAuthStatusText) {

@@ -398,3 +398,41 @@ export const getComputedId = async (params: {
     }
     return await response.json();
 };
+
+export type LookupWithDataOptions = {
+    apiBaseUrl: string;
+    computedId: string;
+    signal?: AbortSignal;
+    getHeaders: HeaderProvider;
+    onRecord: (record: BulkDataRecord) => void;
+};
+
+/**
+ * Combined lookup by computed_id + fetch message data in a single request.
+ * This is optimized to reduce round trips - returns message data directly.
+ */
+export const lookupWithData = async (options: LookupWithDataOptions): Promise<void> => {
+    const headers = withNdjsonAccept(await options.getHeaders());
+    const response = await fetch(
+        `${options.apiBaseUrl}/lookupData/${encodeURIComponent(options.computedId)}`,
+        { headers, signal: options.signal }
+    );
+    if (!response.ok) {
+        const message = (await response.text()) || `Lookup failed (${response.status}).`;
+        throw new Error(message);
+    }
+
+    await consumeNdjson(
+        response,
+        (record) => {
+            if (!record || typeof record !== 'object') {
+                return;
+            }
+            const payload = record as { type?: string; record?: BulkDataRecord };
+            if (payload.type === 'record' && payload.record) {
+                options.onRecord(payload.record);
+            }
+        },
+        options.signal
+    );
+};

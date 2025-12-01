@@ -421,6 +421,118 @@ func (s *Server) handleGetComputedID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleLookupWithData combines lookup by computed_id with fetching message data in a single request.
+// This is optimized for the frontend to reduce round trips.
+// Returns NDJSON stream with message records.
+func (s *Server) handleLookupWithData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.indexer == nil {
+		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		return
+	}
+
+	// Extract the computed_id from the URL path after /lookupData/
+	const prefix = "/lookupData/"
+	path := r.URL.Path
+	if !strings.HasPrefix(path, prefix) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	computedID := path[len(prefix):]
+	if computedID == "" {
+		http.Error(w, "missing computed_id", http.StatusBadRequest)
+		return
+	}
+
+	// URL-decode the computedId
+	decodedID, err := url.PathUnescape(computedID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid computed_id encoding: %v", err), http.StatusBadRequest)
+		return
+	}
+	computedID = decodedID
+
+	// Lookup the hashes
+	hashes, err := s.indexer.LookupByComputedID(computedID)
+	if err != nil {
+		s.log.Error("lookup by computed_id failed", "error", err, "computedId", computedID)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	if len(hashes) == 0 {
+		// Return empty response
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Setup NDJSON streaming
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	flusher, canFlush := w.(http.Flusher)
+
+	// Fetch and stream each message
+	for _, h := range hashes {
+		record := lookupWithDataRecord{
+			Key:   h.String(),
+			Found: false,
+		}
+
+		msgData, getErr := s.db.GetData(r.Context(), h)
+		if getErr != nil {
+			record.Error = getErr.Error()
+		} else {
+			record.Found = true
+			record.MimeType = msgData.MimeType
+			record.IsText = msgData.IsText
+			record.SizeBytes = len(msgData.Content)
+			if !msgData.CreatedAt.IsZero() {
+				record.CreatedAt = msgData.CreatedAt.Format(time.RFC3339Nano)
+			}
+			if msgData.Title != "" {
+				record.Title = msgData.Title
+			}
+
+			// Get computed_id
+			if cid, cidErr := s.indexer.GetComputedID(h); cidErr == nil {
+				record.ComputedID = cid
+			}
+
+			// Include content for text messages
+			if msgData.IsText && len(msgData.Content) <= 1024*1024 {
+				record.Content = string(msgData.Content)
+			}
+		}
+
+		// Write the record as NDJSON
+		wrapper := struct {
+			Type   string               `json:"type"`
+			Record lookupWithDataRecord `json:"record"`
+		}{
+			Type:   "record",
+			Record: record,
+		}
+
+		jsonData, jsonErr := json.Marshal(wrapper)
+		if jsonErr != nil {
+			s.log.Error("failed to marshal record", "error", jsonErr)
+			continue
+		}
+
+		if _, writeErr := w.Write(append(jsonData, '\n')); writeErr != nil {
+			return
+		}
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+}
+
 func parseByteRange(header string, size int) (int, int, error) {
 	if size <= 0 {
 		return 0, 0, fmt.Errorf("invalid size for range")

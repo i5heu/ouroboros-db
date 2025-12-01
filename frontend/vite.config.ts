@@ -33,6 +33,11 @@ export default defineConfig(({ mode }) => ({
 				changeOrigin: true,
 				secure: false
 			},
+			'/lookupData': {
+				target: 'http://localhost:8083',
+				changeOrigin: true,
+				secure: false
+			},
 			'/computedId': {
 				target: 'http://localhost:8083',
 				changeOrigin: true,
