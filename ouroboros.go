@@ -62,6 +62,7 @@ type StoreOptions struct {
 	ReedSolomonParityShards uint8
 	MimeType                string
 	Title                   string
+	EditOf                  hash.Hash
 }
 
 // Config configures the database instance. Only Paths[0] is used at the
@@ -78,14 +79,16 @@ type Config struct {
 }
 
 type RetrievedData struct {
-	Key       hash.Hash
-	Content   []byte
-	MimeType  string
-	IsText    bool
-	Parent    hash.Hash
-	Children  []hash.Hash
-	CreatedAt time.Time
-	Title     string
+	Key         hash.Hash
+	ResolvedKey hash.Hash
+	EditOf      hash.Hash
+	Content     []byte
+	MimeType    string
+	IsText      bool
+	Parent      hash.Hash
+	Children    []hash.Hash
+	CreatedAt   time.Time
+	Title       string
 }
 
 // Use shared metadata type from pkg/meta
@@ -248,7 +251,12 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 	encodedContent := content
 
 	// TODO allow additional user-defined metadata but server set CreatedAt is mandatory
-	metaBytes, err := encodeMetadata(meta.Metadata{CreatedAt: time.Now().UTC(), Title: opts.Title, MimeType: opts.MimeType})
+	md := meta.Metadata{CreatedAt: time.Now().UTC(), Title: opts.Title, MimeType: opts.MimeType}
+	if !opts.EditOf.IsZero() {
+		md.EditOf = opts.EditOf.String()
+	}
+
+	metaBytes, err := encodeMetadata(md)
 	if err != nil {
 		return hash.Hash{}, fmt.Errorf("encode metadata: %w", err)
 	}
@@ -260,8 +268,12 @@ func (ou *OuroborosDB) StoreData(ctx context.Context, content []byte, opts Store
 		RSParitySlices: opts.ReedSolomonParityShards,
 	}
 
-	if !opts.Parent.IsZero() {
-		data.Parent = opts.Parent
+	effectiveParent := opts.Parent
+	if !opts.EditOf.IsZero() {
+		effectiveParent = opts.EditOf
+	}
+	if !effectiveParent.IsZero() {
+		data.Parent = effectiveParent
 	}
 	for _, child := range opts.Children {
 		if !child.IsZero() {
@@ -325,25 +337,36 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 		return RetrievedData{}, err
 	}
 
-	data, err := kv.ReadData(key)
+	resolvedKey, resolvedData, lineage, err := ou.resolveLatestEdit(ctx, kv, key)
 	if err != nil {
 		return RetrievedData{}, err
 	}
 
+	originalData := resolvedData
+	if resolvedKey != key {
+		if data, readErr := kv.ReadData(key); readErr == nil {
+			originalData = data
+		}
+	}
+
 	// Content is stored raw in the data payload and the MIME type is stored in metadata.
-	content := data.Content
+	content := resolvedData.Content
 	isText := false
 	returnedMime := ""
+	var editOf hash.Hash
 
-	parent := data.Parent
+	parent := originalData.Parent
 	if indexedParent, err := kv.GetParent(key); err == nil && !indexedParent.IsZero() {
 		parent = indexedParent
+	}
+	if parent.IsZero() {
+		parent = resolvedData.Parent
 	}
 
 	var createdAt time.Time
 	var title string
-	if len(data.Meta) > 0 {
-		md, metaErr := decodeMetadata(data.Meta)
+	if len(resolvedData.Meta) > 0 {
+		md, metaErr := decodeMetadata(resolvedData.Meta)
 		if metaErr != nil {
 			if ou.log != nil {
 				ou.log.Warn("failed to decode metadata", "error", metaErr, "key", key.String())
@@ -355,18 +378,25 @@ func (ou *OuroborosDB) GetData(ctx context.Context, key hash.Hash) (RetrievedDat
 				returnedMime = md.MimeType
 				isText = strings.HasPrefix(returnedMime, "text/")
 			}
+			if parsedEdit, err := parseEditOf(md.EditOf); err == nil {
+				editOf = parsedEdit
+			}
 		}
 	}
 
+	children := mergeChildrenExcludingEdits(kv, lineage, originalData.Children, resolvedData.Children)
+
 	return RetrievedData{
-		Key:       key,
-		Content:   content,
-		MimeType:  returnedMime,
-		IsText:    isText,
-		Parent:    parent,
-		Children:  data.Children,
-		CreatedAt: createdAt,
-		Title:     title,
+		Key:         key,
+		ResolvedKey: resolvedKey,
+		EditOf:      editOf,
+		Content:     content,
+		MimeType:    returnedMime,
+		IsText:      isText,
+		Parent:      parent,
+		Children:    children,
+		CreatedAt:   createdAt,
+		Title:       title,
 	}, nil
 }
 
@@ -388,4 +418,115 @@ func decodeMetadata(raw []byte) (meta.Metadata, error) { // PHC
 		return meta.Metadata{}, fmt.Errorf("decode metadata: %w", err)
 	}
 	return md, nil
+}
+
+func parseEditOf(raw string) (hash.Hash, error) { // HC
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return hash.Hash{}, nil
+	}
+	return hash.HashHexadecimal(trimmed)
+}
+
+func (ou *OuroborosDB) resolveLatestEdit(ctx context.Context, kv ouroboroskv.Store, start hash.Hash) (hash.Hash, ouroboroskv.Data, []hash.Hash, error) { // PAP
+	if err := ctx.Err(); err != nil {
+		return hash.Hash{}, ouroboroskv.Data{}, nil, err
+	}
+
+	currentKey := start
+	visited := make(map[string]struct{})
+	lineage := make([]hash.Hash, 0, 4)
+	var currentData ouroboroskv.Data
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return hash.Hash{}, ouroboroskv.Data{}, lineage, err
+		}
+		if _, seen := visited[currentKey.String()]; seen {
+			return hash.Hash{}, ouroboroskv.Data{}, lineage, fmt.Errorf("edit chain cycle detected for %s", currentKey.String())
+		}
+		visited[currentKey.String()] = struct{}{}
+		lineage = append(lineage, currentKey)
+
+		data, err := kv.ReadData(currentKey)
+		if err != nil {
+			return hash.Hash{}, ouroboroskv.Data{}, lineage, err
+		}
+		currentData = data
+
+		var latestKey hash.Hash
+		var latestData ouroboroskv.Data
+		var latestCreated time.Time
+
+		for _, child := range data.Children {
+			if child.IsZero() {
+				continue
+			}
+			childData, err := kv.ReadData(child)
+			if err != nil {
+				continue
+			}
+			md, err := decodeMetadata(childData.Meta)
+			if err != nil {
+				continue
+			}
+			editTarget, err := parseEditOf(md.EditOf)
+			if err != nil || editTarget.IsZero() {
+				continue
+			}
+			if editTarget != currentKey {
+				continue
+			}
+			createdAt := md.CreatedAt
+			if latestKey.IsZero() || createdAt.After(latestCreated) {
+				latestKey = child
+				latestData = childData
+				latestCreated = createdAt
+			}
+		}
+
+		if latestKey.IsZero() {
+			return currentKey, currentData, lineage, nil
+		}
+
+		currentKey = latestKey
+		currentData = latestData
+	}
+}
+
+func mergeChildrenExcludingEdits(kv ouroboroskv.Store, lineage []hash.Hash, childLists ...[]hash.Hash) []hash.Hash { // HC
+	lineageSet := make(map[string]struct{}, len(lineage))
+	for _, k := range lineage {
+		lineageSet[k.String()] = struct{}{}
+	}
+
+	seen := make(map[string]struct{})
+	merged := make([]hash.Hash, 0)
+
+	for _, list := range childLists {
+		for _, child := range list {
+			if child.IsZero() {
+				continue
+			}
+			keyStr := child.String()
+			if _, exists := seen[keyStr]; exists {
+				continue
+			}
+
+			if childData, err := kv.ReadData(child); err == nil {
+				if md, err := decodeMetadata(childData.Meta); err == nil {
+					if editTarget, err := parseEditOf(md.EditOf); err == nil && !editTarget.IsZero() {
+						if _, isEditChild := lineageSet[editTarget.String()]; isEditChild {
+							continue
+						}
+					}
+				}
+			}
+
+			seen[keyStr] = struct{}{}
+			merged = append(merged, child)
+		}
+	}
+
+	return merged
 }

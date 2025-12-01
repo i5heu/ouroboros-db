@@ -20,26 +20,30 @@ const (
 )
 
 type threadSummary struct {
-	Key        string `json:"key"`
-	Preview    string `json:"preview"`
-	Title      string `json:"title,omitempty"`
-	MimeType   string `json:"mimeType"`
-	IsText     bool   `json:"isText"`
-	SizeBytes  int    `json:"sizeBytes"`
-	ChildCount int    `json:"childCount"`
-	CreatedAt  string `json:"createdAt,omitempty"`
+	Key         string `json:"key"`
+	ResolvedKey string `json:"resolvedKey,omitempty"`
+	EditOf      string `json:"editOf,omitempty"`
+	Preview     string `json:"preview"`
+	Title       string `json:"title,omitempty"`
+	MimeType    string `json:"mimeType"`
+	IsText      bool   `json:"isText"`
+	SizeBytes   int    `json:"sizeBytes"`
+	ChildCount  int    `json:"childCount"`
+	CreatedAt   string `json:"createdAt,omitempty"`
 }
 
 type threadNode struct {
-	Key       string   `json:"key"`
-	Parent    string   `json:"parent,omitempty"`
-	Title     string   `json:"title,omitempty"`
-	MimeType  string   `json:"mimeType"`
-	IsText    bool     `json:"isText"`
-	SizeBytes int      `json:"sizeBytes"`
-	CreatedAt string   `json:"createdAt,omitempty"`
-	Depth     int      `json:"depth"`
-	Children  []string `json:"children"`
+	Key         string   `json:"key"`
+	ResolvedKey string   `json:"resolvedKey,omitempty"`
+	EditOf      string   `json:"editOf,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	MimeType    string   `json:"mimeType"`
+	IsText      bool     `json:"isText"`
+	SizeBytes   int      `json:"sizeBytes"`
+	CreatedAt   string   `json:"createdAt,omitempty"`
+	Depth       int      `json:"depth"`
+	Children    []string `json:"children"`
 }
 
 func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +115,12 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 			IsText:     data.IsText,
 			SizeBytes:  len(data.Content),
 			ChildCount: len(data.Children),
+		}
+		if data.ResolvedKey != data.Key {
+			summary.ResolvedKey = data.ResolvedKey.String()
+		}
+		if !data.EditOf.IsZero() {
+			summary.EditOf = data.EditOf.String()
 		}
 		if !data.CreatedAt.IsZero() {
 			summary.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)
@@ -203,6 +213,12 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 			IsText:    data.IsText,
 			SizeBytes: len(data.Content),
 			Depth:     item.depth,
+		}
+		if data.ResolvedKey != data.Key {
+			node.ResolvedKey = data.ResolvedKey.String()
+		}
+		if !data.EditOf.IsZero() {
+			node.EditOf = data.EditOf.String()
 		}
 		if !data.CreatedAt.IsZero() {
 			node.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)

@@ -486,6 +486,97 @@ func TestStoreDataParentChildRelationships(t *testing.T) { // A
 	}
 }
 
+func TestGetDataResolvesLatestEdit(t *testing.T) { // A
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+
+	db := newStartedDB(t, Config{Paths: []string{testDir}, MinimumFreeGB: 1, Logger: testLogger()})
+
+	ctx := context.Background()
+	originalKey, err := db.StoreData(ctx, []byte("v1"), StoreOptions{MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store original message: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	_, err = db.StoreData(ctx, []byte("v2"), StoreOptions{EditOf: originalKey, MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store first edit: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	latestKey, err := db.StoreData(ctx, []byte("v3"), StoreOptions{EditOf: originalKey, MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store second edit: %v", err)
+	}
+
+	data, err := db.GetData(ctx, originalKey)
+	if err != nil {
+		t.Fatalf("GetData failed: %v", err)
+	}
+
+	if data.Key != originalKey {
+		t.Fatalf("expected requested key %s to remain, got %s", originalKey.String(), data.Key.String())
+	}
+	if data.ResolvedKey != latestKey {
+		t.Fatalf("expected resolved key %s, got %s", latestKey.String(), data.ResolvedKey.String())
+	}
+	if data.EditOf != originalKey {
+		t.Fatalf("expected edit_of to point to %s, got %s", originalKey.String(), data.EditOf.String())
+	}
+	if string(data.Content) != "v3" {
+		t.Fatalf("expected resolved content 'v3', got %q", string(data.Content))
+	}
+}
+
+func TestGetDataMergesChildrenAcrossEdits(t *testing.T) { // A
+	testDir := setupTestDir(t)
+	t.Cleanup(func() { cleanupTestDir(t, testDir) })
+
+	setupTestKeyFile(t, testDir)
+	db := newStartedDB(t, Config{Paths: []string{testDir}, MinimumFreeGB: 1, Logger: testLogger()})
+
+	ctx := context.Background()
+	originalKey, err := db.StoreData(ctx, []byte("root"), StoreOptions{MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store original message: %v", err)
+	}
+
+	directChild, err := db.StoreData(ctx, []byte("reply"), StoreOptions{Parent: originalKey, MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store reply: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	editKey, err := db.StoreData(ctx, []byte("updated"), StoreOptions{EditOf: originalKey, MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store edit: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	replyToEdit, err := db.StoreData(ctx, []byte("follow-up"), StoreOptions{Parent: editKey, MimeType: "text/plain; charset=utf-8"})
+	if err != nil {
+		t.Fatalf("failed to store reply to edit: %v", err)
+	}
+
+	data, err := db.GetData(ctx, originalKey)
+	if err != nil {
+		t.Fatalf("GetData failed: %v", err)
+	}
+
+	expectedChildren := map[string]struct{}{directChild.String(): {}, replyToEdit.String(): {}}
+	if len(data.Children) != len(expectedChildren) {
+		t.Fatalf("expected %d children, got %d", len(expectedChildren), len(data.Children))
+	}
+	for _, child := range data.Children {
+		if _, ok := expectedChildren[child.String()]; !ok {
+			t.Fatalf("unexpected child %s in merged list", child.String())
+		}
+	}
+}
+
 func TestOuroborosDB_CryptOperations(t *testing.T) { // A
 	testDir := setupTestDir(t)
 	t.Cleanup(func() { cleanupTestDir(t, testDir) })

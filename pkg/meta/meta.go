@@ -9,4 +9,5 @@ type Metadata struct {
 	CreatedAt time.Time `json:"created_at"`
 	Title     string    `json:"title,omitempty"`
 	MimeType  string    `json:"mime_type,omitempty"`
+	EditOf    string    `json:"edit_of,omitempty"`
 }

@@ -60,6 +60,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // PA
 		return
 	}
 
+	editOfHash, err := parseHash(meta.EditOf)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid edit_of hash: %v", err), http.StatusBadRequest)
+		return
+	}
+
 	childrenHashes := make([]cryptHash.Hash, 0, len(meta.Children))
 	for _, child := range meta.Children {
 		h, err := parseHash(child)
@@ -96,6 +102,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) { // PA
 		ReedSolomonParityShards: parity,
 		MimeType:                mimeType,
 		Title:                   strings.TrimSpace(meta.Title),
+		EditOf:                  editOfHash,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -173,8 +180,19 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) { // A
 		}
 	}
 
+	resolvedKey := data.ResolvedKey
+	if resolvedKey.IsZero() {
+		resolvedKey = key
+	}
+
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("X-Ouroboros-Key", keyHex)
+	w.Header().Set("X-Ouroboros-Key", resolvedKey.String())
+	if resolvedKey != key {
+		w.Header().Set("X-Ouroboros-Requested-Key", key.String())
+	}
+	if !data.EditOf.IsZero() {
+		w.Header().Set("X-Ouroboros-Edit-Of", data.EditOf.String())
+	}
 	w.Header().Set("X-Ouroboros-Is-Text", strconv.FormatBool(data.IsText))
 	w.Header().Set("X-Ouroboros-Mime", mimeType)
 	if !data.CreatedAt.IsZero() {
