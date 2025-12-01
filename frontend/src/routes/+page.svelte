@@ -522,8 +522,12 @@
 		}
 
 		parentNode.children = [...parentNode.children, newMessage];
+		// sort parent's children and recalc mapping
+		sortMessageTree(parentNode.children);
 		messages = cloned;
 		keyToPath = buildKeyPathMap(messages);
+		const newPath = findPathById(messages, newMessage.id);
+		if (newPath) setSelectedPath(newPath);
 		requestMessageHydration(node);
 	};
 
@@ -1052,6 +1056,17 @@
 		return last;
 	};
 
+	const findPathById = (nodes: Message[], id: number, prefix: number[] = []): number[] | null => {
+		for (let i = 0; i < nodes.length; i += 1) {
+			const node = nodes[i];
+			const current = [...prefix, i];
+			if (node.id === id) return current;
+			const childResult = findPathById(node.children, id, current);
+			if (childResult) return childResult;
+		}
+		return null;
+	};
+
 	const getMessageAtPath = (source: Message[], path: number[]): Message | null => {
 		if (path.length === 0) {
 			return null;
@@ -1189,8 +1204,21 @@
 		}
 
 		updater(target);
+		// After updating a message, re-sort affected lists to maintain chronological order
+		sortMessageTree(cloned);
 		messages = cloned;
 		keyToPath = buildKeyPathMap(cloned);
+		// Keep the selected path pointing to the same message (by id) if still selected
+		if (selectedPath) {
+			const selectedMsg = getMessageAtPath(messages, selectedPath);
+			if (selectedMsg) {
+				const newSelectedPath = findPathById(messages, selectedMsg.id);
+				if (newSelectedPath) setSelectedPath(newSelectedPath);
+			} else {
+				// If message isn't found, clear selection
+				setSelectedPath(null);
+			}
+		}
 	};
 
 	const encodeToBase64 = (text: string): string =>
@@ -1312,18 +1340,21 @@
 			}
 
 			parentNode.children = [...parentNode.children, newMessage];
+			// sort children and re-calc mapping and selection
+			sortMessageTree(parentNode.children);
 			messages = cloned;
-			const newPath = [...parentPath, parentNode.children.length - 1];
 			keyToPath = buildKeyPathMap(cloned);
-			setSelectedPath(newPath);
-			return newPath;
+			const newPath = findPathById(messages, newMessage.id);
+			if (newPath) setSelectedPath(newPath);
+			return newPath ?? [...parentPath, parentNode.children.length - 1];
 		}
 
 		const cloned = deepClone(messages);
 		cloned.push(newMessage);
+		sortMessageTree(cloned);
 		messages = cloned;
-		const path = [cloned.length - 1];
 		keyToPath = buildKeyPathMap(cloned);
+		const path = findPathById(messages, newMessage.id) ?? [cloned.length - 1];
 		setSelectedPath(path);
 		return path;
 	};
