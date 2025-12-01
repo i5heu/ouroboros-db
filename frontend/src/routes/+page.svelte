@@ -98,6 +98,42 @@
 	let newThreadTitle = '';
 	let newThreadRootPath: number[] | null = null;
 	let titleInputEl: HTMLInputElement | null = null;
+	let titleEditing = false;
+
+	const applyTitleToSelected = (title: string) => {
+		if (!selectedPath) return;
+		const selMsg = getMessageAtPath(messages, selectedPath);
+		// Only apply title edits to selected messages that are pending (local/unpersisted) or have no key
+		if (!selMsg || (selMsg.key && selMsg.status === 'saved')) {
+			return;
+		}
+		const trimmed = title.trim();
+		updateMessageAtPath(selectedPath, (message) => {
+			message.title = trimmed ? trimmed : undefined;
+			if (message.isText) {
+				if ((message.content ?? '').trim().length === 0 && message.title) {
+					// if text message blank but a title exists, reflect it as content for visibility
+					message.content = message.title;
+					message.encodedContent = message.encodedContent ?? encodeToBase64(message.content);
+					message.sizeBytes =
+						message.sizeBytes ?? calculateBase64Size(message.encodedContent ?? '');
+				}
+			} else {
+				// For attachments, update the attachmentName and the displayed content
+				message.attachmentName = trimmed ? trimmed : undefined;
+				const nameForDisplay = message.attachmentName ?? message.attachmentName ?? '';
+				const size = message.sizeBytes ?? 0;
+				message.content = nameForDisplay
+					? `${nameForDisplay} (${formatBytes(size)})`
+					: attachmentLabel(message.mimeType ?? '', size);
+			}
+		});
+		// if message has a key (saved) persist the record locally so the title is stored in cache
+		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+		if (message && message.key) {
+			persistMessageRecord(messageToRecord(message));
+		}
+	};
 	let authStatus: AuthStatus = 'idle';
 	let authStatusText = 'Authenticate with the one-time key link to unlock data access.';
 	let authBannerVisible = true;
@@ -115,6 +151,28 @@
 		}
 		return 'Threaded Chat';
 	})();
+
+	// reactive helper: detect selected pending attachment and whether we can send
+	$: selectedPendingAttachment = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+	$: canSend =
+		statusState !== 'sending' &&
+		!newThreadMode &&
+		(inputValue.trim().length > 0 ||
+			(selectedPendingAttachment &&
+				selectedPendingAttachment.isText === false &&
+				selectedPendingAttachment.status === 'pending'));
+
+	// When we select a pending attachment, ensure the title input shows the title or filename
+	$: if (
+		selectedPendingAttachment &&
+		!selectedPendingAttachment.isText &&
+		selectedPendingAttachment.status === 'pending' &&
+		!titleEditing
+	) {
+		const desired =
+			selectedPendingAttachment.title ?? selectedPendingAttachment.attachmentName ?? '';
+		if (inputTitle !== desired) inputTitle = desired;
+	}
 
 	const countAllChildren = (nodeList: Message[] | undefined): number => {
 		if (!nodeList || nodeList.length === 0) return 0;
@@ -239,6 +297,18 @@
 		return Math.floor((value.length * 3) / 4) - padding;
 	};
 
+	const truncate = (value: string, length = 80): string => {
+		const trimmed = value.trim();
+		return trimmed.length <= length ? trimmed : `${trimmed.slice(0, length)}…`;
+	};
+
+	const sortThreadSummaries = (items: ThreadSummary[]): ThreadSummary[] =>
+		items.slice().sort((a, b) => {
+			const aTime = a.createdAt ?? '';
+			const bTime = b.createdAt ?? '';
+			return bTime.localeCompare(aTime);
+		});
+
 	const textLoadingPlaceholder = 'Loading message…';
 
 	const nodeParentKey = (value?: string | null): string | undefined => {
@@ -271,19 +341,6 @@
 			};
 			reader.readAsArrayBuffer(file);
 		});
-
-	const truncate = (value: string, length = 80): string => {
-		const trimmed = value.trim();
-		return trimmed.length <= length ? trimmed : `${trimmed.slice(0, length)}…`;
-	};
-
-	const sortThreadSummaries = (items: ThreadSummary[]): ThreadSummary[] =>
-		items.slice().sort((a, b) => {
-			const aTime = a.createdAt ?? '';
-			const bTime = b.createdAt ?? '';
-			return bTime.localeCompare(aTime);
-		});
-
 	const upsertThreadSummary = (summary: ThreadSummaryPayload) => {
 		const enriched: ThreadSummary = { ...summary, cachedAt: Date.now() };
 		const existingIndex = threadSummaries.findIndex((item) => item.key === summary.key);
@@ -467,7 +524,10 @@
 			mimeType: node.mimeType,
 			isText: node.isText,
 			sizeBytes,
-			attachmentName: !node.isText ? node.key : undefined,
+			// Prefer a server-provided title on stream for attachments. If not
+			// present, leave attachmentName undefined so it can be hydrated via
+			// metadata (without overriding the key, which is used as a fallback).
+			attachmentName: !node.isText ? (node.title ?? undefined) : undefined,
 			createdAt: node.createdAt,
 			createdAtMs,
 			title: node.title
@@ -486,6 +546,12 @@
 				message.parentKey = nodeParentKey(node.parent);
 				if (!node.isText) {
 					message.content = attachmentLabel(node.mimeType, node.sizeBytes ?? 0);
+				}
+				if (node.title) {
+					message.title = node.title;
+					if (!message.attachmentName) {
+						message.attachmentName = node.title;
+					}
 				}
 			});
 			requestMessageHydration(node);
@@ -526,8 +592,10 @@
 		sortMessageTree(parentNode.children);
 		messages = cloned;
 		keyToPath = buildKeyPathMap(messages);
-		const newPath = findPathById(messages, newMessage.id);
-		if (newPath) setSelectedPath(newPath);
+		// Do not auto-select streamed child nodes — keep selection stable unless
+		// the UI or user explicitly chooses a message. This prevents streamed
+		// nodes from hijacking selection (and causing new attachments to be
+		// posted as replies to a nested node).
 		requestMessageHydration(node);
 	};
 
@@ -555,6 +623,17 @@
 			}
 			if (record.title) {
 				message.title = record.title;
+				// For attachments, also reflect the title into attachmentName so
+				// the UI shows the friendly name after hydration.
+				if (!message.isText) {
+					// Don't override an existing attachmentName (e.g. user-edit), only set
+					// when none is present yet.
+					if (!message.attachmentName) {
+						message.attachmentName = record.title;
+					}
+					const size = message.sizeBytes ?? 0;
+					message.content = `${message.attachmentName} (${formatBytes(size)})`;
+				}
 			}
 		});
 	};
@@ -814,7 +893,9 @@
 			return;
 		}
 		try {
-			const record = await fetchMessageRecord(metadata);
+			const record = metadata.isText
+				? await fetchMessageRecord(metadata)
+				: await fetchMessageMetadata(metadata);
 			persistMessageRecord(record);
 			applyRecordToMessage(record);
 		} catch (error) {
@@ -864,7 +945,7 @@
 	};
 
 	const hydrateMessage = async (node: ThreadNodePayload) => {
-		if (!node.key || !node.isText) {
+		if (!node.key) {
 			return;
 		}
 		const cached = await readCachedMessageRecord(node.key);
@@ -872,11 +953,57 @@
 			applyRecordToMessage(cached);
 			return;
 		}
-		await enqueueBulkHydration(node.key);
+		// For text nodes, we hydrate via the bulk worker (it will provide content
+		// and metadata). For non-text nodes we avoid downloading the full payload
+		// (could be large) and instead perform a small Range fetch to get headers
+		// such as X-Ouroboros-Title.
+		if (node.isText) {
+			await enqueueBulkHydration(node.key);
+			return;
+		}
+		try {
+			const record = await fetchMessageMetadata(node);
+			if (record) {
+				persistMessageRecord(record);
+				applyRecordToMessage(record);
+			}
+		} catch (error) {
+			console.warn('Failed to fetch message metadata', error);
+		}
+	};
+
+	const fetchMessageMetadata = async (node: ThreadNodePayload): Promise<MessageRecord> => {
+		if (!node.key) {
+			throw new Error('Message key is required');
+		}
+		const headers = await withAuthHeaders();
+		// Request just the first byte to get headers without fetching full payload
+		headers['Range'] = 'bytes=0-0';
+		const response = await fetch(`${API_BASE_URL}/data/${node.key}`, { headers });
+		if (!response.ok) {
+			const message = (await response.text()) || `Failed to load message ${node.key}`;
+			throw new Error(message);
+		}
+		const headerMime =
+			response.headers.get('X-Ouroboros-Mime') ?? response.headers.get('Content-Type');
+		const mimeType = headerMime ?? node.mimeType ?? 'application/octet-stream';
+		const headerIsText = response.headers.get('X-Ouroboros-Is-Text');
+		const isText = headerIsText ? headerIsText.toLowerCase() === 'true' : node.isText;
+		const createdAt = response.headers.get('X-Ouroboros-Created-At') ?? node.createdAt;
+		const headerTitle = response.headers.get('X-Ouroboros-Title');
+		const resolvedSize = node.sizeBytes ?? 0;
+		return {
+			key: node.key,
+			mimeType,
+			isText,
+			sizeBytes: resolvedSize,
+			createdAt,
+			title: headerTitle || undefined
+		};
 	};
 
 	const requestMessageHydration = (node: ThreadNodePayload) => {
-		if (!node.key || !node.isText || messageHydrations.has(node.key)) {
+		if (!node.key || messageHydrations.has(node.key)) {
 			return;
 		}
 		pendingHydrationNodes.set(node.key, node);
@@ -1219,6 +1346,11 @@
 				setSelectedPath(null);
 			}
 		}
+		// If message has been saved previously, persist updated record into local cache
+		const updatedMessage = getMessageAtPath(messages, path);
+		if (updatedMessage && updatedMessage.key) {
+			persistMessageRecord(messageToRecord(updatedMessage));
+		}
 	};
 
 	const encodeToBase64 = (text: string): string =>
@@ -1480,7 +1612,7 @@
 		const trimmed = inputValue.trim();
 		if (!trimmed) return;
 
-		const parentPath = selectedPath ? [...selectedPath] : null;
+		const parentPath = selectedPath ? [...selectedPath] : messages.length > 0 ? [0] : null;
 		// If replying to a local-only parent without a key, persist the parent first
 		if (parentPath && parentPath.length > 0) {
 			const parentNode = getMessageAtPath(messages, parentPath);
@@ -1506,6 +1638,8 @@
 			title: inputTitle.trim() ? inputTitle.trim() : undefined
 		};
 
+		// will be declared at top-level after variable declarations
+
 		const newPath = insertMessage(newMessage, parentPath);
 		inputValue = '';
 
@@ -1525,7 +1659,7 @@
 			return;
 		}
 
-		const parentPath = selectedPath ? [...selectedPath] : null;
+		const parentPath = selectedPath ? [...selectedPath] : messages.length > 0 ? [0] : null;
 		// If replying to a local-only parent without a key, persist the parent first
 		if (parentPath && parentPath.length > 0) {
 			const parentNode = getMessageAtPath(messages, parentPath);
@@ -1553,14 +1687,13 @@
 					mimeType,
 					isText: false,
 					sizeBytes: file.size,
-					attachmentName: file.name || undefined,
-					title: inputTitle.trim() ? inputTitle.trim() : undefined
+					attachmentName: file.name || undefined
 				};
-
 				const newPath = insertMessage(newMessage, parentPath);
-				await persistMessage(newPath);
-				// keep the same behavior as text messages: clear title after send
-				inputTitle = '';
+				// Do not persist automatically; let the user add a title before sending.
+				inputTitle = file.name || '';
+				setSelectedPath(newPath);
+				void tick().then(() => titleInputEl?.focus());
 			} catch (error) {
 				console.error('Failed to attach file', error);
 				statusState = 'error';
@@ -1800,40 +1933,104 @@
 					<div class="message-input-wrapper">
 						<input
 							type="text"
-							placeholder="Optional title"
+							placeholder={selectedPendingAttachment &&
+							!selectedPendingAttachment.isText &&
+							selectedPendingAttachment.status === 'pending'
+								? 'Filename or title'
+								: selectedMessage && !selectedMessage.isText && selectedMessage.key
+									? 'Reply title (optional)'
+									: 'Optional title'}
+							aria-label={selectedPendingAttachment &&
+							!selectedPendingAttachment.isText &&
+							selectedPendingAttachment.status === 'pending'
+								? 'Edit attached filename or title'
+								: 'Optional message title'}
 							bind:value={inputTitle}
 							class="title-input-mobile"
+							on:input={(e) => {
+								const value = (e.target as HTMLInputElement).value;
+								// always update the composer title string
+								inputTitle = value;
+								// but only update the selected message's title for pending attachments
+								if (
+									selectedPendingAttachment &&
+									!selectedPendingAttachment.isText &&
+									selectedPendingAttachment.status === 'pending'
+								) {
+									applyTitleToSelected(value);
+								}
+							}}
+							on:focus={() => (titleEditing = true)}
+							on:blur={() => (titleEditing = false)}
 							on:keydown={(e) => {
-								if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim().length > 0) {
-									// prevent sending the message on enter in the title input
+								if (e.key === 'Enter') {
 									e.preventDefault();
-									// move focus to the message textarea
-									const ta = document.querySelector(
-										'.input-area textarea'
-									) as HTMLTextAreaElement | null;
-									ta?.focus();
+									const selectedMsg = selectedPath
+										? getMessageAtPath(messages, selectedPath)
+										: null;
+									if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
+										void persistMessage(selectedPath!);
+										inputTitle = '';
+									} else {
+										const ta = document.querySelector(
+											'.input-area textarea'
+										) as HTMLTextAreaElement | null;
+										ta?.focus();
+									}
 								}
 							}}
 						/>
-						<textarea
-							bind:value={inputValue}
-							rows="3"
-							placeholder="Type a message and press Enter"
-							on:keydown={handleKeydown}
-						></textarea>
+						{#if !(selectedPendingAttachment && !selectedPendingAttachment.isText && selectedPendingAttachment.status === 'pending')}
+							<textarea
+								bind:value={inputValue}
+								rows="3"
+								placeholder="Type a message and press Enter"
+								on:keydown={handleKeydown}
+							></textarea>
+						{:else}
+							<div class="attachment-pending">
+								<div class="attachment-meta">
+									<span class="attachment-name"
+										>{selectedPendingAttachment.attachmentName ??
+											selectedPendingAttachment.content}</span
+									>
+									{#if selectedPendingAttachment.sizeBytes}
+										<span class="attachment-size"
+											>{formatBytes(selectedPendingAttachment.sizeBytes)}</span
+										>
+									{/if}
+								</div>
+							</div>
+						{/if}
 					</div>
 					<button
 						type="button"
 						class="attach-button"
+						class:attached={selectedPendingAttachment &&
+							selectedPendingAttachment.status === 'pending'}
 						on:click={openFilePicker}
 						disabled={statusState === 'sending'}
 					>
-						Attach
+						{#if selectedPendingAttachment && selectedPendingAttachment.status === 'pending' && !selectedPendingAttachment.isText}
+							Attached
+						{:else}
+							Attach
+						{/if}
 					</button>
 					<button
 						type="button"
-						on:click={() => void addMessage()}
-						disabled={!inputValue.trim().length || statusState === 'sending' || newThreadMode}
+						on:click={() => {
+							const selectedMsg = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+							if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
+								void persistMessage(selectedPath!);
+								inputTitle = '';
+								// Clear selected pending attachment after sending
+								setSelectedPath(null);
+							} else {
+								void addMessage();
+							}
+						}}
+						disabled={!canSend}
 					>
 						{statusState === 'sending' ? 'Sending…' : 'Send'}
 					</button>
@@ -2284,6 +2481,13 @@
 		flex-direction: column;
 		gap: 0.45rem;
 		min-width: 0;
+	}
+
+	/* Attach button attached state */
+	.attach-button.attached {
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		color: var(--text-primary);
 	}
 
 	.input-area .title-input-mobile {

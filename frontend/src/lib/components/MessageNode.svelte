@@ -533,6 +533,17 @@
 		margin: 0;
 	}
 
+	.attachment-pending {
+		display: flex;
+		gap: 0.6rem;
+		align-items: center;
+	}
+
+	.attachment-pending .attachment-name {
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
 	.attachment-name {
 		font-weight: 600;
 	}
