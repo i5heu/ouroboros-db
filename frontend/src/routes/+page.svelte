@@ -2499,6 +2499,10 @@
 		font-size: 0.95rem;
 		font-weight: 600;
 		color: var(--text-primary);
+		/* Preserve whitespace and show line breaks from message previews */
+		white-space: pre-wrap;
+		/* Keep long words from overflowing */
+		word-break: break-word;
 	}
 
 	.thread-item-meta {

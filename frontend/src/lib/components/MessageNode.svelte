@@ -553,6 +553,10 @@
 	.message p {
 		margin: 0;
 		line-height: 1.5;
+		/* Preserve whitespace and show line breaks typed by users */
+		white-space: pre-wrap;
+		/* Ensure long words still wrap */
+		word-break: break-word;
 	}
 
 	.message-title {
@@ -560,6 +564,8 @@
 		font-weight: 700;
 		color: var(--text-primary, #e5e7eb);
 		font-size: 0.95rem;
+		/* Preserve newlines in message titles (if user entered them) */
+		white-space: pre-wrap;
 	}
 
 	.attachment {
