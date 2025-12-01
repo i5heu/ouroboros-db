@@ -2166,20 +2166,11 @@
 							</button>
 						</div>
 					{/if}
-					{#if !newThreadMode && canEditMessage(selectedMessage)}
+					{#if editMode}
 						<div class="edit-controls">
-							<button
-								type="button"
-								on:click={() => void startEditingSelected()}
-								disabled={statusState === 'sending'}
-							>
-								{editMode ? 'Editing…' : 'Edit message'}
+							<button type="button" on:click={cancelEdit} disabled={statusState === 'sending'}>
+								Cancel edit
 							</button>
-							{#if editMode}
-								<button type="button" on:click={cancelEdit} disabled={statusState === 'sending'}>
-									Cancel edit
-								</button>
-							{/if}
 						</div>
 					{/if}
 					{#if newThreadMode}
@@ -2243,6 +2234,7 @@
 										selectMessage={handleSelectMessage}
 										apiBaseUrl={API_BASE_URL}
 										getAuthHeaders={buildAuthHeaders}
+										startEditing={startEditingSelected}
 									/>
 								{/each}
 							{/if}
@@ -2338,7 +2330,9 @@
 							<textarea
 								bind:value={inputValue}
 								rows="3"
-								placeholder={editMode ? 'Edit message and press Enter' : 'Type a message and press Enter'}
+								placeholder={editMode
+									? 'Edit message and press Enter'
+									: 'Type a message and press Enter'}
 								on:keydown={handleKeydown}
 							></textarea>
 						{:else}

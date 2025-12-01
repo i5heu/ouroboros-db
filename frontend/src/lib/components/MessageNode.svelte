@@ -9,6 +9,7 @@
 	export let path: number[] = [];
 	export let selectedPath: number[] | null = null;
 	export let selectMessage: (path: number[]) => void = () => {};
+	export let startEditing: (path: number[]) => void = () => {};
 	export let apiBaseUrl = '';
 	export let getAuthHeaders: () => Promise<Record<string, string>> = async () => ({
 		Accept: 'application/json'
@@ -459,6 +460,21 @@
 			</button>
 		</div>
 	{/if}
+	{#if isSelected && message.key && message.isText && message.status === 'saved'}
+		<button
+			type="button"
+			class="edit-message-button"
+			on:click|stopPropagation={() => startEditing(path)}
+			aria-label="Edit message"
+			title="Edit message"
+		>
+			<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"
+				><path
+					d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+				/></svg
+			>
+		</button>
+	{/if}
 	<div class={`status ${statusClass}`}>{statusText}</div>
 	{#if childNodes.length > 0}
 		<div class="children">
@@ -471,6 +487,7 @@
 					{selectMessage}
 					{apiBaseUrl}
 					{getAuthHeaders}
+					{startEditing}
 				/>
 			{/each}
 		</div>
@@ -542,6 +559,7 @@
 
 <style>
 	.message {
+		position: relative;
 		background: #00000019;
 		border-top-right-radius: 0.75rem;
 		border-bottom-right-radius: 0.75rem;
@@ -968,5 +986,26 @@
 
 	.message.selected {
 		outline: 1px solid #fff;
+	}
+
+	.edit-message-button {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		background: transparent;
+		border: none;
+		color: #94a3b8;
+		cursor: pointer;
+		padding: 0.25rem;
+		border-radius: 0.25rem;
+		line-height: 0;
+		transition:
+			color 0.15s ease,
+			background 0.15s ease;
+	}
+
+	.edit-message-button:hover {
+		color: #e2e8f0;
+		background: rgba(255, 255, 255, 0.1);
 	}
 </style>
