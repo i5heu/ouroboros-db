@@ -28,18 +28,20 @@ type threadSummary struct {
 	SizeBytes  int    `json:"sizeBytes"`
 	ChildCount int    `json:"childCount"`
 	CreatedAt  string `json:"createdAt,omitempty"`
+	ComputedID string `json:"computedId,omitempty"`
 }
 
 type threadNode struct {
-	Key       string   `json:"key"`
-	Parent    string   `json:"parent,omitempty"`
-	Title     string   `json:"title,omitempty"`
-	MimeType  string   `json:"mimeType"`
-	IsText    bool     `json:"isText"`
-	SizeBytes int      `json:"sizeBytes"`
-	CreatedAt string   `json:"createdAt,omitempty"`
-	Depth     int      `json:"depth"`
-	Children  []string `json:"children"`
+	Key        string   `json:"key"`
+	Parent     string   `json:"parent,omitempty"`
+	Title      string   `json:"title,omitempty"`
+	MimeType   string   `json:"mimeType"`
+	IsText     bool     `json:"isText"`
+	SizeBytes  int      `json:"sizeBytes"`
+	CreatedAt  string   `json:"createdAt,omitempty"`
+	Depth      int      `json:"depth"`
+	Children   []string `json:"children"`
+	ComputedID string   `json:"computedId,omitempty"`
 }
 
 func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +121,12 @@ func (s *Server) handleThreadSummaries(w http.ResponseWriter, r *http.Request) {
 			summary.Preview = clipString(string(data.Content), 240)
 		} else {
 			summary.Preview = binaryPreview(summary.MimeType, summary.SizeBytes)
+		}
+		// Include computed_id if indexer is available
+		if s.indexer != nil {
+			if cid, err := s.indexer.GetComputedID(roots[idx].key); err == nil && cid != "" {
+				summary.ComputedID = cid
+			}
 		}
 
 		env := map[string]any{"type": "thread", "thread": summary}
@@ -209,6 +217,12 @@ func (s *Server) handleThreadNodeStream(w http.ResponseWriter, r *http.Request) 
 		}
 		if !data.Parent.IsZero() {
 			node.Parent = data.Parent.String()
+		}
+		// Include computed_id if indexer is available
+		if s.indexer != nil {
+			if cid, err := s.indexer.GetComputedID(item.key); err == nil && cid != "" {
+				node.ComputedID = cid
+			}
 		}
 		node.Children = make([]string, 0, len(data.Children))
 		for _, child := range data.Children {

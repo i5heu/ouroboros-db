@@ -7,6 +7,7 @@ export type ThreadSummaryPayload = {
     sizeBytes: number;
     childCount: number;
     createdAt?: string;
+    computedId?: string;
 };
 
 export type ThreadNodePayload = {
@@ -19,6 +20,7 @@ export type ThreadNodePayload = {
     createdAt?: string;
     depth: number;
     children: string[];
+    computedId?: string;
 };
 
 export type BulkDataRecord = {
@@ -32,6 +34,7 @@ export type BulkDataRecord = {
     encodedContent?: string;
     error?: string;
     title?: string;
+    computedId?: string;
 };
 
 type HeaderProvider = () => Promise<Record<string, string>>;
@@ -346,4 +349,52 @@ export const fetchAttachmentRange = async (params: {
         total: contentRange?.total ?? fallbackTotal,
         mimeType: response.headers.get('Content-Type') ?? 'application/octet-stream'
     };
+};
+
+export type LookupByComputedIdResult = {
+    computed_id: string;
+    keys: string[];
+};
+
+/**
+ * Look up messages by their computed_id (e.g., "thoughts:gravitation:physics").
+ * Multiple messages may share the same computed_id, so this returns a list of keys.
+ */
+export const lookupByComputedId = async (params: {
+    apiBaseUrl: string;
+    computedId: string;
+    getHeaders: HeaderProvider;
+}): Promise<LookupByComputedIdResult> => {
+    const headers = { ...(await params.getHeaders()) };
+    const response = await fetch(
+        `${params.apiBaseUrl}/lookup/${encodeURIComponent(params.computedId)}`,
+        { headers }
+    );
+    if (!response.ok) {
+        const message = (await response.text()) || `Lookup failed (${response.status}).`;
+        throw new Error(message);
+    }
+    return await response.json();
+};
+
+export type GetComputedIdResult = {
+    key: string;
+    computed_id: string;
+};
+
+/**
+ * Get the computed_id for a given message hash.
+ */
+export const getComputedId = async (params: {
+    apiBaseUrl: string;
+    key: string;
+    getHeaders: HeaderProvider;
+}): Promise<GetComputedIdResult> => {
+    const headers = { ...(await params.getHeaders()) };
+    const response = await fetch(`${params.apiBaseUrl}/computedId/${params.key}`, { headers });
+    if (!response.ok) {
+        const message = (await response.text()) || `Get computed_id failed (${response.status}).`;
+        throw new Error(message);
+    }
+    return await response.json();
 };

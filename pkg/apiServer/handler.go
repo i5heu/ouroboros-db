@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -326,6 +327,96 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) { // A
 	resp := searchResponse{Keys: make([]string, 0, len(hashes))}
 	for _, h := range hashes {
 		resp.Keys = append(resp.Keys, h.String())
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleLookupByComputedID looks up messages by their computed_id (e.g., "thoughts:gravitation:physics").
+// Multiple messages may share the same computed_id, so this returns a list of keys.
+func (s *Server) handleLookupByComputedID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.indexer == nil {
+		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		return
+	}
+
+	// Extract the computed_id from the URL path after /lookup/
+	// We use the raw URL path and manually extract to handle encoded characters properly
+	const prefix = "/lookup/"
+	path := r.URL.Path
+	if !strings.HasPrefix(path, prefix) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	computedID := path[len(prefix):]
+	if computedID == "" {
+		http.Error(w, "missing computed_id", http.StatusBadRequest)
+		return
+	}
+
+	// URL-decode the computedId in case special characters like ':' were encoded
+	decodedID, err := url.PathUnescape(computedID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid computed_id encoding: %v", err), http.StatusBadRequest)
+		return
+	}
+	computedID = decodedID
+
+	hashes, err := s.indexer.LookupByComputedID(computedID)
+	if err != nil {
+		s.log.Error("lookup by computed_id failed", "error", err, "computedId", computedID)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	resp := lookupResponse{
+		ComputedID: computedID,
+		Keys:       make([]string, 0, len(hashes)),
+	}
+	for _, h := range hashes {
+		resp.Keys = append(resp.Keys, h.String())
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleGetComputedID returns the computed_id for a given message hash.
+func (s *Server) handleGetComputedID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.indexer == nil {
+		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		return
+	}
+
+	keyHex := r.PathValue("key")
+	if keyHex == "" {
+		http.Error(w, "missing key", http.StatusBadRequest)
+		return
+	}
+
+	key, err := cryptHash.HashHexadecimal(keyHex)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid key: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	computedID, err := s.indexer.GetComputedID(key)
+	if err != nil {
+		s.log.Error("get computed_id failed", "error", err, "key", keyHex)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	resp := computedIDResponse{
+		Key:        keyHex,
+		ComputedID: computedID,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

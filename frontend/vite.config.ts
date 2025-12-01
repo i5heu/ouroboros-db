@@ -22,14 +22,22 @@ export default defineConfig(({ mode }) => ({
 				target: 'http://localhost:8083',
 				changeOrigin: true,
 				secure: false
-			}
-			,
+			},
 			'/search': {
 				target: 'http://localhost:8083',
 				changeOrigin: true,
 				secure: false
+			},
+			'/lookup': {
+				target: 'http://localhost:8083',
+				changeOrigin: true,
+				secure: false
+			},
+			'/computedId': {
+				target: 'http://localhost:8083',
+				changeOrigin: true,
+				secure: false
 			}
-
 		}
 	}
 }));

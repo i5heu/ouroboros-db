@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/analysis/analyzer/custom"
@@ -28,6 +29,14 @@ type Indexer struct {
 
 	kv ouroboroskv.Store
 	bi bleve.Index
+
+	// computedIDIndex maps computed_id (e.g., "thoughts:gravitation:physics") to a list of hashes.
+	// Multiple messages can share the same computed_id.
+	computedIDMu    sync.RWMutex
+	computedIDIndex map[string][]hash.Hash
+
+	// hashToComputedID maps hash string to its computed_id for quick lookups
+	hashToComputedID map[string]string
 }
 
 const (
@@ -79,9 +88,11 @@ func NewIndexer(kv ouroboroskv.Store, logger *slog.Logger) *Indexer { //A
 	}
 
 	idx := &Indexer{
-		log: logger,
-		bi:  index,
-		kv:  kv,
+		log:              logger,
+		bi:               index,
+		kv:               kv,
+		computedIDIndex:  make(map[string][]hash.Hash),
+		hashToComputedID: make(map[string]string),
 	}
 	return idx
 }
@@ -204,6 +215,13 @@ func (idx *Indexer) IndexHash(cr hash.Hash) error { //A
 		doc["content"] = ""
 	}
 
+	// Compute and store the computed_id based on ancestor titles
+	computedID := idx.computeIDForHash(cr, title)
+	if computedID != "" {
+		doc["computedId"] = computedID
+		idx.storeComputedID(computedID, cr)
+	}
+
 	return idx.bi.Index(cr.String(), doc)
 }
 
@@ -286,4 +304,215 @@ func (idx *Indexer) LastChildActivity(hash hash.Hash) (int64, error) { //A
 		}
 	}
 	return last, nil
+}
+
+// computeIDForHash builds a computed_id by walking up the parent chain and
+// joining titles with ":". The format is "root_title:parent_title:...:this_title".
+// If a message has no title, its hash prefix is used instead.
+func (idx *Indexer) computeIDForHash(h hash.Hash, currentTitle string) string {
+	if idx == nil || idx.kv == nil {
+		return ""
+	}
+
+	// Collect ancestor titles by walking up the parent chain
+	var titles []string
+	current := h
+
+	// First, add the current message's title
+	if currentTitle != "" {
+		titles = append(titles, sanitizeIDSegment(currentTitle))
+	} else {
+		// Use a short hash prefix as fallback
+		titles = append(titles, h.String()[:8])
+	}
+
+	// Walk up the parent chain
+	for {
+		parent, err := idx.kv.GetParent(current)
+		if err != nil || parent.IsZero() {
+			break
+		}
+
+		// Read parent metadata to get its title
+		data, err := idx.kv.ReadData(parent)
+		if err != nil {
+			break
+		}
+
+		parentTitle := ""
+		if len(data.Meta) > 0 {
+			var md meta.Metadata
+			if err := json.Unmarshal(data.Meta, &md); err == nil {
+				parentTitle = md.Title
+			}
+		}
+
+		if parentTitle != "" {
+			titles = append(titles, sanitizeIDSegment(parentTitle))
+		} else {
+			titles = append(titles, parent.String()[:8])
+		}
+
+		current = parent
+	}
+
+	// Reverse the titles so root comes first
+	for i, j := 0, len(titles)-1; i < j; i, j = i+1, j-1 {
+		titles[i], titles[j] = titles[j], titles[i]
+	}
+
+	return strings.Join(titles, ":")
+}
+
+// sanitizeIDSegment cleans a title for use in a computed_id by:
+// - Converting umlauts to ASCII equivalents (ä→ae, ö→oe, ü→ue, ß→ss, etc.)
+// - Replacing spaces and special characters with underscores
+// - Keeping only alphanumeric characters and underscores
+func sanitizeIDSegment(s string) string {
+	s = strings.TrimSpace(s)
+
+	// First, convert umlauts and special letters to ASCII equivalents
+	replacements := map[rune]string{
+		'ä': "ae", 'Ä': "Ae",
+		'ö': "oe", 'Ö': "Oe",
+		'ü': "ue", 'Ü': "Ue",
+		'ß': "ss",
+		'à': "a", 'á': "a", 'â': "a", 'ã': "a", 'å': "a", 'À': "A", 'Á': "A", 'Â': "A", 'Ã': "A", 'Å': "A",
+		'è': "e", 'é': "e", 'ê': "e", 'ë': "e", 'È': "E", 'É': "E", 'Ê': "E", 'Ë': "E",
+		'ì': "i", 'í': "i", 'î': "i", 'ï': "i", 'Ì': "I", 'Í': "I", 'Î': "I", 'Ï': "I",
+		'ò': "o", 'ó': "o", 'ô': "o", 'õ': "o", 'ø': "o", 'Ò': "O", 'Ó': "O", 'Ô': "O", 'Õ': "O", 'Ø': "O",
+		'ù': "u", 'ú': "u", 'û': "u", 'Ù': "U", 'Ú': "U", 'Û': "U",
+		'ý': "y", 'ÿ': "y", 'Ý': "Y",
+		'ñ': "n", 'Ñ': "N",
+		'ç': "c", 'Ç': "C",
+		'æ': "ae", 'Æ': "Ae",
+		'œ': "oe", 'Œ': "Oe",
+	}
+
+	var result strings.Builder
+	result.Grow(len(s) * 2) // Pre-allocate for potential expansions
+
+	for _, r := range s {
+		if replacement, ok := replacements[r]; ok {
+			result.WriteString(replacement)
+		} else if isAlphanumeric(r) {
+			result.WriteRune(r)
+		} else {
+			// Replace spaces and any other special character with underscore
+			result.WriteRune('_')
+		}
+	}
+
+	s = result.String()
+
+	// Collapse multiple underscores
+	for strings.Contains(s, "__") {
+		s = strings.ReplaceAll(s, "__", "_")
+	}
+
+	// Trim leading/trailing underscores
+	s = strings.Trim(s, "_")
+
+	return s
+}
+
+// isAlphanumeric returns true if the rune is a-z, A-Z, or 0-9
+func isAlphanumeric(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+// storeComputedID adds a hash to the computed_id index.
+func (idx *Indexer) storeComputedID(computedID string, h hash.Hash) {
+	if idx == nil || computedID == "" {
+		return
+	}
+
+	idx.computedIDMu.Lock()
+	defer idx.computedIDMu.Unlock()
+
+	hashStr := h.String()
+
+	// Check if this hash already has a computed_id and remove it from old mapping
+	if oldID, exists := idx.hashToComputedID[hashStr]; exists && oldID != computedID {
+		// Remove from old computed_id list
+		oldList := idx.computedIDIndex[oldID]
+		newList := make([]hash.Hash, 0, len(oldList))
+		for _, existing := range oldList {
+			if existing.String() != hashStr {
+				newList = append(newList, existing)
+			}
+		}
+		if len(newList) > 0 {
+			idx.computedIDIndex[oldID] = newList
+		} else {
+			delete(idx.computedIDIndex, oldID)
+		}
+	}
+
+	// Add to new computed_id list if not already present
+	list := idx.computedIDIndex[computedID]
+	found := false
+	for _, existing := range list {
+		if existing.String() == hashStr {
+			found = true
+			break
+		}
+	}
+	if !found {
+		idx.computedIDIndex[computedID] = append(list, h)
+	}
+
+	idx.hashToComputedID[hashStr] = computedID
+}
+
+// LookupByComputedID returns all hashes that have the given computed_id.
+// Multiple messages may share the same computed_id.
+func (idx *Indexer) LookupByComputedID(computedID string) ([]hash.Hash, error) {
+	if idx == nil {
+		return nil, fmt.Errorf("indexer is nil")
+	}
+
+	idx.computedIDMu.RLock()
+	defer idx.computedIDMu.RUnlock()
+
+	hashes := idx.computedIDIndex[computedID]
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+
+	// Return a copy to avoid external modification
+	result := make([]hash.Hash, len(hashes))
+	copy(result, hashes)
+	return result, nil
+}
+
+// GetComputedID returns the computed_id for a given hash.
+func (idx *Indexer) GetComputedID(h hash.Hash) (string, error) {
+	if idx == nil {
+		return "", fmt.Errorf("indexer is nil")
+	}
+
+	idx.computedIDMu.RLock()
+	defer idx.computedIDMu.RUnlock()
+
+	return idx.hashToComputedID[h.String()], nil
+}
+
+// ListComputedIDs returns all computed_ids that match the given prefix.
+// Useful for autocomplete or browsing the ID namespace.
+func (idx *Indexer) ListComputedIDs(prefix string) ([]string, error) {
+	if idx == nil {
+		return nil, fmt.Errorf("indexer is nil")
+	}
+
+	idx.computedIDMu.RLock()
+	defer idx.computedIDMu.RUnlock()
+
+	var result []string
+	for id := range idx.computedIDIndex {
+		if strings.HasPrefix(id, prefix) {
+			result = append(result, id)
+		}
+	}
+	return result, nil
 }

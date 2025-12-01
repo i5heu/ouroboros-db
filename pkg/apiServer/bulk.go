@@ -30,6 +30,7 @@ type bulkDataRecord struct {
 	SizeBytes      int    `json:"sizeBytes,omitempty"`
 	CreatedAt      string `json:"createdAt,omitempty"`
 	Title          string `json:"title,omitempty"`
+	ComputedID     string `json:"computedId,omitempty"`
 	Content        string `json:"content,omitempty"`
 	EncodedContent string `json:"encodedContent,omitempty"`
 	Error          string `json:"error,omitempty"`
@@ -127,6 +128,12 @@ func (s *Server) fetchBulkRecord(r *http.Request, keyHex string, includeBinary b
 	}
 	if !data.CreatedAt.IsZero() {
 		record.CreatedAt = data.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	// Include computed_id if indexer is available
+	if s.indexer != nil {
+		if cid, err := s.indexer.GetComputedID(key); err == nil && cid != "" {
+			record.ComputedID = cid
+		}
 	}
 
 	if data.IsText {

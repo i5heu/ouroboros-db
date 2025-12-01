@@ -58,6 +58,8 @@ func (s *Server) routes() { // AC
 	s.mux.HandleFunc("GET /authProcess", s.handleAuthProcess)
 	s.mux.HandleFunc("POST /authProcess", s.handleAuthProcess)
 	s.mux.HandleFunc("POST /search", s.handleSearch)
+	s.mux.HandleFunc("GET /lookup/", s.handleLookupByComputedID)
+	s.mux.HandleFunc("GET /computedId/{key}", s.handleGetComputedID)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { // AC

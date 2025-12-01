@@ -23,6 +23,16 @@ type searchResponse struct {
 	Keys []string `json:"keys"`
 }
 
+type lookupResponse struct {
+	ComputedID string   `json:"computed_id"`
+	Keys       []string `json:"keys"`
+}
+
+type computedIDResponse struct {
+	Key        string `json:"key"`
+	ComputedID string `json:"computed_id"`
+}
+
 type createMetadata struct {
 	ReedSolomonShards       uint8    `json:"reed_solomon_shards"`
 	ReedSolomonParityShards uint8    `json:"reed_solomon_parity_shards"`

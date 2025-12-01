@@ -49,6 +49,7 @@
 	let attachmentDisplayUrl: string | null = null;
 	let videoPreviewSource: string | null = null;
 	let childNodes: Message[] = [];
+	let computedIdCopied = false;
 
 	const closeModal = () => {
 		modalAttachment = null;
@@ -166,6 +167,29 @@
 	$: downloadName = buildDownloadName();
 	$: createdAtLabel = formatTimestamp(message.createdAt);
 	$: videoPreviewTotal = message.sizeBytes ?? videoPreviewTotal;
+
+	const copyComputedId = async () => {
+		if (!message.computedId) return;
+		try {
+			await navigator.clipboard.writeText(message.computedId);
+			computedIdCopied = true;
+			setTimeout(() => {
+				computedIdCopied = false;
+			}, 2000);
+		} catch {
+			// Fallback
+			const input = document.createElement('input');
+			input.value = message.computedId;
+			document.body.appendChild(input);
+			input.select();
+			document.execCommand('copy');
+			document.body.removeChild(input);
+			computedIdCopied = true;
+			setTimeout(() => {
+				computedIdCopied = false;
+			}, 2000);
+		}
+	};
 
 	$: if (shouldLoadImage && !encodedDataUrl && normalizedMime.startsWith('image/')) {
 		shouldLoadImage = false;
@@ -406,6 +430,25 @@
 	{/if}
 	{#if createdAtLabel}
 		<div class="timestamp">Created {createdAtLabel}</div>
+	{/if}
+	{#if isSelected && message.computedId}
+		<div class="computed-id-row">
+			<span class="computed-id-label">Path:</span>
+			<code class="computed-id-value">{message.computedId}</code>
+			<button
+				type="button"
+				class="copy-computed-id"
+				on:click|stopPropagation={copyComputedId}
+				title="Copy path to clipboard"
+				aria-label="Copy path to clipboard"
+			>
+				{#if computedIdCopied}
+					✓
+				{:else}
+					📋
+				{/if}
+			</button>
+		</div>
 	{/if}
 	<div class={`status ${statusClass}`}>{statusText}</div>
 	{#if childNodes.length > 0}
@@ -750,6 +793,50 @@
 		margin-top: 0.3rem;
 		font-size: 0.8rem;
 		color: #94a3b8;
+	}
+
+	.computed-id-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.4rem;
+		padding: 0.3rem 0.5rem;
+		background: rgba(15, 23, 42, 0.5);
+		border-radius: 0.3rem;
+		border: 1px solid rgba(100, 116, 139, 0.2);
+		font-size: 0.75rem;
+	}
+
+	.computed-id-label {
+		color: #94a3b8;
+		font-weight: 500;
+	}
+
+	.computed-id-value {
+		color: #3b82f6;
+		font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+		font-size: 0.7rem;
+		background: rgba(30, 41, 59, 0.8);
+		padding: 0.15rem 0.3rem;
+		border-radius: 0.2rem;
+		word-break: break-all;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.copy-computed-id {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.15rem 0.3rem;
+		border-radius: 0.2rem;
+		font-size: 0.8rem;
+		flex-shrink: 0;
+		transition: background 0.15s ease;
+	}
+
+	.copy-computed-id:hover {
+		background: rgba(59, 130, 246, 0.15);
 	}
 
 	.status-pending {

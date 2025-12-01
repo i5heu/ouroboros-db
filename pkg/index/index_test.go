@@ -179,3 +179,124 @@ func TestIndexer_IndexSearchRemove_LastChildActivity(t *testing.T) {
 		t.Fatalf("expected last child activity %d, got %d", t2.UnixNano(), lastActivity)
 	}
 }
+
+func TestIndexer_ComputedID(t *testing.T) {
+	tmp := setupTestDir(t)
+	t.Cleanup(func() { _ = os.RemoveAll(tmp) })
+
+	kv, cleanup := newInitializedKV(t, tmp)
+	t.Cleanup(cleanup)
+
+	idx := NewIndexer(kv, testLogger())
+	defer idx.Close()
+
+	// Create a root message with title "thoughts"
+	rootMeta, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain", Title: "thoughts"})
+	if err != nil {
+		t.Fatalf("marshal root meta: %v", err)
+	}
+	rootData := ouroboroskv.Data{Content: []byte("root content"), Meta: rootMeta, RSDataSlices: 4, RSParitySlices: 2}
+	rootKey, err := kv.WriteData(rootData)
+	if err != nil {
+		t.Fatalf("store root: %v", err)
+	}
+	if err := idx.IndexHash(rootKey); err != nil {
+		t.Fatalf("index root: %v", err)
+	}
+
+	// Verify root has computed_id "thoughts"
+	rootComputedID, err := idx.GetComputedID(rootKey)
+	if err != nil {
+		t.Fatalf("get root computed_id: %v", err)
+	}
+	if rootComputedID != "thoughts" {
+		t.Fatalf("expected root computed_id 'thoughts', got %q", rootComputedID)
+	}
+
+	// Create a child message with title "gravitation" under root
+	childMeta, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain", Title: "gravitation"})
+	if err != nil {
+		t.Fatalf("marshal child meta: %v", err)
+	}
+	childData := ouroboroskv.Data{Content: []byte("child content"), Meta: childMeta, Parent: rootKey, RSDataSlices: 4, RSParitySlices: 2}
+	childKey, err := kv.WriteData(childData)
+	if err != nil {
+		t.Fatalf("store child: %v", err)
+	}
+	if err := idx.IndexHash(childKey); err != nil {
+		t.Fatalf("index child: %v", err)
+	}
+
+	// Verify child has computed_id "thoughts:gravitation"
+	childComputedID, err := idx.GetComputedID(childKey)
+	if err != nil {
+		t.Fatalf("get child computed_id: %v", err)
+	}
+	if childComputedID != "thoughts:gravitation" {
+		t.Fatalf("expected child computed_id 'thoughts:gravitation', got %q", childComputedID)
+	}
+
+	// Create a grandchild message with title "physics" under child
+	grandchildMeta, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain", Title: "physics"})
+	if err != nil {
+		t.Fatalf("marshal grandchild meta: %v", err)
+	}
+	grandchildData := ouroboroskv.Data{Content: []byte("grandchild content"), Meta: grandchildMeta, Parent: childKey, RSDataSlices: 4, RSParitySlices: 2}
+	grandchildKey, err := kv.WriteData(grandchildData)
+	if err != nil {
+		t.Fatalf("store grandchild: %v", err)
+	}
+	if err := idx.IndexHash(grandchildKey); err != nil {
+		t.Fatalf("index grandchild: %v", err)
+	}
+
+	// Verify grandchild has computed_id "thoughts:gravitation:physics"
+	grandchildComputedID, err := idx.GetComputedID(grandchildKey)
+	if err != nil {
+		t.Fatalf("get grandchild computed_id: %v", err)
+	}
+	if grandchildComputedID != "thoughts:gravitation:physics" {
+		t.Fatalf("expected grandchild computed_id 'thoughts:gravitation:physics', got %q", grandchildComputedID)
+	}
+
+	// Verify LookupByComputedID works
+	found, err := idx.LookupByComputedID("thoughts:gravitation:physics")
+	if err != nil {
+		t.Fatalf("lookup by computed_id: %v", err)
+	}
+	if len(found) != 1 || found[0].String() != grandchildKey.String() {
+		t.Fatalf("expected to find grandchild key, got %v", found)
+	}
+
+	// Create another message with the same computed_id (same title chain)
+	anotherMeta, err := json.Marshal(meta.Metadata{CreatedAt: time.Now().UTC(), MimeType: "text/plain", Title: "physics"})
+	if err != nil {
+		t.Fatalf("marshal another meta: %v", err)
+	}
+	anotherData := ouroboroskv.Data{Content: []byte("another physics content"), Meta: anotherMeta, Parent: childKey, RSDataSlices: 4, RSParitySlices: 2}
+	anotherKey, err := kv.WriteData(anotherData)
+	if err != nil {
+		t.Fatalf("store another: %v", err)
+	}
+	if err := idx.IndexHash(anotherKey); err != nil {
+		t.Fatalf("index another: %v", err)
+	}
+
+	// Verify both messages with same computed_id are found
+	foundMultiple, err := idx.LookupByComputedID("thoughts:gravitation:physics")
+	if err != nil {
+		t.Fatalf("lookup by computed_id for multiple: %v", err)
+	}
+	if len(foundMultiple) != 2 {
+		t.Fatalf("expected 2 keys with same computed_id, got %d", len(foundMultiple))
+	}
+
+	// Verify ListComputedIDs works with prefix
+	ids, err := idx.ListComputedIDs("thoughts:")
+	if err != nil {
+		t.Fatalf("list computed_ids: %v", err)
+	}
+	if len(ids) != 2 { // "thoughts:gravitation" and "thoughts:gravitation:physics"
+		t.Fatalf("expected 2 computed_ids with prefix 'thoughts:', got %d: %v", len(ids), ids)
+	}
+}

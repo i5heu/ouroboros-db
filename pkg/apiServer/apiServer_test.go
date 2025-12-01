@@ -1010,3 +1010,148 @@ func TestBulkDataRejectsTooManyKeys(t *testing.T) {
 		t.Fatalf("expected bad request for oversized bulk payload, got %d", rec.Code)
 	}
 }
+
+func TestLookupByComputedID(t *testing.T) {
+	// Create a KV and indexer separate from the DB used by the server
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "ouroboros.key")
+	asyncCrypt, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("failed to create async crypt: %v", err)
+	}
+	if err := asyncCrypt.SaveToFile(keyPath); err != nil {
+		t.Fatalf("failed to save key file: %v", err)
+	}
+	c, err := crypt.NewFromFile(keyPath)
+	if err != nil {
+		t.Fatalf("crypt new from file: %v", err)
+	}
+	kvCfg := &ouroboroskv.Config{Paths: []string{filepath.Join(dir, "kv")}, MinimumFreeSpace: 1, Logger: testLogger()}
+	kv, err := ouroboroskv.Init(c, kvCfg)
+	if err != nil {
+		t.Fatalf("init kv: %v", err)
+	}
+	t.Cleanup(func() { _ = kv.Close() })
+
+	idx := indexpkg.NewIndexer(kv, testLogger())
+	t.Cleanup(func() { _ = idx.Close() })
+
+	// Write data with a title and index it
+	content := []byte("test content for computed id")
+	metaBytes, _ := json.Marshal(map[string]string{
+		"created_at": time.Now().UTC().Format(time.RFC3339Nano),
+		"mime_type":  "text/plain; charset=utf-8",
+		"title":      "Hello World",
+	})
+	data := ouroboroskv.Data{Content: content, Meta: metaBytes, RSDataSlices: 4, RSParitySlices: 2}
+	key, err := kv.WriteData(data)
+	if err != nil {
+		t.Fatalf("write data: %v", err)
+	}
+	if err := idx.IndexHash(key); err != nil {
+		t.Fatalf("index hash: %v", err)
+	}
+
+	// Get the computed_id for verification
+	computedID, err := idx.GetComputedID(key)
+	if err != nil {
+		t.Fatalf("get computed id: %v", err)
+	}
+	t.Logf("computed_id for key %s: %q", key.String(), computedID)
+
+	// Expected computed_id should be "Hello_World" (spaces converted to underscores)
+	expectedComputedID := "Hello_World"
+	if computedID != expectedComputedID {
+		t.Fatalf("expected computed_id %q, got %q", expectedComputedID, computedID)
+	}
+
+	// Start server with indexer
+	db, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+	server := New(db, WithLogger(testLogger()), WithAuth(func(r *http.Request, db *ouroboros.OuroborosDB) error { return nil }), WithIndexer(idx))
+
+	// Test 1: Lookup without URL encoding
+	t.Run("lookup without encoding", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/lookup/Hello_World", nil)
+		server.ServeHTTP(rec, req)
+
+		t.Logf("Response status: %d, body: %s", rec.Code, rec.Body.String())
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d, body: %s", rec.Code, rec.Body.String())
+		}
+		var resp lookupResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resp.Keys) != 1 || resp.Keys[0] != key.String() {
+			t.Fatalf("expected lookup to return key %s, got %+v", key.String(), resp.Keys)
+		}
+	})
+
+	// Test 2: Lookup with URL-encoded colon (simulating frontend behavior)
+	t.Run("lookup with encoded colon", func(t *testing.T) {
+		// First create a child message with a title
+		childContent := []byte("child content")
+		childMetaBytes, _ := json.Marshal(map[string]string{
+			"created_at": time.Now().UTC().Format(time.RFC3339Nano),
+			"mime_type":  "text/plain; charset=utf-8",
+			"title":      "Child Node",
+			"parent":     key.String(),
+		})
+		childData := ouroboroskv.Data{Content: childContent, Meta: childMetaBytes, Parent: key, RSDataSlices: 4, RSParitySlices: 2}
+		childKey, err := kv.WriteData(childData)
+		if err != nil {
+			t.Fatalf("write child data: %v", err)
+		}
+		if err := idx.IndexHash(childKey); err != nil {
+			t.Fatalf("index child hash: %v", err)
+		}
+
+		childComputedID, _ := idx.GetComputedID(childKey)
+		t.Logf("child computed_id: %q", childComputedID)
+
+		// Expected: "Hello_World:Child_Node"
+		expectedChildID := "Hello_World:Child_Node"
+		if childComputedID != expectedChildID {
+			t.Fatalf("expected child computed_id %q, got %q", expectedChildID, childComputedID)
+		}
+
+		// Test with URL-encoded path (: becomes %3A)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/lookup/Hello_World%3AChild_Node", nil)
+		server.ServeHTTP(rec, req)
+
+		t.Logf("Encoded lookup response status: %d, body: %s", rec.Code, rec.Body.String())
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for encoded lookup, got %d, body: %s", rec.Code, rec.Body.String())
+		}
+		var resp lookupResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resp.Keys) != 1 || resp.Keys[0] != childKey.String() {
+			t.Fatalf("expected encoded lookup to return key %s, got %+v", childKey.String(), resp.Keys)
+		}
+	})
+
+	// Test 3: Lookup with non-existent computed_id returns empty keys
+	t.Run("lookup non-existent", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/lookup/Does_Not_Exist", nil)
+		server.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for non-existent lookup, got %d", rec.Code)
+		}
+		var resp lookupResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resp.Keys) != 0 {
+			t.Fatalf("expected empty keys for non-existent computed_id, got %+v", resp.Keys)
+		}
+	})
+}

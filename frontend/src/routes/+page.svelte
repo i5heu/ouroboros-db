@@ -8,6 +8,7 @@
 		streamThreadSummaries,
 		searchThreadSummaries,
 		streamBulkMessages,
+		lookupByComputedId,
 		type ThreadNodePayload,
 		type ThreadSummaryPayload,
 		type BulkDataRecord
@@ -33,12 +34,14 @@
 	$: typedThreadSummaries = threadSummaries;
 	let searchQuery = '';
 	$: filteredThreadSummaries = searchQuery
-		? typedThreadSummaries.filter((s) => {
-				const key = s.key?.toLowerCase() ?? '';
-				const preview = s.preview?.toLowerCase() ?? '';
-				const needle = searchQuery.trim().toLowerCase();
-				return key.includes(needle) || preview.includes(needle);
-			})
+		? searchMode
+			? typedThreadSummaries // In search mode, results are already filtered by the API
+			: typedThreadSummaries.filter((s) => {
+					const key = s.key?.toLowerCase() ?? '';
+					const preview = s.preview?.toLowerCase() ?? '';
+					const needle = searchQuery.trim().toLowerCase();
+					return key.includes(needle) || preview.includes(needle);
+				})
 		: typedThreadSummaries;
 	let threadCursor: string | null = null;
 	let threadsLoading = false;
@@ -89,6 +92,8 @@
 	let nextId = 1;
 	let selectedPath: number[] | null = null;
 	let selectedMessage: Message | null = null;
+	let selectedComputedId: string | null = null;
+	let computedIdCopied = false;
 	let fileInput: HTMLInputElement | null = null;
 	let activeSaves = 0;
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
@@ -439,6 +444,11 @@
 		}
 	};
 
+	// Check if query looks like a computed_id (contains colon separator)
+	const isComputedIdQuery = (query: string): boolean => {
+		return query.includes(':') && !query.startsWith('http');
+	};
+
 	const performSearch = async (query: string) => {
 		// Abort previous search
 		searchAbort?.abort();
@@ -457,12 +467,61 @@
 		const controller = new AbortController();
 		searchAbort = controller;
 		try {
-			const results = await searchThreadSummaries({
-				apiBaseUrl: API_BASE_URL,
-				query: query.trim(),
-				limit: 50,
-				getHeaders: buildAuthHeaders
-			});
+			let results: ThreadSummaryPayload[] = [];
+
+			// If query looks like a computed_id, try lookup first
+			if (isComputedIdQuery(query.trim())) {
+				try {
+					const lookupResult = await lookupByComputedId({
+						apiBaseUrl: API_BASE_URL,
+						computedId: query.trim(),
+						getHeaders: buildAuthHeaders
+					});
+					console.log('lookupResult:', lookupResult);
+					if (controller.signal.aborted) return;
+
+					// If we found matches, fetch their summaries
+					if (lookupResult.keys && lookupResult.keys.length > 0) {
+						console.log('Fetching bulk for keys:', lookupResult.keys);
+						await streamBulkMessages({
+							apiBaseUrl: API_BASE_URL,
+							keys: lookupResult.keys,
+							includeBinary: false,
+							getHeaders: buildAuthHeaders,
+							onRecord: (record) => {
+								console.log('Bulk record:', record);
+								if (!record || !record.key || !record.found) return;
+								const preview = record.content ?? '';
+								results.push({
+									key: record.key,
+									preview: preview.slice(0, 240),
+									title: record.title,
+									mimeType: record.mimeType ?? 'application/octet-stream',
+									isText: Boolean(record.isText),
+									sizeBytes: record.sizeBytes ?? 0,
+									childCount: 0,
+									createdAt: record.createdAt
+								});
+							}
+						});
+						console.log('Results after bulk:', results);
+					}
+				} catch (lookupErr) {
+					// If computed_id lookup fails, fall back to regular search
+					console.error('Lookup error:', lookupErr);
+				}
+			}
+
+			// If no results from computed_id lookup, do regular text search
+			if (results.length === 0) {
+				results = await searchThreadSummaries({
+					apiBaseUrl: API_BASE_URL,
+					query: query.trim(),
+					limit: 50,
+					getHeaders: buildAuthHeaders
+				});
+			}
+
 			if (controller.signal.aborted) return;
 			threadSummaries = results;
 		} catch (err) {
@@ -530,7 +589,8 @@
 			attachmentName: !node.isText ? (node.title ?? undefined) : undefined,
 			createdAt: node.createdAt,
 			createdAtMs,
-			title: node.title
+			title: node.title,
+			computedId: node.computedId
 		};
 	};
 
@@ -544,6 +604,9 @@
 				message.createdAt = node.createdAt;
 				message.createdAtMs = node.createdAt ? Date.parse(node.createdAt) : undefined;
 				message.parentKey = nodeParentKey(node.parent);
+				if (node.computedId) {
+					message.computedId = node.computedId;
+				}
 				if (!node.isText) {
 					message.content = attachmentLabel(node.mimeType, node.sizeBytes ?? 0);
 				}
@@ -786,6 +849,15 @@
 		if (record) {
 			persistMessageRecord(record);
 			applyRecordToMessage(record);
+		}
+		// Apply computedId directly to the message (not stored in IndexedDB cache)
+		if (payload.computedId) {
+			const path = keyToPath.get(payload.key);
+			if (path) {
+				updateMessageAtPath(path, (message) => {
+					message.computedId = payload.computedId;
+				});
+			}
 		}
 		resolveBulkWaiters(payload.key);
 	};
@@ -1207,13 +1279,41 @@
 		return current ?? null;
 	};
 
+	const copyComputedId = async () => {
+		if (!selectedComputedId) return;
+		try {
+			await navigator.clipboard.writeText(selectedComputedId);
+			computedIdCopied = true;
+			setTimeout(() => {
+				computedIdCopied = false;
+			}, 2000);
+		} catch {
+			// Fallback: create a temporary input element
+			const input = document.createElement('input');
+			input.value = selectedComputedId;
+			document.body.appendChild(input);
+			input.select();
+			document.execCommand('copy');
+			document.body.removeChild(input);
+			computedIdCopied = true;
+			setTimeout(() => {
+				computedIdCopied = false;
+			}, 2000);
+		}
+	};
+
 	const setSelectedPath = (path: number[] | null) => {
 		selectedPath = path ? [...path] : null;
 		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
 		if (message?.key) {
 			rememberLastKey(message.key);
+			// Use computedId from the message data (populated from stream/bulk endpoints)
+			selectedComputedId = message.computedId || null;
 		} else if (!selectedPath) {
 			forgetLastKey();
+			selectedComputedId = null;
+		} else {
+			selectedComputedId = null;
 		}
 	};
 
@@ -1732,8 +1832,8 @@
 					>
 					<input
 						type="search"
-						aria-label="Search messages and threads"
-						placeholder="Search messages and threads…"
+						aria-label="Search messages and threads by text or path"
+						placeholder="Search or enter path (e.g. root:child:topic)…"
 						bind:value={searchQuery}
 						on:input={(e) => onSearchInputChanged((e.target as HTMLInputElement).value)}
 					/>
@@ -1830,6 +1930,25 @@
 								<span class="meta-value">{headerMeta.descendantCount} total</span>
 							</span>
 						{/if}
+					{/if}
+					{#if selectedComputedId}
+						<div class="computed-id-display">
+							<span class="computed-id-label">Path:</span>
+							<code class="computed-id-value">{selectedComputedId}</code>
+							<button
+								type="button"
+								class="copy-computed-id"
+								on:click={copyComputedId}
+								title="Copy path to clipboard"
+								aria-label="Copy path to clipboard"
+							>
+								{#if computedIdCopied}
+									✓
+								{:else}
+									📋
+								{/if}
+							</button>
+						</div>
 					{/if}
 					{#if newThreadMode}
 						<div class="new-thread-title">
@@ -2431,6 +2550,51 @@
 
 	.conversation-header .meta-title {
 		color: var(--text-muted);
+	}
+
+	.computed-id-display {
+		grid-column: 1 / -1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+		padding: 0.4rem 0.6rem;
+		background: var(--surface-muted);
+		border-radius: 0.4rem;
+		border: 1px solid var(--border);
+		font-size: 0.8rem;
+	}
+
+	.computed-id-label {
+		color: var(--text-muted);
+		font-weight: 500;
+	}
+
+	.computed-id-value {
+		color: var(--accent);
+		font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+		font-size: 0.75rem;
+		background: var(--surface);
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		word-break: break-all;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.copy-computed-id {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		font-size: 0.9rem;
+		transition: background 0.15s ease;
+	}
+
+	.copy-computed-id:hover {
+		background: var(--accent-soft);
 	}
 
 	.conversation-header .conversation-subtitle,

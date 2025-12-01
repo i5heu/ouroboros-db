@@ -20,4 +20,15 @@ export type Message = {
     binaryTotalBytes?: number;
     depth?: number;
     title?: string;
+    computedId?: string;
+};
+
+export type LookupResult = {
+    computedId: string;
+    keys: string[];
+};
+
+export type ComputedIdResult = {
+    key: string;
+    computedId: string;
 };
