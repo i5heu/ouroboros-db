@@ -8,7 +8,6 @@
 		streamThreadSummaries,
 		searchThreadSummaries,
 		streamBulkMessages,
-		lookupByComputedId,
 		lookupWithData,
 		type ThreadNodePayload,
 		type ThreadSummaryPayload,
@@ -94,8 +93,6 @@
 	let nextId = 1;
 	let selectedPath: number[] | null = null;
 	let selectedMessage: Message | null = null;
-	let selectedComputedId: string | null = null;
-	let computedIdCopied = false;
 	let fileInput: HTMLInputElement | null = null;
 	let activeSaves = 0;
 	let statusState: 'idle' | 'sending' | 'success' | 'error' = 'idle';
@@ -1420,29 +1417,6 @@
 		return current ?? null;
 	};
 
-	const copyComputedId = async () => {
-		if (!selectedComputedId) return;
-		try {
-			await navigator.clipboard.writeText(selectedComputedId);
-			computedIdCopied = true;
-			setTimeout(() => {
-				computedIdCopied = false;
-			}, 2000);
-		} catch {
-			// Fallback: create a temporary input element
-			const input = document.createElement('input');
-			input.value = selectedComputedId;
-			document.body.appendChild(input);
-			input.select();
-			document.execCommand('copy');
-			document.body.removeChild(input);
-			computedIdCopied = true;
-			setTimeout(() => {
-				computedIdCopied = false;
-			}, 2000);
-		}
-	};
-
 	const setSelectedPath = (path: number[] | null) => {
 		selectedPath = path ? [...path] : null;
 		if (
@@ -1457,13 +1431,8 @@
 		const message = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
 		if (message?.key) {
 			rememberLastKey(message.key);
-			// Use computedId from the message data (populated from stream/bulk endpoints)
-			selectedComputedId = message.computedId || null;
 		} else if (!selectedPath) {
 			forgetLastKey();
-			selectedComputedId = null;
-		} else {
-			selectedComputedId = null;
 		}
 	};
 
@@ -2211,7 +2180,6 @@
 	<section class="conversation-area">
 		<div>
 			<header class="conversation-header">
-				<h1>{headerTitle}</h1>
 				{#if headerMeta && (headerMeta.createdAt || headerMeta.childrenCount > 0 || headerMeta.lastChildAt)}
 					{#if headerMeta.createdAt}
 						<span class="meta-stat">
@@ -2237,25 +2205,6 @@
 							<span class="meta-value">{headerMeta.descendantCount} total</span>
 						</span>
 					{/if}
-				{/if}
-				{#if selectedComputedId}
-					<div class="computed-id-display">
-						<span class="computed-id-label">Path:</span>
-						<code class="computed-id-value">{selectedComputedId}</code>
-						<button
-							type="button"
-							class="copy-computed-id"
-							on:click={copyComputedId}
-							title="Copy path to clipboard"
-							aria-label="Copy path to clipboard"
-						>
-							{#if computedIdCopied}
-								✓
-							{:else}
-								📋
-							{/if}
-						</button>
-					</div>
 				{/if}
 				{#if editMode}
 					<div class="edit-controls">
@@ -2292,14 +2241,6 @@
 							Cancel
 						</button>
 					</div>
-				{:else}
-					<p class="conversation-subtitle">
-						{#if selectedMessage}
-							Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
-						{:else}
-							Starting a new conversation
-						{/if}
-					</p>
 				{/if}
 			</header>
 
@@ -2542,6 +2483,7 @@
 		margin: 0;
 		padding: 0;
 		background: #0f172a;
+		overflow: hidden;
 		color: var(--text-primary);
 		font-family:
 			system-ui,
@@ -2841,7 +2783,6 @@
 		grid-auto-flow: row;
 		gap: 0.75rem;
 		align-items: center;
-		position: sticky;
 		top: 0;
 		background: var(--surface-raised);
 		padding: 0.75rem;
@@ -2881,12 +2822,6 @@
 		gap: 0.6rem;
 	}
 
-	.conversation-subtitle {
-		margin: 0.35rem 0 0;
-		font-size: 0.9rem;
-		color: var(--text-muted);
-	}
-
 	.conversation-header .meta-stat {
 		display: inline-flex;
 		flex-direction: row;
@@ -2898,19 +2833,6 @@
 
 	.conversation-header .meta-title {
 		color: var(--text-muted);
-	}
-
-	.computed-id-display {
-		grid-column: 1 / -1;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-top: 0.5rem;
-		padding: 0.4rem 0.6rem;
-		background: var(--surface-muted);
-		border-radius: 0.4rem;
-		border: 1px solid var(--border);
-		font-size: 0.8rem;
 	}
 
 	.edit-controls {
@@ -2926,48 +2848,11 @@
 		color: var(--accent);
 	}
 
-	.computed-id-label {
-		color: var(--text-muted);
-		font-weight: 500;
-	}
-
-	.computed-id-value {
-		color: var(--accent);
-		font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
-		font-size: 0.75rem;
-		background: var(--surface);
-		padding: 0.2rem 0.4rem;
-		border-radius: 0.25rem;
-		word-break: break-all;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.copy-computed-id {
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 0.2rem 0.4rem;
-		border-radius: 0.25rem;
-		font-size: 0.9rem;
-		transition: background 0.15s ease;
-	}
-
-	.copy-computed-id:hover {
-		background: var(--accent-soft);
-	}
-
-	.conversation-header .conversation-subtitle,
 	.conversation-header .new-thread-title {
 		grid-column: 1 / -1;
 		margin-top: 0.25rem;
 	}
 
-	.conversation-subtitle .snippet {
-		font-weight: 600;
-		color: var(--accent);
-	}
 
 	.chat-window {
 		border-radius: 0.9rem;
