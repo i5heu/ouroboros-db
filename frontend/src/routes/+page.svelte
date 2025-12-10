@@ -1997,20 +1997,18 @@
 		statusState = 'sending';
 		statusText = 'Saving edit…';
 
+		const editTargetKey = target.resolvedKey || target.suggestedEdit || target.key;
 		const metadata: Record<string, unknown> = {
 			reed_solomon_shards: 0,
 			reed_solomon_parity_shards: 0,
 			mime_type: mimeType,
 			is_text: true,
 			filename: 'message.txt',
-			// Use resolvedKey or suggestedEdit if available - this ensures edits form
-			// a chain (Test1 → Test2 → Test3 → Test4) rather than all pointing to the
-			// original (Test1 ← Test2, Test1 ← Test3, Test1 ← Test4).
-			edit_of: target.resolvedKey || target.suggestedEdit || target.key
+			// Anchor edits to the message being edited so the backend can treat them
+			// as child edits (and not as separate root threads).
+			edit_of: editTargetKey,
+			parent: editTargetKey
 		};
-		if (target.parentKey) {
-			metadata.parent = target.parentKey;
-		}
 		if (title) {
 			metadata.title = title;
 		}
