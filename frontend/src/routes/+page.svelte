@@ -2267,24 +2267,6 @@
 							startEditing={startEditingSelected}
 							forceShowEdit={true}
 						/>
-
-						{#if (messages[0].children ?? []).length === 0}
-							<p class="placeholder">This thread has no messages yet.</p>
-						{:else}
-							{#each messages[0].children as child, index (child.id)}
-								<svelte:component
-									this={MessageNode}
-									message={child}
-									level={0}
-									path={[0, index]}
-									{selectedPath}
-									selectMessage={handleSelectMessage}
-									apiBaseUrl={API_BASE_URL}
-									getAuthHeaders={buildAuthHeaders}
-									startEditing={startEditingSelected}
-								/>
-							{/each}
-						{/if}
 					{/key}
 				{/if}
 			</div>
@@ -2852,7 +2834,6 @@
 		grid-column: 1 / -1;
 		margin-top: 0.25rem;
 	}
-
 
 	.chat-window {
 		border-radius: 0.9rem;
