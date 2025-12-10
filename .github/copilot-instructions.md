@@ -23,7 +23,7 @@ Project conventions & critical rules
   - `// H` Human authored, `// HP` human authored w/ TODO
   - `// HC` Human comprehended & confident
   - `P` prefix denotes **priority/critical** functions. e.g., `// PHC` means production-critical and human-reviewed.
-- All AI-generated functions must be marked `// A` or `// AP`. Do not remove or change this unless explicitly requested by a reviewer.
+- It is negotiable that AI generated functions must be generated with an `// A` or `// AP` annotation after the function declaration `func exampleFunction() { // A`.
 
 Patterns relevant to AI coding agents
 - Use the `ouroboros` package root for library changes (not random top-level packages). If adding binaries, put code under `cmd/<binary>`.

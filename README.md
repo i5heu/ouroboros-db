@@ -37,7 +37,7 @@ If the function has a higher risk profile (e.g., involves complex algorithms, se
 
 We add the indicators directly after the function declaration, although it is normally not common practice in Go, because it makes it easier to see the status of the function for most editors as they show use sticky function declaration.
 
-All AI generated functions must be generated with an `// A` or `// AP` annotation. This is non negotiable.
+It is negotiable that AI generated functions must be generated with an `// A` or `// AP` annotation after the function declaration `func exampleFunction() { // A`.
 
 Examples:  
 ```go
