@@ -37,6 +37,32 @@ If the function has a higher risk profile (e.g., involves complex algorithms, se
 
 We add the indicators directly after the function declaration, although it is normally not common practice in Go, because it makes it easier to see the status of the function for most editors as they show use sticky function declaration.
 
+All AI generated functions must be generated with an `// A` or `// AP` annotation. This is non negotiable.
+
+Examples:  
+```go
+
+// This function does X, Y, and Z.
+func exampleFunction() { // A
+    // Function is low risk and was written by AI and not reviewed by a human.
+}
+
+// This function does X, Y, and Z.
+func exampleFunction() { // HC
+    // Function is low risk and was comprehended by a human who is confident about its correctness and safety.
+}
+
+// This function performs critical operations X, Y, and Z has some funky stuff going on.
+func criticalFunction() { // PAP
+    // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
+}
+
+// This function performs critical operations X, Y, and Z.
+func criticalFunction() { // PHC
+    // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
+}
+```
+
 ### Architecture
 
 This UML uses pseudo classes to illustrate the main components and their relationships in OuroborosDB.
