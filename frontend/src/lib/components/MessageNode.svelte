@@ -10,6 +10,8 @@
 	export let selectedPath: number[] | null = null;
 	export let selectMessage: (path: number[]) => void = () => {};
 	export let startEditing: (path: number[]) => void = () => {};
+	// If true, display the edit button even when this node is not selected (e.g., root message)
+	export let forceShowEdit = false;
 	export let apiBaseUrl = '';
 	export let getAuthHeaders: () => Promise<Record<string, string>> = async () => ({
 		Accept: 'application/json'
@@ -460,7 +462,7 @@
 			</button>
 		</div>
 	{/if}
-	{#if isSelected && message.key && message.isText && message.status === 'saved'}
+	{#if (isSelected || forceShowEdit) && message.key && message.isText && message.status === 'saved'}
 		<button
 			type="button"
 			class="edit-message-button"

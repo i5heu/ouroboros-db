@@ -1966,7 +1966,9 @@
 		}
 	};
 
-	const startEditingSelected = async () => {
+	const startEditingSelected = async (pathArg?: number[]) => {
+		// If a path is provided, ensure the message is selected first.
+		if (pathArg) setSelectedPath(pathArg);
 		if (!selectedPath) return;
 		const target = getMessageAtPath(messages, selectedPath);
 		if (!canEditMessage(target)) return;
@@ -2310,6 +2312,21 @@
 					<p class="placeholder">Select a thread to view its messages.</p>
 				{:else}
 					{#key messages[0].id}
+						<!-- Render the root message at the very top of the chat window -->
+						{@html ''}
+						<svelte:component
+							this={MessageNode}
+							message={messages[0]}
+							level={0}
+							path={[0]}
+							{selectedPath}
+							selectMessage={handleSelectMessage}
+							apiBaseUrl={API_BASE_URL}
+							getAuthHeaders={buildAuthHeaders}
+							startEditing={startEditingSelected}
+							forceShowEdit={true}
+						/>
+
 						{#if (messages[0].children ?? []).length === 0}
 							<p class="placeholder">This thread has no messages yet.</p>
 						{:else}
