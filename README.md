@@ -8,6 +8,11 @@
 
 ⚠️ This Project is still in development and not ready for production use. ⚠️
 
+- **OuroborosDB** is an in-progress **distributed, content-addressable database library** for Go. Data is addressed by hashes and organized in a **Git-like DAG of Blobs**, where each Blob can point to a `Parent` and form branches and merge nodes. Concurrent writes simply become new heads in the DAG that the caller can inspect and resolve.
+- Data is stored as **Blobs → Chunks → SealedSlices**: blobs are versioned objects (Git-like DAG with parents/heads), chunks are deduplicated content blocks, and sealed slices are compressed, erasure-coded, and encrypted fragments distributed across nodes.
+- The cluster is designed to be **stateless-ish and self-healing**: nodes host local KV stores, and a combination of a **SyncIndexTree** (Merkle-style sync) and a **DeletionWAL** (tombstone propagation) keeps replicas convergent without a global consensus log.
+- OuroborosDB is exposed as a **single root Go package** (`import "github.com/i5heu/ouroborosdb"`) that can be embedded into other Go projects.
+
 ## Name and Logo
 
 The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of change.
@@ -33,6 +38,8 @@ If the function has a higher risk profile (e.g., involves complex algorithms, se
 We add the indicators directly after the function declaration, although it is normally not common practice in Go, because it makes it easier to see the status of the function for most editors as they show use sticky function declaration.
 
 ### Architecture
+
+This UML uses pseudo classes to illustrate the main components and their relationships in OuroborosDB.
 
 ```mermaid
 
