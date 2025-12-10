@@ -12,78 +12,6 @@
 
 The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of change.
 
-## License
-
-OuroborosDB (c) 2024 Mia Heidenstedt and contributors  
- 
-SPDX-License-Identifier: AGPL-3.0
-
-
-## HTTP API
-
-The reference server in `cmd/server` now exposes a lightweight HTTP API on port 8083. Start the binary and the REST endpoints below become available.
-
-### `POST /data`
-
-Create a new stored object. The body must be JSON with the payload content encoded as base64. Reed-Solomon parameters default to 4 data shards and 2 parity shards when omitted. Provide an optional `mime_type` (<=255 bytes) to mark binary data; absence of a MIME type treats the payload as UTF-8 text.
-
-```json
-{
-  "content": "aGVsbG8gd29ybGQ=",
-  "reed_solomon_shards": 4,
-  "reed_solomon_parity_shards": 2,
-  "mime_type": "application/octet-stream"
-}
-```
-
-Successful requests respond with the SHA-512 key of the stored data:
-
-```json
-{
-  "key": "<hex-encoded-hash>"
-}
-```
-
-### `GET /data`
-
-List all stored keys returned as hexadecimal-encoded hashes:
-
-```json
-{
-  "keys": ["<hex-encoded-hash>" ]
-}
-```
-
-### Try it
-
-```bash
-curl -X POST http://localhost:8083/data \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"aGVsbG8=","reed_solomon_shards":4,"reed_solomon_parity_shards":2}'
-
-curl http://localhost:8083/data
-```
-
-### `GET /data/{key}`
-
-Retrieve a stored entry by its hexadecimal hash. The response includes a base64 encoded payload, the inferred text flag, and the MIME type (if supplied when writing).
-
-```json
-{
-  "key": "<hex-encoded-hash>",
-  "content": "aGVsbG8gd29ybGQ=",
-  "is_text": true,
-  "mime_type": ""
-}
-```
-
-### Payload metadata and MIME type
-
-MIME type is stored in the metadata JSON under the `mime_type` key and is no longer encoded into the payload bytes. The server and clients use the `mime_type` metadata field to determine whether the content should be treated as text or binary. When `mime_type` is omitted, the payload is considered text and the server will default to `text/plain; charset=utf-8` for text content and `application/octet-stream` for binary content.
-
-Note: An older payload header format (which encoded mime information into the first 256 bytes of the content) is deprecated and not used by recent versions of the server.
-
-
 ## Development Notes
 
 ### Legend
@@ -104,35 +32,171 @@ If the function has a higher risk profile (e.g., involves complex algorithms, se
 
 We add the indicators directly after the function declaration, although it is normally not common practice in Go, because it makes it easier to see the status of the function for most editors as they show use sticky function declaration.
 
-Examples:  
-```go
+### Architecture
 
-// This function does X, Y, and Z.
-func exampleFunction() { // A
-    // Function is low risk and was written by AI and not reviewed by a human.
-}
+```mermaid
 
-// This function does X, Y, and Z.
-func exampleFunction() { // HC
-    // Function is low risk and was comprehended by a human who is confident about its correctness and safety.
-}
+classDiagram
+    class Cluster {
+        -[]Node Nodes
+    }
 
-// This function performs critical operations X, Y, and Z has some funky stuff going on.
-func criticalFunction() { // PAP
-    // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
-}
+    namespace DBNode {
+  
 
-// This function performs critical operations X, Y, and Z.
-func criticalFunction() { // PHC
-    // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
-}
+        class Node {
+            +string NodeID
+            +[]string Addresses
+            + index IndexModel
+        }
+
+        class ClusterController {
+        }
+
+        class ClusterMonitor {
+            +MonitorNodeHealth()
+        }
+
+        class NodeAvailabilityTracker {
+            +TrackAvailability()
+        }
+
+        class BootStrapper {
+            +BootstrapNode(node Node) error
+        }
+
+        class MessageTunnel {
+            +Broadcast(message Message)
+            +SendMessageToNode(nodeID NodeID, message Message)
+        }
+
+        class MessageAuthenticator {
+            +AuthenticateMessage(message Message) bool
+        }
+
+        class DataRouter {
+            +StoreBlob(blob Blob) (hash.Hash, error)
+            +RetrieveBlob(hash.Hash) (Blob, error)
+            +DeleteBlob(hash.Hash) error
+        }
+
+        class LocalKVStore {
+            +string key
+            +byte[] value
+        }
+
+        class DeletionWAL {
+            +LogDeletion(hash.Hash) error
+            +ProcessDeletions() error
+        }
+
+        class DistributedIndex 
+
+        class HashToNode {
+            +GetNodeForHash(hash.Hash) Node
+        }
+
+        class KeyToHashAndNode {
+            +GetHashAndNodeForKey(string) (hash.Hash, Node, error)
+        }
+
+        class DataReBalancer {
+            +BalanceData()
+        }
+
+        class ReplicationMonitoring {
+            +MonitorReplications()
+        }
+
+        class SyncIndexTree {
+            +Sync()
+        }
+
+        class BackupManager {
+            +BackupData()
+        }
+    }
+
+    Cluster "1" *-- "*" Node : contains
+    Node "1" o-- "*" ClusterController : listensOn
+    ClusterController "1" *-- "1" MessageTunnel : communicatesVia
+    Node "1" o-- "1" DataRouter : persists blobs
+    DataRouter "1" *-- "1" LocalKVStore : uses
+    ClusterController "1" *-- "1" DistributedIndex : LooksUps
+    DistributedIndex "1" *-- "1" HashToNode : used for mapping
+    DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
+    ClusterController "1" *-- "1" DataReBalancer : manages
+    DataReBalancer "1" *-- "1" ReplicationMonitoring : utilizes
+    MessageTunnel "1" *-- "1" MessageAuthenticator : secures
+    DataRouter "1" *-- "1" ClusterController : interacts with
+    ClusterController "1" *-- "1" BootStrapper : initializes
+    ClusterController "1" *-- "1" ClusterMonitor : monitors
+    Node "1" *-- "1" BackupManager : manages backups
+    ClusterMonitor "1" *-- "1" NodeAvailabilityTracker : utilizes
+    DataReBalancer "1" *-- "1" SyncIndexTree : utilizes
+    Node "1" *-- "1" DeletionWAL : logs deletions
+
+
+    namespace IndexModel {
+        class Index {
+            -LocalKVStore store
+        }
+        class parentChildIndex {
+            - map<hash.Hash, []hash.Hash> ParentToChildren
+            - map<hash.Hash, hash.Hash> ChildToParent
+        }
+        class VersionIndex {
+            - map<hash.Hash, []hash.Hash> VersionVectorHeads
+        }
+        class KeyToHashIndex {
+            - map<string, hash.Hash> KeyToHash
+        }
+    }
+
+    Node "1" o-- "1" Index : indexes relations and metadata
+    Index "1" o-- "1" parentChildIndex : manages
+    Index "1" o-- "1" VersionIndex : manages
+
+    namespace DataModel {
+        class Blob {
+            +string Key
+            +hash.Hash Hash
+            +hash.Hash Parent
+            +int64 Created
+            +enum Type "Child, VersionVector, Merger"
+            <<virtual>> Content
+            -[]hash.Hash ChunkHashes
+            +Get() []byte
+        }
+
+
+        class Chunk {
+            +hash.Hash ChunkHash
+            <<virtual>> ChunkData
+            -[]hash.Hash SealedSliceHashes
+            +Get() []byte
+        }
+
+        class SealedSlice {
+            +hash.Hash SliceHash
+            -[]hash.Hash KeyUsedToSeal
+            -[]byte Nonce
+            -[]byte SealedSliceData
+            +Get() []byte
+        }
+    }
+
+    LocalKVStore "1" o-- "*" Blob : stores
+    Blob "1" *-- "*" Chunk : materializes Content
+    Chunk "1" *-- "*" SealedSlice : materializes ChunkData
+    note for SealedSlice "
+Blob, Chunk and SealedSlice are all persisted
+as key/value entries in LocalKVStores on one
+or more Nodes in the Cluster.
+If a SealedSlice is stored on a Node it does not
+imply that Node has the entire Blob or Chunk."
+
 ```
-## Wikipedia content used by mockData
-
-The `cmd/mockData` tool does fetch and store small excerpts from Wikipedia for testing/demos. Wikipedia content is licensed under CC BY-SA 3.0 and GFDL: please follow those licenses (provide attribution, links to original articles, and indicate changes) if you reuse or redistribute any fetched Wikipedia content. See the canonical license pages for details:
-
-- https://en.wikipedia.org/wiki/Wikipedia:Copyrights
-
 
 ## License
 ouroboros-db © 2025 Mia Heidenstedt and contributors   
