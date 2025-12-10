@@ -25,7 +25,7 @@
 	// Prefer VITE_OUROBOROS_API when set; default to same origin so dev-server proxy reduces CORS
 	const API_BASE_URL = import.meta.env.VITE_OUROBOROS_API ?? '';
 	const LAST_KEY_STORAGE = 'ouroboros:lastKey';
-	const AUTH_BANNER_TIMEOUT_MS = 5_000;
+	const AUTH_BANNER_TIMEOUT_MS = 1_500;
 
 	type AuthStatus = 'idle' | 'authenticating' | 'authenticated' | 'error';
 
@@ -2126,220 +2126,149 @@
 			{authStatusText}
 		</div>
 	{/if}
-	<div class="app-shell">
-		<aside class="thread-sidebar">
-			<div class="global-search">
-				<div class="search-input">
-					<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"
-						><path
-							fill="currentColor"
-							d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zM4 9.5C4 6.46 6.46 4 9.5 4S15 6.46 15 9.5 12.54 15 9.5 15 4 12.54 4 9.5z"
-						></path></svg
+	<aside class="thread-sidebar">
+		<div class="global-search">
+			<div class="search-input">
+				<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"
+					><path
+						fill="currentColor"
+						d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zM4 9.5C4 6.46 6.46 4 9.5 4S15 6.46 15 9.5 12.54 15 9.5 15 4 12.54 4 9.5z"
+					></path></svg
+				>
+				<input
+					type="search"
+					aria-label="Search messages and threads by text or path"
+					placeholder="Search or enter path (e.g. root:child:topic)…"
+					bind:value={searchQuery}
+					on:input={(e) => onSearchInputChanged((e.target as HTMLInputElement).value)}
+				/>
+				{#if searchQuery}
+					<button
+						type="button"
+						class="search-clear"
+						on:click={() => {
+							searchQuery = '';
+							onSearchInputChanged('');
+						}}
+						aria-label="Clear search">×</button
 					>
-					<input
-						type="search"
-						aria-label="Search messages and threads by text or path"
-						placeholder="Search or enter path (e.g. root:child:topic)…"
-						bind:value={searchQuery}
-						on:input={(e) => onSearchInputChanged((e.target as HTMLInputElement).value)}
-					/>
-					{#if searchQuery}
+				{/if}
+			</div>
+		</div>
+		<div class="sidebar-header">
+			<h2>Threads</h2>
+			<button
+				type="button"
+				class="new-thread"
+				on:click={startNewThread}
+				disabled={statusState === 'sending'}
+			>
+				New thread
+			</button>
+		</div>
+		{#if threadsLoading && threadSummaries.length === 0}
+			<p class="thread-placeholder">Loading threads…</p>
+		{:else if threadSummaries.length === 0}
+			{#if threadsError}
+				<p class="thread-placeholder error">{threadsError}</p>
+			{:else}
+				<p class="thread-placeholder">No threads yet. Start one!</p>
+			{/if}
+		{:else}
+			<ul class="thread-list">
+				{#each filteredThreadSummaries as summaryValue, index (summaryKey(summaryValue, index))}
+					{@const summary = summaryValue as ThreadSummary}
+					<li>
 						<button
 							type="button"
-							class="search-clear"
-							on:click={() => {
-								searchQuery = '';
-								onSearchInputChanged('');
-							}}
-							aria-label="Clear search">×</button
+							class="thread-item"
+							class:active={selectedThreadKey === summary.key}
+							on:click={() => handleSelectThreadSummary(summary)}
 						>
-					{/if}
-				</div>
-			</div>
-			<div class="sidebar-header">
-				<h2>Threads</h2>
-				<button
-					type="button"
-					class="new-thread"
-					on:click={startNewThread}
-					disabled={statusState === 'sending'}
-				>
-					New thread
-				</button>
-			</div>
-			{#if threadsLoading && threadSummaries.length === 0}
-				<p class="thread-placeholder">Loading threads…</p>
-			{:else if threadSummaries.length === 0}
-				{#if threadsError}
-					<p class="thread-placeholder error">{threadsError}</p>
-				{:else}
-					<p class="thread-placeholder">No threads yet. Start one!</p>
-				{/if}
-			{:else}
-				<ul class="thread-list">
-					{#each filteredThreadSummaries as summaryValue, index (summaryKey(summaryValue, index))}
-						{@const summary = summaryValue as ThreadSummary}
-						<li>
-							<button
-								type="button"
-								class="thread-item"
-								class:active={selectedThreadKey === summary.key}
-								on:click={() => handleSelectThreadSummary(summary)}
-							>
-								<div class="thread-item-title">{threadSummaryTitle(summary)}</div>
-								<div class="thread-item-meta">
-									{threadSummaryMeta(summary)}
-								</div>
-							</button>
-						</li>
-					{/each}
-					<li class="thread-load-more" bind:this={sentinel}>
-						{#if threadsLoading}
-							<span>Loading more…</span>
-						{:else if threadsError}
-							<span class="error-text">{threadsError}</span>
-						{:else if threadsComplete}
-							<span>End of threads</span>
-						{:else}
-							<button type="button" on:click={() => fetchNextThreadBatch()}> Load more </button>
-						{/if}
+							<div class="thread-item-title">{threadSummaryTitle(summary)}</div>
+							<div class="thread-item-meta">
+								{threadSummaryMeta(summary)}
+							</div>
+						</button>
 					</li>
-				</ul>
-			{/if}
-		</aside>
-		<section class="conversation-area">
-			<div>
-				<header class="conversation-header">
-					<h1>{headerTitle}</h1>
-					{#if headerMeta && (headerMeta.createdAt || headerMeta.childrenCount > 0 || headerMeta.lastChildAt)}
-						{#if headerMeta.createdAt}
-							<span class="meta-stat">
-								<span class="meta-title">Created</span>
-								<span class="meta-value">{formatTimestamp(headerMeta.createdAt)}</span>
-							</span>
-						{/if}
+				{/each}
+				<li class="thread-load-more" bind:this={sentinel}>
+					{#if threadsLoading}
+						<span>Loading more…</span>
+					{:else if threadsError}
+						<span class="error-text">{threadsError}</span>
+					{:else if threadsComplete}
+						<span>End of threads</span>
+					{:else}
+						<button type="button" on:click={() => fetchNextThreadBatch()}> Load more </button>
+					{/if}
+				</li>
+			</ul>
+		{/if}
+	</aside>
+	<section class="conversation-area">
+		<div>
+			<header class="conversation-header">
+				<h1>{headerTitle}</h1>
+				{#if headerMeta && (headerMeta.createdAt || headerMeta.childrenCount > 0 || headerMeta.lastChildAt)}
+					{#if headerMeta.createdAt}
 						<span class="meta-stat">
-							<span class="meta-title">Children</span>
-							<span class="meta-value"
-								>{headerMeta.childrenCount} child{headerMeta.childrenCount === 1 ? '' : 'ren'}</span
-							>
+							<span class="meta-title">Created</span>
+							<span class="meta-value">{formatTimestamp(headerMeta.createdAt)}</span>
 						</span>
-						{#if headerMeta.lastChildAt}
-							<span class="meta-stat">
-								<span class="meta-title">Last reply</span>
-								<span class="meta-value">{formatTimestamp(headerMeta.lastChildAt)}</span>
-							</span>
-						{/if}
-						{#if headerMeta.descendantCount > headerMeta.childrenCount}
-							<span class="meta-stat">
-								<span class="meta-title">Replies</span>
-								<span class="meta-value">{headerMeta.descendantCount} total</span>
-							</span>
-						{/if}
 					{/if}
-					{#if selectedComputedId}
-						<div class="computed-id-display">
-							<span class="computed-id-label">Path:</span>
-							<code class="computed-id-value">{selectedComputedId}</code>
-							<button
-								type="button"
-								class="copy-computed-id"
-								on:click={copyComputedId}
-								title="Copy path to clipboard"
-								aria-label="Copy path to clipboard"
-							>
-								{#if computedIdCopied}
-									✓
-								{:else}
-									📋
-								{/if}
-							</button>
-						</div>
+					<span class="meta-stat">
+						<span class="meta-title">Children</span>
+						<span class="meta-value"
+							>{headerMeta.childrenCount} child{headerMeta.childrenCount === 1 ? '' : 'ren'}</span
+						>
+					</span>
+					{#if headerMeta.lastChildAt}
+						<span class="meta-stat">
+							<span class="meta-title">Last reply</span>
+							<span class="meta-value">{formatTimestamp(headerMeta.lastChildAt)}</span>
+						</span>
 					{/if}
-					{#if editMode}
-						<div class="edit-controls">
-							<button type="button" on:click={cancelEdit} disabled={statusState === 'sending'}>
-								Cancel edit
-							</button>
-						</div>
+					{#if headerMeta.descendantCount > headerMeta.childrenCount}
+						<span class="meta-stat">
+							<span class="meta-title">Replies</span>
+							<span class="meta-value">{headerMeta.descendantCount} total</span>
+						</span>
 					{/if}
-					{#if newThreadMode}
-						<div class="new-thread-title">
-							<input
-								class="title-input"
-								bind:this={titleInputEl}
-								type="text"
-								placeholder="Enter Title"
-								bind:value={newThreadTitle}
-								on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
-								on:keydown={(e) => {
-									if (e.key === 'Enter') {
-										e.preventDefault();
-										void createThreadFromTitle();
-									}
-								}}
-								disabled={statusState === 'sending'}
-							/>
-							<button
-								type="button"
-								on:click={createThreadFromTitle}
-								disabled={!newThreadTitle.trim() || statusState === 'sending'}
-							>
-								Create
-							</button>
-							<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
-								Cancel
-							</button>
-						</div>
-					{:else}
-						<p class="conversation-subtitle">
-							{#if selectedMessage}
-								Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
+				{/if}
+				{#if selectedComputedId}
+					<div class="computed-id-display">
+						<span class="computed-id-label">Path:</span>
+						<code class="computed-id-value">{selectedComputedId}</code>
+						<button
+							type="button"
+							class="copy-computed-id"
+							on:click={copyComputedId}
+							title="Copy path to clipboard"
+							aria-label="Copy path to clipboard"
+						>
+							{#if computedIdCopied}
+								✓
 							{:else}
-								Starting a new conversation
+								📋
 							{/if}
-						</p>
-					{/if}
-				</header>
-
-				<div class="chat-window">
-					{#if nodeLoading && messages.length === 0}
-						<p class="placeholder">Streaming thread…</p>
-					{:else if nodeError && messages.length === 0}
-						<p class="placeholder error">{nodeError}</p>
-					{:else if messages.length === 0}
-						<p class="placeholder">Select a thread to view its messages.</p>
-					{:else}
-						{#key messages[0].id}
-							{#if (messages[0].children ?? []).length === 0}
-								<p class="placeholder">This thread has no messages yet.</p>
-							{:else}
-								{#each messages[0].children as child, index (child.id)}
-									<svelte:component
-										this={MessageNode}
-										message={child}
-										level={0}
-										path={[0, index]}
-										{selectedPath}
-										selectMessage={handleSelectMessage}
-										apiBaseUrl={API_BASE_URL}
-										getAuthHeaders={buildAuthHeaders}
-										startEditing={startEditingSelected}
-									/>
-								{/each}
-							{/if}
-						{/key}
-					{/if}
-				</div>
-			</div>
-
-			<div class="input-area">
-				<!-- If newThreadMode, show title input and disable message area until title is created -->
+						</button>
+					</div>
+				{/if}
+				{#if editMode}
+					<div class="edit-controls">
+						<button type="button" on:click={cancelEdit} disabled={statusState === 'sending'}>
+							Cancel edit
+						</button>
+					</div>
+				{/if}
 				{#if newThreadMode}
-					<div class="new-thread-inputs">
+					<div class="new-thread-title">
 						<input
+							class="title-input"
+							bind:this={titleInputEl}
 							type="text"
-							placeholder="Thread title"
+							placeholder="Enter Title"
 							bind:value={newThreadTitle}
 							on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
 							on:keydown={(e) => {
@@ -2348,162 +2277,229 @@
 									void createThreadFromTitle();
 								}
 							}}
-							class="title-input-mobile"
-							bind:this={titleInputEl}
+							disabled={statusState === 'sending'}
 						/>
 						<button
 							type="button"
 							on:click={createThreadFromTitle}
 							disabled={!newThreadTitle.trim() || statusState === 'sending'}
 						>
-							Create Thread
+							Create
 						</button>
 						<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
 							Cancel
 						</button>
 					</div>
 				{:else}
-					<div class="message-input-wrapper">
-						<input
-							type="text"
-							placeholder={selectedPendingAttachment &&
-							!selectedPendingAttachment.isText &&
-							selectedPendingAttachment.status === 'pending'
-								? 'Filename or title'
-								: selectedMessage && !selectedMessage.isText && selectedMessage.key
-									? 'Reply title (optional)'
-									: 'Optional title'}
-							aria-label={selectedPendingAttachment &&
-							!selectedPendingAttachment.isText &&
-							selectedPendingAttachment.status === 'pending'
-								? 'Edit attached filename or title'
-								: 'Optional message title'}
-							bind:value={inputTitle}
-							class="title-input-mobile"
-							on:input={(e) => {
-								const value = (e.target as HTMLInputElement).value;
-								// always update the composer title string
-								inputTitle = value;
-								// but only update the selected message's title for pending attachments
-								if (
-									selectedPendingAttachment &&
-									!selectedPendingAttachment.isText &&
-									selectedPendingAttachment.status === 'pending'
-								) {
-									applyTitleToSelected(value);
-								}
-							}}
-							on:focus={() => (titleEditing = true)}
-							on:blur={() => (titleEditing = false)}
-							on:keydown={(e) => {
-								if (e.key === 'Enter') {
-									e.preventDefault();
-									const selectedMsg = selectedPath
-										? getMessageAtPath(messages, selectedPath)
-										: null;
-									if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
-										void persistMessage(selectedPath!);
-										inputTitle = '';
-									} else {
-										const ta = document.querySelector(
-											'.input-area textarea'
-										) as HTMLTextAreaElement | null;
-										ta?.focus();
-									}
-								}
-							}}
-						/>
-						{#if !(selectedPendingAttachment && !selectedPendingAttachment.isText && selectedPendingAttachment.status === 'pending')}
-							{#if editMode}
-								<div class="edit-banner">Editing message</div>
-							{/if}
-							<textarea
-								bind:value={inputValue}
-								rows="3"
-								placeholder={editMode
-									? 'Edit message and press Enter'
-									: 'Type a message and press Enter'}
-								on:keydown={handleKeydown}
-							></textarea>
+					<p class="conversation-subtitle">
+						{#if selectedMessage}
+							Replying to <span class="snippet">“{truncate(selectedMessage.content)}”</span>
 						{:else}
-							<div class="attachment-pending">
-								<div class="attachment-meta">
-									<span class="attachment-name"
-										>{selectedPendingAttachment.attachmentName ??
-											selectedPendingAttachment.content}</span
-									>
-									{#if selectedPendingAttachment.sizeBytes}
-										<span class="attachment-size"
-											>{formatBytes(selectedPendingAttachment.sizeBytes)}</span
-										>
-									{/if}
-								</div>
-							</div>
+							Starting a new conversation
 						{/if}
-					</div>
-					<button
-						type="button"
-						class="attach-button"
-						class:attached={selectedPendingAttachment &&
-							selectedPendingAttachment.status === 'pending'}
-						on:click={openFilePicker}
-						disabled={statusState === 'sending' || editMode}
-					>
-						{#if selectedPendingAttachment && selectedPendingAttachment.status === 'pending' && !selectedPendingAttachment.isText}
-							Attached
+					</p>
+				{/if}
+			</header>
+
+			<div class="chat-window">
+				{#if nodeLoading && messages.length === 0}
+					<p class="placeholder">Streaming thread…</p>
+				{:else if nodeError && messages.length === 0}
+					<p class="placeholder error">{nodeError}</p>
+				{:else if messages.length === 0}
+					<p class="placeholder">Select a thread to view its messages.</p>
+				{:else}
+					{#key messages[0].id}
+						{#if (messages[0].children ?? []).length === 0}
+							<p class="placeholder">This thread has no messages yet.</p>
 						{:else}
-							Attach
+							{#each messages[0].children as child, index (child.id)}
+								<svelte:component
+									this={MessageNode}
+									message={child}
+									level={0}
+									path={[0, index]}
+									{selectedPath}
+									selectMessage={handleSelectMessage}
+									apiBaseUrl={API_BASE_URL}
+									getAuthHeaders={buildAuthHeaders}
+									startEditing={startEditingSelected}
+								/>
+							{/each}
 						{/if}
-					</button>
-					<button
-						type="button"
-						on:click={() => {
-							if (editMode) {
-								void submitEdit();
-								return;
-							}
-							const selectedMsg = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
-							if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
-								void persistMessage(selectedPath!);
-								inputTitle = '';
-								// Clear selected pending attachment after sending
-								setSelectedPath(null);
-							} else {
-								void addMessage();
-							}
-						}}
-						disabled={!canSend}
-					>
-						{#if editMode}
-							{statusState === 'sending' ? 'Saving…' : 'Save edit'}
-						{:else}
-							{statusState === 'sending' ? 'Sending…' : 'Send'}
-						{/if}
-					</button>
-					<input
-						type="file"
-						class="file-input"
-						bind:this={fileInput}
-						on:change={handleFileSelection}
-						multiple
-						hidden
-					/>
+					{/key}
 				{/if}
 			</div>
+		</div>
 
-			{#if nodeError && messages.length > 0}
-				<div class="global-status error">
-					{nodeError}
+		<div class="input-area">
+			<!-- If newThreadMode, show title input and disable message area until title is created -->
+			{#if newThreadMode}
+				<div class="new-thread-inputs">
+					<input
+						type="text"
+						placeholder="Thread title"
+						bind:value={newThreadTitle}
+						on:input={(e) => applyTitleToRoot((e.target as HTMLInputElement).value)}
+						on:keydown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								void createThreadFromTitle();
+							}
+						}}
+						class="title-input-mobile"
+						bind:this={titleInputEl}
+					/>
+					<button
+						type="button"
+						on:click={createThreadFromTitle}
+						disabled={!newThreadTitle.trim() || statusState === 'sending'}
+					>
+						Create Thread
+					</button>
+					<button type="button" on:click={cancelNewThread} disabled={statusState === 'sending'}>
+						Cancel
+					</button>
 				</div>
+			{:else}
+				<div class="message-input-wrapper">
+					<input
+						type="text"
+						placeholder={selectedPendingAttachment &&
+						!selectedPendingAttachment.isText &&
+						selectedPendingAttachment.status === 'pending'
+							? 'Filename or title'
+							: selectedMessage && !selectedMessage.isText && selectedMessage.key
+								? 'Reply title (optional)'
+								: 'Optional title'}
+						aria-label={selectedPendingAttachment &&
+						!selectedPendingAttachment.isText &&
+						selectedPendingAttachment.status === 'pending'
+							? 'Edit attached filename or title'
+							: 'Optional message title'}
+						bind:value={inputTitle}
+						class="title-input-mobile"
+						on:input={(e) => {
+							const value = (e.target as HTMLInputElement).value;
+							// always update the composer title string
+							inputTitle = value;
+							// but only update the selected message's title for pending attachments
+							if (
+								selectedPendingAttachment &&
+								!selectedPendingAttachment.isText &&
+								selectedPendingAttachment.status === 'pending'
+							) {
+								applyTitleToSelected(value);
+							}
+						}}
+						on:focus={() => (titleEditing = true)}
+						on:blur={() => (titleEditing = false)}
+						on:keydown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								const selectedMsg = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+								if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
+									void persistMessage(selectedPath!);
+									inputTitle = '';
+								} else {
+									const ta = document.querySelector(
+										'.input-area textarea'
+									) as HTMLTextAreaElement | null;
+									ta?.focus();
+								}
+							}
+						}}
+					/>
+					{#if !(selectedPendingAttachment && !selectedPendingAttachment.isText && selectedPendingAttachment.status === 'pending')}
+						{#if editMode}
+							<div class="edit-banner">Editing message</div>
+						{/if}
+						<textarea
+							bind:value={inputValue}
+							rows="3"
+							placeholder={editMode
+								? 'Edit message and press Enter'
+								: 'Type a message and press Enter'}
+							on:keydown={handleKeydown}
+						></textarea>
+					{:else}
+						<div class="attachment-pending">
+							<div class="attachment-meta">
+								<span class="attachment-name"
+									>{selectedPendingAttachment.attachmentName ??
+										selectedPendingAttachment.content}</span
+								>
+								{#if selectedPendingAttachment.sizeBytes}
+									<span class="attachment-size"
+										>{formatBytes(selectedPendingAttachment.sizeBytes)}</span
+									>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+				<button
+					type="button"
+					class="attach-button"
+					class:attached={selectedPendingAttachment &&
+						selectedPendingAttachment.status === 'pending'}
+					on:click={openFilePicker}
+					disabled={statusState === 'sending' || editMode}
+				>
+					{#if selectedPendingAttachment && selectedPendingAttachment.status === 'pending' && !selectedPendingAttachment.isText}
+						Attached
+					{:else}
+						Attach
+					{/if}
+				</button>
+				<button
+					type="button"
+					on:click={() => {
+						if (editMode) {
+							void submitEdit();
+							return;
+						}
+						const selectedMsg = selectedPath ? getMessageAtPath(messages, selectedPath) : null;
+						if (selectedMsg && !selectedMsg.isText && selectedMsg.status === 'pending') {
+							void persistMessage(selectedPath!);
+							inputTitle = '';
+							// Clear selected pending attachment after sending
+							setSelectedPath(null);
+						} else {
+							void addMessage();
+						}
+					}}
+					disabled={!canSend}
+				>
+					{#if editMode}
+						{statusState === 'sending' ? 'Saving…' : 'Save edit'}
+					{:else}
+						{statusState === 'sending' ? 'Sending…' : 'Send'}
+					{/if}
+				</button>
+				<input
+					type="file"
+					class="file-input"
+					bind:this={fileInput}
+					on:change={handleFileSelection}
+					multiple
+					hidden
+				/>
 			{/if}
+		</div>
 
-			{#if statusState !== 'idle'}
-				<div class={`global-status ${statusState}`}>
-					{statusText}
-				</div>
-			{/if}
-		</section>
-	</div>
+		{#if nodeError && messages.length > 0}
+			<div class="global-status error">
+				{nodeError}
+			</div>
+		{/if}
+
+		{#if statusState !== 'idle'}
+			<div class={`global-status ${statusState}`}>
+				{statusText}
+			</div>
+		{/if}
+	</section>
 </main>
 
 <style>
@@ -2527,6 +2523,7 @@
 
 	:global(body) {
 		margin: 0;
+		padding: 0;
 		background: #0f172a;
 		color: var(--text-primary);
 		font-family:
@@ -2538,44 +2535,50 @@
 	}
 
 	main {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 2.5rem 1.5rem 0.5rem;
+		display: grid;
+		height: 100vh;
+		min-height: 100vh;
+		width: 100%;
+		gap: 1rem;
+		padding: 1.5rem;
+		box-sizing: border-box;
+		align-items: stretch;
+		overflow: hidden;
+
+		grid-template-columns: 1fr 5fr;
+		grid-template-rows: auto;
 	}
 
 	.auth-banner {
-		margin-bottom: 1rem;
+		position: absolute;
+		top: 2.5rem;
+		left: 2.5rem;
+		right: 2.5rem;
+		z-index: 500;
 		padding: 0.85rem 1.1rem;
 		border-radius: 0.85rem;
-		background: rgba(59, 130, 246, 0.15);
+		background: rgb(59, 131, 246);
 		border: 1px solid rgba(59, 130, 246, 0.4);
 		color: #cbd5f5;
 		font-weight: 500;
 	}
 
 	.auth-banner.authenticated {
-		background: rgba(34, 197, 94, 0.18);
-		border-color: rgba(34, 197, 94, 0.4);
+		background: rgb(34, 197, 94);
+		border-color: rgba(34, 197, 94, 0.686);
 		color: #bbf7d0;
 	}
 
 	.auth-banner.error {
-		background: rgba(239, 68, 68, 0.2);
+		background: rgb(239, 68, 68);
 		border-color: rgba(239, 68, 68, 0.45);
 		color: #fecaca;
 	}
 
 	.auth-banner.idle {
-		background: rgba(234, 179, 8, 0.15);
+		background: rgba(234, 179, 8);
 		border-color: rgba(234, 179, 8, 0.4);
 		color: #fef3c7;
-	}
-
-	.app-shell {
-		display: grid;
-		grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-		gap: 1.75rem;
-		align-items: flex-start;
 	}
 
 	.thread-sidebar {
@@ -2586,11 +2589,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-		min-height: 400px;
-		max-height: calc(100vh - 6rem);
-		position: sticky;
-		top: 2.5rem;
-		align-self: start;
 		overflow: hidden;
 		box-shadow: var(--shadow-strong);
 	}
@@ -2812,10 +2810,11 @@
 		background: var(--surface-raised);
 		border: 1px solid var(--border);
 		border-radius: 1rem;
-		padding: 1.5rem;
+		padding: 0 1.5rem;
 		display: flex;
 		flex-direction: column;
 		box-shadow: 0 22px 42px rgba(8, 11, 32, 0.5);
+		overflow-y: auto;
 	}
 
 	.conversation-header {
@@ -2956,7 +2955,6 @@
 	.chat-window {
 		border-radius: 0.9rem;
 		padding: 0.25rem;
-		min-height: 380px;
 		overflow-y: auto;
 		background: var(--surface-muted);
 		box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.6);
@@ -2966,7 +2964,6 @@
 	.placeholder {
 		text-align: center;
 		color: var(--text-muted);
-		margin-top: 3rem;
 	}
 
 	.placeholder.error {
@@ -3132,10 +3129,6 @@
 	}
 
 	@media (max-width: 960px) {
-		.app-shell {
-			grid-template-columns: 1fr;
-		}
-
 		.thread-sidebar {
 			flex-direction: column;
 			min-height: auto;
@@ -3173,7 +3166,6 @@
 
 		.chat-window {
 			max-height: none;
-			min-height: 320px;
 		}
 	}
 </style>
