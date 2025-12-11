@@ -29,8 +29,7 @@ type keyIndex interface {
 // store.
 // It contains the compressed,sliced, and encrypted data of a chunk.
 type SealedSlice struct {
-	ki keyIndex
-	dr dataRouter
+	cas *CAS
 
 	// Hash constructed via the generateHash method
 	// The Hash must be generated with this information in this order:
@@ -52,15 +51,13 @@ type SealedSlice struct {
 }
 
 func NewSealedSlice(
-	dr dataRouter,
-	ki keyIndex,
+	cas *CAS,
 	chunkHash hash.Hash,
 	rsDataSlices, rsParitySlices, rsSliceIndex uint8,
 	nonce []byte,
 ) SealedSlice {
 	return SealedSlice{
-		dr:             dr,
-		ki:             ki,
+		cas:            cas,
 		ChunkHash:      chunkHash,
 		RSDataSlices:   rsDataSlices,
 		RSParitySlices: rsParitySlices,
@@ -74,7 +71,7 @@ func (s *SealedSlice) GetSealedPayload() ([]byte, error) {
 		return s.sealedPayload, nil
 	}
 
-	payload, err := s.dr.GetSealedSlicePayload(s.Hash)
+	payload, err := s.cas.dr.GetSealedSlicePayload(s.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sealed slice payload: %w", err)
 	}
@@ -88,7 +85,7 @@ func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 		return nil, err
 	}
 
-	encapsulatedSecret, err := s.ki.Get(s.Hash, pubKeyHash)
+	encapsulatedSecret, err := s.cas.ki.Get(s.Hash, pubKeyHash)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +98,7 @@ func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 	clearBytes, err := c.Decrypt(&encrypt.EncryptResult{
 		Ciphertext:      s.sealedPayload,
 		Nonce:           s.Nonce,
-		EncapsulatedKey: encapsulatedSecret[0],
+		EncapsulatedKey: encapsulatedSecret[0], // TODO: support multiple keys
 	})
 	if err != nil {
 		return nil, err
@@ -344,7 +341,7 @@ func encryptAndSealSlice( // AC
 	}
 
 	slice := &SealedSlice{
-		ki:             opts.CAS.ki,
+		cas:            opts.CAS,
 		ChunkHash:      chunkHash,
 		RSDataSlices:   opts.RSDataSlices,
 		RSParitySlices: opts.RSParitySlices,
@@ -363,7 +360,11 @@ func encryptAndSealSlice( // AC
 		return &SealedSlice{}, err
 	}
 
-	err = opts.CAS.ki.Set(slice.Hash, pubKeyHash, encryptResult.EncapsulatedKey)
+	err = opts.CAS.ki.Set(
+		slice.Hash,
+		pubKeyHash,
+		encryptResult.EncapsulatedKey,
+	)
 	if err != nil {
 		return &SealedSlice{}, err
 	}

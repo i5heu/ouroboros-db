@@ -60,8 +60,7 @@ func (cas *CAS) StoreBlob(
 	}
 
 	blob := NewBlob(
-		cas.dr,
-		cas.ki,
+		cas,
 		key,
 		parent,
 		created,

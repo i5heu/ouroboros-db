@@ -14,17 +14,17 @@ import (
 )
 
 type Chunk struct {
-	ki      keyIndex
-	dr      dataRouter
+	cas     *CAS
 	Hash    hash.Hash // Hash of the content
+	Size    int       // Size of the content in bytes
 	content []byte    // cached content
 }
 
-func NewChunk(dr dataRouter, ki keyIndex, h hash.Hash) Chunk {
+func NewChunk(cas *CAS, h hash.Hash, size int) Chunk {
 	return Chunk{
-		dr:   dr,
-		ki:   ki,
+		cas:  cas,
 		Hash: h,
+		Size: size,
 	}
 }
 
@@ -33,7 +33,7 @@ func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
 		return c.content, nil
 	}
 
-	sealedSlices, err := c.dr.GetSealedSlicesForChunk(c.Hash)
+	sealedSlices, err := c.cas.dr.GetSealedSlicesForChunk(c.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sealed slices for chunk: %w", err)
 	}
@@ -68,7 +68,7 @@ func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
 	// Reconstruct the original chunk using Reed-Solomon
 	rs, err := reedsolomon.New(
 		int(sealedSlices[0].RSDataSlices),
-		int(sealedSlices[0].RSParitySlices),
+		int(selectedSlices[0].RSParitySlices),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Reed-Solomon encoder: %w", err)
@@ -79,7 +79,7 @@ func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
 	err = rs.Join(
 		writer,
 		selectedSliceContents,
-		len(selectedSliceContents[0])*int(sealedSlices[0].RSDataSlices),
+		int(c.Size),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconstruct chunk: %w", err)
@@ -151,8 +151,7 @@ func (cas *CAS) storeChunksFromBlob(
 	chunks := []Chunk{}
 	for _, has := range hashAndSlices {
 		chunk := Chunk{
-			ki:   cas.ki,
-			dr:   cas.dr,
+			cas:  cas,
 			Hash: has.ChunkHash,
 		}
 

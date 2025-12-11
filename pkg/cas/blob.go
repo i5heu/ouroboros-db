@@ -6,8 +6,7 @@ import (
 )
 
 type Blob struct {
-	ki      keyIndex
-	dr      dataRouter
+	cas     *CAS
 	Key     string      // Key like a path or name, this is non-unique
 	Hash    hash.Hash   // Hash is derived from all fields except from itself.
 	Parent  hash.Hash   // Key of the parent value
@@ -16,15 +15,13 @@ type Blob struct {
 }
 
 func NewBlob(
-	dr dataRouter,
-	ki keyIndex,
+	cas *CAS,
 	key string,
 	parent hash.Hash,
 	created int64,
 ) Blob {
 	return Blob{
-		dr:      dr,
-		ki:      ki,
+		cas:     cas,
 		Key:     key,
 		Parent:  parent,
 		Created: created,
@@ -36,7 +33,7 @@ func (b *Blob) GetChunkHashes() ([]hash.Hash, error) {
 		return b.chunks, nil
 	}
 
-	blob, err := b.dr.GetBlob(b.Hash)
+	blob, err := b.cas.dr.GetBlob(b.Hash)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +49,7 @@ func (b *Blob) GetContent(c crypt.Crypt) ([]byte, error) {
 	}
 
 	for _, chunkHash := range chunkHashes {
-		chunkData, err := b.dr.GetChunk(chunkHash)
+		chunkData, err := b.cas.dr.GetChunk(chunkHash)
 		if err != nil {
 			return nil, err
 		}
