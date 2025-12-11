@@ -1,15 +1,50 @@
 {
-    // Use golangci-lint as linter in this workspace
-    "go.lintTool": "golangci-lint",
-    "go.lintOnSave": "package",
+    "go.lintTool": "golangci-lint-v2",
     "go.lintFlags": [
-        "--fast"
-        // or "--config=./.golangci.yml" if you want to force a config path
+        "--path-mode=abs",
+        "--config=${workspaceFolder}/.golangci.yml"
+        // "--fast-only"
+    ],
+    "go.lintOnSave": "package",
+    "go.formatTool": "custom",
+    "go.alternateTools": {
+        "customFormatter": "golangci-lint-v2"
+    },
+    "go.formatFlags": [
+        "fmt",
+        "--stdin"
     ],
     "[go]": {
+        "editor.rulers": [
+            80
+        ],
         "editor.codeActionsOnSave": {
-            "source.organizeImports": true
+            "source.organizeImports": "explicit"
         },
         "editor.formatOnSave": true
-    }
+    },
+    "cSpell.words": [
+        "boxo",
+        "Buzhash",
+        "chunker",
+        "Ciphertext",
+        "cyclop",
+        "Encryptor",
+        "errcheck",
+        "gofmt",
+        "gofumpt",
+        "goimports",
+        "golines",
+        "gosec",
+        "govet",
+        "ineffassign",
+        "ipfs",
+        "klauspost",
+        "lmittmann",
+        "nolint",
+        "reedsolomon",
+        "sloglint",
+        "staticcheck",
+        "Zstandard"
+    ]
 }

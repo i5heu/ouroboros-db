@@ -1,33 +1,102 @@
 version: "2"
 
 linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosec
+    - sloglint
+    - cyclop
+    - lll
   settings:
     cyclop:
       # The maximal code complexity to report.
       max-complexity: 10
       # The maximal average package complexity.
-      package-average: 0.5
+      package-average: 0
+    lll:
+      # '\t' is counted as 1 character by default, and can be changed with the tab-width option.
+      line-length: 80
+      tab-width: 2
+    sloglint:
+      # Enforce not mixing key-value pairs and attributes.
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#no-mixed-arguments
+      # Default: true
+      no-mixed-args: true
+      # Enforce using key-value pairs only (overrides no-mixed-args, incompatible with attr-only).
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#key-value-pairs-only
+      # Default: false
+      kv-only: true
+      # Enforce using attributes only (overrides no-mixed-args, incompatible with kv-only).
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#attributes-only
+      # Default: false
+      attr-only: false
+      # Enforce not using global loggers.
+      # Values:
+      # - "": disabled
+      # - "all": report all global loggers
+      # - "default": report only the default slog logger
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#no-global
+      # Default: ""
+      no-global: all
+      # Enforce using methods that accept a context.
+      # Values:
+      # - "": disabled
+      # - "all": report all contextless calls
+      # - "scope": report only if a context exists in the scope of the outermost function
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#context-only
+      # Default: ""
+      context: all
+      # Enforce using static values for log messages.
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#static-messages
+      # Default: false
+      static-msg: true
+      # Enforce message style.
+      # Values: lowercased, capitalized
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#message-style
+      # Default: ""
+      msg-style: lowercased
+      # Enforce using constants instead of raw keys.
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#no-raw-keys
+      # Default: false
+      no-raw-keys: true
+      # Enforce key naming convention.
+      # Values: snake, kebab, camel, pascal
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#key-naming-convention
+      # Default: ""
+      key-naming-case: camel
+      # Enforce not using specific keys.
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#forbidden-keys
+      # Default: []
+      # forbidden-keys:
+      #   - time
+      #   - level
+      #   - msg
+      #   - source
+      #   - foo
+      # Enforce putting arguments on separate lines.
+      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#arguments-on-separate-lines
+      # Default: false
+      args-on-sep-lines: false
 
 formatters:
   enable:
-    # - gofumpt
-    # - goimports
-    # - gci
+    - gofumpt
+    - goimports
+    - gci
     - golines
-    # - gofmt
+    - gofmt
   settings:
     gofumpt:
       extra-rules: true
     golines:
       # Target maximum line length.
-      max-len: 100
+      max-len: 80
       # Length of a tabulation.
       tab-len: 2
-      # Shorten single-line comments.
-      # Default: false
       shorten-comments: true
-      # Default: true
       reformat-tags: false
-      # Split chained methods on the dots as opposed to the arguments.
-      # Default: true
       chain-split-dots: false
