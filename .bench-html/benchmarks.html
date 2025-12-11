@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OuroborosDB Benchmarks</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg:#090b10;
+      --card1:#111827;
+      --card2:#020617;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --grid1:#1f2937;
+      --grid2:#111827;
+      --accent-blue:#3b82f6;
+      --accent-blue-line:#93c5fd;
+      --accent-orange:#f97316;
+      --accent-orange-line:#fed7aa;
+    }
+    *{box-sizing:border-box}
+    body{
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem 2rem 4rem;
+    }
+    h1{margin-top:0;font-size:1.8rem}
+    h2{font-size:1.2rem;margin:0 0 .4rem 0}
+    .meta{
+      color:var(--muted);
+      margin-bottom:1.25rem;
+      font-size:.9rem;
+    }
+    section{
+      margin-bottom:2rem;
+      border-radius:.75rem;
+      padding:1rem 1.25rem 1.25rem;
+      background: radial-gradient(circle at top left, var(--card1), var(--card2));
+      box-shadow: 0 16px 40px rgba(0,0,0,.5);
+      border:1px solid var(--card1);
+    }
+    section .subtitle{
+      color:var(--muted);
+      font-size:.9rem;
+      margin:.25rem 0 .75rem 0;
+    }
+    .legend h3{margin:.8rem 0 .35rem 0;font-size:1rem}
+    .legend p, .legend ul{color:var(--muted);margin:.1rem 0 .6rem 0;font-size:.93rem;line-height:1.35rem}
+    .legend ul{padding-left:1.1rem}
+    .summary-table{
+      width:100%;
+      border-collapse:collapse;
+      margin-bottom:.75rem;
+      font-size:.9rem;
+    }
+    .summary-table th,.summary-table td{
+      padding:.35rem .5rem;
+      border-bottom:1px solid var(--grid1);
+      text-align:left;
+      white-space:nowrap;
+    }
+    .summary-table th{color:var(--muted);font-weight:500}
+    .summary-table td.version{font-weight:600}
+    .plot{width:100%;height:380px}
+    code{
+      background: var(--card1);
+      padding:.1rem .35rem;
+      border-radius:.25rem;
+      font-size:.85rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>OuroborosDB Benchmarks</h1>
+  <div class="meta">
+    Generated: 2025-12-11 19:46:27<br>
+    goos: linux<br>
+    goarch: amd64<br>
+    pkg: github.com/i5heu/ouroboros-db/pkg/cas<br>
+    cpu: AMD Ryzen 9 5900X 12-Core Processor<br>
+  </div>
+
+  <section class="legend">
+    <h2>📘 Benchmark Metrics Explained</h2>
+    <p>
+      This report compares benchmark performance across versions of the repo.
+      Each dot in a boxplot is one <strong>go test benchmark run result</strong> (one ns/op sample).
+    </p>
+
+    <h3>📉 Median ns/op (±95% CI)</h3>
+    <p>
+      The median runtime per operation for a version, plus an approximate
+      95% confidence interval width (±) computed from the sample mean and variance.
+      Lower medians are better; a smaller ± value indicates tighter, more stable measurements.
+    </p>
+
+    <h3>🎯 Δ vs current</h3>
+    <p>
+      Relative change in median runtime compared to the <code>current</code> commit for this benchmark.
+      Example: <code>+5.3%</code> means this version is 5.3% slower than current; <code>-3.0%</code> means 3.0% faster.
+    </p>
+
+    <h3>📈 Noise σ/μ</h3>
+    <p>
+      Relative standard deviation of the ns/op samples (σ/μ). This describes how noisy the timing is:
+      small values (1–3%) indicate very stable measurements, whereas larger values (e.g., &gt;10%) suggest
+      that the environment or benchmark is noisy.
+    </p>
+
+    <h3>📏 95% CI width</h3>
+    <p>
+      Approximate 95% confidence interval width for the mean ns/op, expressed as a ± percentage of the mean.
+      If the CI width is ±3%, any observed difference smaller than about 3% is likely indistinguishable from noise.
+    </p>
+
+    <h3>📦 Boxplots</h3>
+    <ul>
+      <li>Box = interquartile range (IQR); center line = median.</li>
+      <li>All ns/op samples are drawn as points (with slight horizontal jitter).</li>
+      <li>Outliers naturally appear as points beyond the box/whiskers.</li>
+      <li>Hover over a point to see its version, run index, and ns/op value.</li>
+    </ul>
+  </section>
+
+  <section id="sec-BenchmarkBlob_GetContent_5MiB-24">
+  <h2>BenchmarkBlob_GetContent_5MiB-24</h2>
+  <div class="subtitle">Boxplot per version. Lower is faster. Baseline for Δ is <code>current</code>.</div>
+  <table class="summary-table">
+    <thead><tr><th>Version</th><th>Median ns/op (±95% CI)</th><th>Δ vs current</th><th>Noise σ/μ</th><th>95% CI width</th><th>Samples</th><th>Bytes/op</th><th>Allocs/op</th></tr></thead>
+    <tbody>
+      <tr><td class="version">current</td><td>16.389ms ± 393.936µs</td><td>0.0%</td><td>3.5%</td><td>±2.4%</td><td>8</td><td>30.04MiB</td><td>1.762k</td></tr>
+      <tr><td class="version">v0.1.1-alpha-3</td><td>12.775ms ± 543.276µs</td><td>-22.1%</td><td>6.1%</td><td>±4.2%</td><td>8</td><td>30.04MiB</td><td>1.762k</td></tr>
+      <tr><td class="version">v0.1.1-alpha-2</td><td>15.245ms ± 669.720µs</td><td>-7.0%</td><td>7.1%</td><td>±4.4%</td><td>10</td><td>30.04MiB</td><td>1.762k</td></tr>
+      <tr><td class="version">v0.1.1-alpha-1</td><td>14.322ms ± 549.157µs</td><td>-12.6%</td><td>5.6%</td><td>±3.9%</td><td>8</td><td>30.04MiB</td><td>1.762k</td></tr>
+    </tbody>
+  </table>
+  <div id="plot-BenchmarkBlob_GetContent_5MiB-24" class="plot"></div>
+</section>
+
+<section id="sec-BenchmarkCAS_StoreAndGet_RoundTrip_1MiB-24">
+  <h2>BenchmarkCAS_StoreAndGet_RoundTrip_1MiB-24</h2>
+  <div class="subtitle">Boxplot per version. Lower is faster. Baseline for Δ is <code>current</code>.</div>
+  <table class="summary-table">
+    <thead><tr><th>Version</th><th>Median ns/op (±95% CI)</th><th>Δ vs current</th><th>Noise σ/μ</th><th>95% CI width</th><th>Samples</th><th>Bytes/op</th><th>Allocs/op</th></tr></thead>
+    <tbody>
+      <tr><td class="version">current</td><td>14.652ms ± 661.843µs</td><td>0.0%</td><td>7.3%</td><td>±4.5%</td><td>10</td><td>99.69MiB</td><td>7.218k</td></tr>
+      <tr><td class="version">v0.1.1-alpha-3</td><td>13.725ms ± 539.123µs</td><td>-6.3%</td><td>6.2%</td><td>±3.9%</td><td>10</td><td>99.79MiB</td><td>7.886k</td></tr>
+      <tr><td class="version">v0.1.1-alpha-2</td><td>13.770ms ± 512.012µs</td><td>-6.0%</td><td>5.9%</td><td>±3.7%</td><td>10</td><td>99.78MiB</td><td>7.780k</td></tr>
+      <tr><td class="version">v0.1.1-alpha-1</td><td>13.731ms ± 967.950µs</td><td>-6.3%</td><td>11.1%</td><td>±6.9%</td><td>10</td><td>99.69MiB</td><td>7.188k</td></tr>
+    </tbody>
+  </table>
+  <div id="plot-BenchmarkCAS_StoreAndGet_RoundTrip_1MiB-24" class="plot"></div>
+</section>
+
+<section id="sec-BenchmarkCAS_StoreBlob_1MiB-24">
+  <h2>BenchmarkCAS_StoreBlob_1MiB-24</h2>
+  <div class="subtitle">Boxplot per version. Lower is faster. Baseline for Δ is <code>current</code>.</div>
+  <table class="summary-table">
+    <thead><tr><th>Version</th><th>Median ns/op (±95% CI)</th><th>Δ vs current</th><th>Noise σ/μ</th><th>95% CI width</th><th>Samples</th><th>Bytes/op</th><th>Allocs/op</th></tr></thead>
+    <tbody>
+      <tr><td class="version">current</td><td>14.286ms ± 1.213ms</td><td>0.0%</td><td>13.6%</td><td>±8.4%</td><td>10</td><td>95.61MiB</td><td>502</td></tr>
+      <tr><td class="version">v0.1.1-alpha-3</td><td>13.347ms ± 465.454µs</td><td>-6.6%</td><td>5.6%</td><td>±3.4%</td><td>10</td><td>95.60MiB</td><td>502</td></tr>
+      <tr><td class="version">v0.1.1-alpha-2</td><td>14.272ms ± 643.337µs</td><td>-0.1%</td><td>7.3%</td><td>±4.5%</td><td>10</td><td>95.60MiB</td><td>502</td></tr>
+      <tr><td class="version">v0.1.1-alpha-1</td><td>13.348ms ± 512.778µs</td><td>-6.6%</td><td>6.2%</td><td>±3.8%</td><td>10</td><td>95.60MiB</td><td>502</td></tr>
+    </tbody>
+  </table>
+  <div id="plot-BenchmarkCAS_StoreBlob_1MiB-24" class="plot"></div>
+</section>
+
+<section id="sec-BenchmarkValidateReconstructionParameters-24">
+  <h2>BenchmarkValidateReconstructionParameters-24</h2>
+  <div class="subtitle">Boxplot per version. Lower is faster. Baseline for Δ is <code>current</code>.</div>
+  <table class="summary-table">
+    <thead><tr><th>Version</th><th>Median ns/op (±95% CI)</th><th>Δ vs current</th><th>Noise σ/μ</th><th>95% CI width</th><th>Samples</th><th>Bytes/op</th><th>Allocs/op</th></tr></thead>
+    <tbody>
+      <tr><td class="version">current</td><td>28.7ns ± 0.1ns</td><td>0.0%</td><td>0.5%</td><td>±0.3%</td><td>10</td><td>96B</td><td>1</td></tr>
+      <tr><td class="version">v0.1.1-alpha-3</td><td>28.7ns ± 0.2ns</td><td>+0.1%</td><td>1.2%</td><td>±0.7%</td><td>10</td><td>96B</td><td>1</td></tr>
+      <tr><td class="version">v0.1.1-alpha-2</td><td>27.9ns ± 0.1ns</td><td>-3.0%</td><td>0.7%</td><td>±0.4%</td><td>10</td><td>96B</td><td>1</td></tr>
+      <tr><td class="version">v0.1.1-alpha-1</td><td>28.6ns ± 0.1ns</td><td>-0.3%</td><td>0.7%</td><td>±0.4%</td><td>10</td><td>96B</td><td>1</td></tr>
+    </tbody>
+  </table>
+  <div id="plot-BenchmarkValidateReconstructionParameters-24" class="plot"></div>
+</section>
+
+  <script>
+    const benchData = {"BenchmarkBlob_GetContent_5MiB-24": {"id": "BenchmarkBlob_GetContent_5MiB-24", "versions": {"current": {"ns": [17547124.0, 16534740.0, 16643745.0, 16328815.0, 16107298.0, 16448922.0, 16314422.0, 15519250.0], "bytes": [31502771.0, 31503015.0, 31502993.0, 31503030.0, 31502979.0, 31502985.0, 31503011.0, 31502967.0], "allocs": [1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0]}, "v0.1.1-alpha-3": {"ns": [12106355.0, 13118995.0, 13812376.0, 14195748.0, 13021874.0, 12527759.0, 12206654.0, 12207839.0], "bytes": [31503020.0, 31502986.0, 31503034.0, 31502999.0, 31502865.0, 31503033.0, 31502990.0, 31503027.0], "allocs": [1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0]}, "v0.1.1-alpha-2": {"ns": [15715833.0, 15772363.0, 15199979.0, 16803595.0, 15866171.0, 15250490.0, 15057367.0, 15238625.0, 14754659.0, 12614708.0], "bytes": [31502995.0, 31502903.0, 31502981.0, 31502944.0, 31502825.0, 31503012.0, 31502980.0, 31502962.0, 31502932.0, 31502957.0], "allocs": [1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0]}, "v0.1.1-alpha-1": {"ns": [14272429.0, 15250128.0, 14370884.0, 13174297.0, 14143032.0, 14681580.0, 12910648.0, 14756278.0], "bytes": [31502791.0, 31502897.0, 31502743.0, 31502962.0, 31502937.0, 31502663.0, 31502964.0, 31503005.0], "allocs": [1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0, 1762.0]}}}, "BenchmarkCAS_StoreAndGet_RoundTrip_1MiB-24": {"id": "BenchmarkCAS_StoreAndGet_RoundTrip_1MiB-24", "versions": {"current": {"ns": [13453847.0, 14806796.0, 14530453.0, 13081238.0, 14772619.0, 14044304.0, 16628693.0, 14980925.0, 16026751.0, 14456569.0], "bytes": [104731319.0, 104568939.0, 104540320.0, 104587149.0, 104521661.0, 104777487.0, 104530202.0, 104356138.0, 104394138.0, 104452304.0], "allocs": [8448.0, 7458.0, 7263.0, 7563.0, 7173.0, 8718.0, 7173.0, 6063.0, 6349.0, 6693.0]}, "v0.1.1-alpha-3": {"ns": [14991344.0, 14062239.0, 13241108.0, 13130943.0, 13090659.0, 13387368.0, 14326685.0, 13221355.0, 14715074.0, 15442316.0], "bytes": [104449332.0, 104645798.0, 104795466.0, 104642855.0, 104583765.0, 104579130.0, 104636937.0, 104829228.0, 104376256.0, 104655210.0], "allocs": [6708.0, 7953.0, 8808.0, 7908.0, 7518.0, 7533.0, 7863.0, 9063.0, 6214.0, 8013.0]}, "v0.1.1-alpha-2": {"ns": [13352982.0, 14299644.0, 13810663.0, 13698839.0, 12911760.0, 13789801.0, 13749755.0, 14118527.0, 13331328.0, 15962017.0], "bytes": [104654756.0, 104501393.0, 104606342.0, 104759692.0, 104608586.0, 104711104.0, 104544794.0, 104638218.0, 104707110.0, 104479678.0], "allocs": [7983.0, 7008.0, 7683.0, 8613.0, 7683.0, 8358.0, 7293.0, 7878.0, 8343.0, 6873.0]}, "v0.1.1-alpha-1": {"ns": [13870978.0, 13743896.0, 12705835.0, 13717830.0, 12923980.0, 12516113.0, 14094606.0, 13378747.0, 15667466.0, 17686141.0], "bytes": [104558660.0, 104752034.0, 104504053.0, 104501724.0, 104820004.0, 104715055.0, 104694129.0, 104503789.0, 104432635.0, 104225315.0], "allocs": [7368.0, 8583.0, 6993.0, 6993.0, 8973.0, 8358.0, 8253.0, 7008.0, 6573.0, 5254.0]}}}, "BenchmarkCAS_StoreBlob_1MiB-24": {"id": "BenchmarkCAS_StoreBlob_1MiB-24", "versions": {"current": {"ns": [12963733.0, 16698997.0, 16644836.0, 14888285.0, 17246524.0, 14037511.0, 14535147.0, 12583271.0, 11950447.0, 12327263.0], "bytes": [100258619.0, 100266914.0, 100263532.0, 100255826.0, 100264871.0, 100240536.0, 100246734.0, 100253021.0, 100241826.0, 100237964.0], "allocs": [502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0]}, "v0.1.1-alpha-3": {"ns": [13453706.0, 12799689.0, 14808598.0, 14463496.0, 14188688.0, 13129249.0, 13330904.0, 13362328.0, 12765231.0, 12637785.0], "bytes": [100259969.0, 100241824.0, 100241757.0, 100234862.0, 100237820.0, 100242808.0, 100246985.0, 100242921.0, 100255209.0, 100245018.0], "allocs": [502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0]}, "v0.1.1-alpha-2": {"ns": [14000856.0, 12778925.0, 13375118.0, 15422711.0, 15364952.0, 15220297.0, 15050383.0, 14468376.0, 14074808.0, 12692371.0], "bytes": [100243839.0, 100230350.0, 100233051.0, 100258224.0, 100243871.0, 100262953.0, 100244133.0, 100260855.0, 100237482.0, 100251661.0], "allocs": [502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0]}, "v0.1.1-alpha-1": {"ns": [14464666.0, 13854555.0, 13899891.0, 12600128.0, 13030266.0, 14633032.0, 13666391.0, 12709268.0, 12304461.0, 12673621.0], "bytes": [100240803.0, 100240598.0, 100244517.0, 100241605.0, 100247233.0, 100246216.0, 100250978.0, 100240135.0, 100240373.0, 100245472.0], "allocs": [502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0, 502.0]}}}, "BenchmarkValidateReconstructionParameters-24": {"id": "BenchmarkValidateReconstructionParameters-24", "versions": {"current": {"ns": [28.75, 28.9, 28.65, 28.67, 28.81, 28.91, 28.59, 28.46, 28.64, 28.89], "bytes": [96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0], "allocs": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}, "v0.1.1-alpha-3": {"ns": [28.5, 28.55, 28.61, 28.97, 29.59, 29.21, 28.78, 28.79, 28.59, 28.68], "bytes": [96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0], "allocs": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}, "v0.1.1-alpha-2": {"ns": [27.98, 27.8, 27.63, 27.89, 27.7, 28.04, 27.64, 28.16, 27.82, 28.13], "bytes": [96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0], "allocs": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}, "v0.1.1-alpha-1": {"ns": [28.37, 29.01, 28.62, 28.63, 28.63, 28.52, 28.79, 28.52, 28.52, 28.88], "bytes": [96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0, 96.0], "allocs": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}}}};
+
+    function makePlots() {
+      Object.entries(benchData).forEach(([benchName, info]) => {
+        const elId = "plot-" + info.id;
+        const container = document.getElementById(elId);
+        if (!container) return;
+
+        // Preserve Python order for categories (current, newest → oldest)
+        const categories = Object.keys(info.versions);
+
+        const traces = [];
+        Object.entries(info.versions).forEach(([version, metrics]) => {
+          const ys = metrics.ns || [];
+          if (!ys.length) return;
+
+          const xs = ys.map(_ => version);
+          const runIdx = ys.map((_, i) => i + 1); // run indices starting at 1
+          const isCurrent = version === "current";
+
+          traces.push({
+            type: "box",
+            name: version,
+            x: xs,
+            y: ys,
+            boxpoints: "all",     // show all samples
+            jitter: 0.28,         // small jitter so points don’t fully overlap
+            pointpos: 0,
+            customdata: runIdx,
+            marker: {
+              color: isCurrent ? "#f97316" : "#3b82f6",
+              opacity: isCurrent ? 0.95 : 0.8,
+              size: 5
+            },
+            line: {
+              width: 1.5,
+              color: isCurrent ? "#fed7aa" : "#93c5fd"
+            },
+            hovertemplate: "version=%{x}<br>run=%{customdata}<br>ns/op=%{y}<extra></extra>"
+          });
+        });
+
+        const layout = {
+          margin: { l: 80, r: 20, t: 10, b: 60 },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "#020617",
+          xaxis: {
+            title: "version",
+            gridcolor: "#111827",
+            zerolinecolor: "#4b5563",
+            type: "category",
+            categoryorder: "array",
+            categoryarray: categories
+          },
+          yaxis: {
+            title: "time per op (ns, lower is better)",
+            gridcolor: "#1f2937",
+            zerolinecolor: "#4b5563"
+          },
+          showlegend: false
+        };
+
+        Plotly.newPlot(elId, traces, layout, {
+          displaylogo: false,
+          responsive: true
+        });
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", makePlots);
+    } else {
+      makePlots();
+    }
+  </script>
+</body>
+</html>
