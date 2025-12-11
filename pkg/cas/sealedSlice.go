@@ -159,7 +159,7 @@ func (s *SealedSlice) generateHash( // H
 	return s.Hash, nil
 }
 
-func (s *SealedSlice) validateDataForHashGeneration() error {
+func (s *SealedSlice) validateDataForHashGeneration() error { // H
 	// Check that required fields are present
 	if s.ChunkHash == (hash.Hash{}) {
 		return errors.New(
@@ -206,7 +206,7 @@ type storeSealedSlicesFromChunkOpts struct {
 	RSParitySlices  uint8
 }
 
-func (s *storeSealedSlicesFromChunkOpts) Validate() error {
+func (s *storeSealedSlicesFromChunkOpts) Validate() error { // H
 	if s.CAS == nil {
 		return errors.New("CAS must be provided")
 	}
@@ -297,7 +297,7 @@ func validateShardCount( // H
 	return nil
 }
 
-func compressChunk(clearChunk []byte) ([]byte, error) { // A
+func compressChunk(clearChunk []byte) ([]byte, error) { // AC
 	encoder, err := zstd.NewWriter(nil)
 	if err != nil {
 		return nil, err
@@ -310,7 +310,7 @@ func compressChunk(clearChunk []byte) ([]byte, error) { // A
 	return compressedChunk, nil
 }
 
-func createReedSolomonShards( // A
+func createReedSolomonShards( // AC
 	compressedData []byte,
 	rsDataSlices, rsParitySlices uint8,
 ) ([][]byte, error) {
@@ -332,7 +332,7 @@ func createReedSolomonShards( // A
 	return shards, nil
 }
 
-func encryptAndSealSlice( // A
+func encryptAndSealSlice( // AC
 	opts storeSealedSlicesFromChunkOpts,
 	shard []byte,
 	chunkHash hash.Hash,
@@ -371,17 +371,136 @@ func encryptAndSealSlice( // A
 	return slice, nil
 }
 
-func selectSealedSlicesForReconstruction(
+// selectSealedSlicesForReconstruction filters and normalizes the set of slices
+// so that reconstruction can be done safely and efficiently.
+//
+// Invariants enforced:
+//   - All returned slices belong to the same chunk (ChunkHash)
+//
+// - All returned slices use the same RS parameters (RSDataSlices,
+// RSParitySlices)
+//   - At most one slice per RSSliceIndex is returned
+//   - We return an error if there are fewer distinct slices than RSDataSlices
+//
+// Complexity: O(len(sealedSlices)) time, O(k+p) additional memory.
+func selectSealedSlicesForReconstruction( // A
 	sealedSlices []SealedSlice,
 ) ([]SealedSlice, error) {
-	// The implementation must:
-	// - consider the same RSDataSlices and RSParitySlices to unseal
-	// - check if there are enough slices to reconstruct
-	// - select the correct slices for reconstruction
+	if len(sealedSlices) == 0 {
+		return nil, fmt.Errorf(
+			"selectSealedSlicesForReconstruction: no slices provided",
+		)
+	}
 
-	// For now, just return the input slices
+	first := sealedSlices[0]
+	chunkHash := first.ChunkHash
+	k := int(first.RSDataSlices)
+	p := int(first.RSParitySlices)
 
-	// TODO implement the logic above
+	if k <= 0 {
+		return nil, fmt.Errorf(
+			"selectSealedSlicesForReconstruction: invalid RSDataSlices=%d",
+			k,
+		)
+	}
+	if p < 0 {
+		return nil, fmt.Errorf(
+			"selectSealedSlicesForReconstruction: invalid RSParitySlices=%d",
+			p,
+		)
+	}
 
-	return sealedSlices, nil
+	total := k + p
+	if total == 0 {
+		return nil, fmt.Errorf(
+			"selectSealedSlicesForReconstruction: total slices (k+p) is zero",
+		)
+	}
+
+	// selected[idx] holds the chosen slice for RSSliceIndex == idx
+	selected := make([]*SealedSlice, total)
+	distinctCount := 0
+
+	for _, s := range sealedSlices {
+		// 1) Enforce same chunk
+		if s.ChunkHash != chunkHash {
+			return nil, fmt.Errorf(
+				"selectSealedSlicesForReconstruction: mixed ChunkHash in input",
+			)
+		}
+
+		// 2) Enforce consistent RS parameters
+		if s.RSDataSlices != first.RSDataSlices ||
+			s.RSParitySlices != first.RSParitySlices {
+			return nil, fmt.Errorf(
+				"selectSealedSlicesForReconstruction: mixed RS parameters in input (got %d/%d, expected %d/%d)",
+				s.RSDataSlices,
+				s.RSParitySlices,
+				first.RSDataSlices,
+				first.RSParitySlices,
+			)
+		}
+
+		idx := int(s.RSSliceIndex)
+		if idx < 0 || idx >= total {
+			return nil, fmt.Errorf(
+				"selectSealedSlicesForReconstruction: RSSliceIndex %d out of range [0,%d)",
+				idx,
+				total,
+			)
+		}
+
+		if len(s.Nonce) == 0 {
+			return nil, fmt.Errorf(
+				"selectSealedSlicesForReconstruction: empty nonce for slice index %d",
+				idx,
+			)
+		}
+
+		// Optional: verify the stored hash matches the recomputed one.
+		// This is robust against bit flips or storage corruption at the slice
+		// level.
+		// If you have a method like s.generateHash(false) you could do:
+		//
+		//   h, err := s.generateHash(false)
+		//   if err != nil || h != s.Hash { continue / return error }
+		//
+
+		if selected[idx] == nil {
+			// avoid capturing loop variable pointer
+			sCopy := s
+			selected[idx] = &sCopy
+			distinctCount++
+		} else {
+			// Duplicate index. Policy options:
+			// - Keep the first (current code)
+			// - Prefer the one with a valid hash if you verify hashes
+			// - Compare Hash and error if they differ
+			//
+			// Example stricter behavior:
+			//
+			//   if selected[idx].Hash != s.Hash {
+			// return nil, fmt.Errorf("conflicting slices for RSSliceIndex=%d", idx)
+			//   }
+		}
+	}
+
+	// Reed–Solomon reconstruction requires at least k available slices.
+	if distinctCount < k {
+		return nil, fmt.Errorf(
+			"selectSealedSlicesForReconstruction: not enough slices for reconstruction (have %d distinct, need at least %d)",
+			distinctCount,
+			k,
+		)
+	}
+
+	// Build result; we keep ordering by RSSliceIndex so the next stage
+	// can just iterate in order if it wants.
+	result := make([]SealedSlice, 0, distinctCount)
+	for i := 0; i < total; i++ {
+		if selected[i] != nil {
+			result = append(result, *selected[i])
+		}
+	}
+	return result, nil
 }
