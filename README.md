@@ -212,16 +212,20 @@ classDiagram
 
         class SealedSlice {
             +hash.Hash SliceHash
-            -[]hash.Hash KeyUsedToSeal
             -[]byte Nonce
-            -[]byte SealedSliceData
+            -[]byte SealedPayload
             +Get() []byte
+        }
+
+        class KeyIndex {
+            -[SliceHash][HashOfPubKey] []EncapsulatedKey
         }
     }
 
     LocalKVStore "1" o-- "*" Blob : stores
     Blob "1" *-- "*" Chunk : materializes Content
     Chunk "1" *-- "*" SealedSlice : materializes ChunkData
+    SealedSlice "1" *-- "*" KeyIndex : provides Key
     note for SealedSlice "
 Blob, Chunk and SealedSlice are all persisted
 as key/value entries in LocalKVStores on one
