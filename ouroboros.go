@@ -1,13 +1,12 @@
 /*
-!! Currently the database is in a very early stage of development and should not be used in production environments. !!
+!! Currently the database is in a very early stage of development !!
+!! It must not be used in production environments !!
 */
 package ouroboros
 
 import (
 	"fmt"
 	"log/slog"
-
-	crypt "github.com/i5heu/ouroboros-crypt"
 )
 
 const (
@@ -17,7 +16,6 @@ const (
 type OuroborosDB struct {
 	log    *slog.Logger
 	config Config
-	crypt  *crypt.Crypt
 }
 
 func New(conf Config) (*OuroborosDB, error) { // A
