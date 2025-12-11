@@ -340,3 +340,18 @@ func encryptAndSealSlice( // A
 
 	return slice, nil
 }
+
+func selectSealedSlicesForReconstruction(
+	sealedSlices []SealedSlice,
+) ([]SealedSlice, error) {
+	// The implementation must:
+	// - consider the same RSDataSlices and RSParitySlices to unseal
+	// - check if there are enough slices to reconstruct
+	// - select the correct slices for reconstruction
+
+	// For now, just return the input slices
+
+	// TODO implement the logic above
+
+	return sealedSlices, nil
+}

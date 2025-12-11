@@ -9,6 +9,8 @@ import (
 	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	buzChunker "github.com/ipfs/boxo/chunker"
+	"github.com/klauspost/compress/zstd"
+	"github.com/klauspost/reedsolomon"
 )
 
 type Chunk struct {
@@ -26,21 +28,70 @@ func NewChunk(dr dataRouter, ki keyIndex, h hash.Hash) Chunk {
 	}
 }
 
-func (c *Chunk) GetContent(cr []crypt.Crypt) ([]byte, error) {
+func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
 	if c.content != nil {
 		return c.content, nil
 	}
 
-	// sealedSlices, err := c.dr.GetSealedSlicesForChunk(c.Hash)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get sealed slices for chunk: %w", err)
-	// }
+	sealedSlices, err := c.dr.GetSealedSlicesForChunk(c.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sealed slices for chunk: %w", err)
+	}
 
-	// for _, sealedSlice := range sealedSlices {
-	// 	// TODO implement logic to select the correct slices for reconstruction
-	// }
+	selectedSlices, err := selectSealedSlicesForReconstruction(sealedSlices)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to select sealed slices for reconstruction: %w",
+			err,
+		)
+	}
+	selectedSliceContents := make([][]byte, len(selectedSlices))
+	for i, sealedSlice := range selectedSlices {
+		sliceContent, err := sealedSlice.Decrypt(cr)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decrypt sealed slice with hash %s: %w",
+				sealedSlice.Hash.String(),
+				err,
+			)
+		}
 
-	// c.content = content
+		if sliceContent == nil {
+			return nil, fmt.Errorf(
+				"failed to decrypt sealed slice with hash %s",
+				sealedSlice.Hash.String(),
+			)
+		}
+		selectedSliceContents[i] = sliceContent
+	}
+
+	// Reconstruct the original chunk using Reed-Solomon
+	rs, err := reedsolomon.New(
+		int(sealedSlices[0].RSDataSlices),
+		int(sealedSlices[0].RSParitySlices),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Reed-Solomon encoder: %w", err)
+	}
+
+	writer := &bytes.Buffer{}
+
+	err = rs.Join(
+		writer,
+		selectedSliceContents,
+		len(selectedSliceContents[0])*int(sealedSlices[0].RSDataSlices),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconstruct chunk: %w", err)
+	}
+
+	// Decompress the reconstructed chunk with zstd
+	content, err := decompressChunkData(writer.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress chunk data: %w", err)
+	}
+
+	c.content = content
 	return c.content, nil
 }
 
@@ -134,4 +185,21 @@ func chunker(payload []byte) ([][]byte, error) {
 
 	}
 	return chunks, nil
+}
+
+func decompressChunkData(compressedData []byte) ([]byte, error) {
+	// Create a new zstd decoder
+	decoder, err := zstd.NewReader(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zstd decoder: %w", err)
+	}
+	defer decoder.Close()
+
+	// Decompress the data
+	decompressedData, err := decoder.DecodeAll(compressedData, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress data: %w", err)
+	}
+
+	return decompressedData, nil
 }

@@ -58,10 +58,22 @@ func (cas *CAS) StoreBlob(
 		chunkHashes[i] = chunk.Hash
 	}
 
-	return Blob{
-		Key:     key,
-		Parent:  parent,
-		Created: created,
-		chunks:  chunkHashes,
-	}, nil
+	blob := NewBlob(
+		cas.dr,
+		cas.ki,
+		key,
+		parent,
+		created,
+		chunkHashes,
+	)
+
+	return blob, nil
+}
+
+func (cas *CAS) GetBlob(ctx context.Context, hash hash.Hash) (Blob, error) {
+	blob, err := cas.dr.GetBlob(hash)
+	if err != nil {
+		return Blob{}, err
+	}
+	return blob, nil
 }
