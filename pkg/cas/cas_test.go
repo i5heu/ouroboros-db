@@ -1634,8 +1634,9 @@ func BenchmarkCAS_StoreBlob_1MiB(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		key := fmt.Sprintf("bench/store-1mib/%d", i)
+	iter := 0
+	for b.Loop() {
+		key := fmt.Sprintf("bench/store-1mib/%d", iter)
 		created := time.Now().UnixMilli()
 
 		_, err := cas.StoreBlob(
@@ -1647,8 +1648,9 @@ func BenchmarkCAS_StoreBlob_1MiB(b *testing.B) {
 			*c,
 		)
 		if err != nil {
-			b.Fatalf("StoreBlob failed at iter %d: %v", i, err)
+			b.Fatalf("StoreBlob failed at iter %d: %v", iter, err)
 		}
+		iter++
 	}
 }
 
@@ -1670,8 +1672,9 @@ func BenchmarkCAS_StoreAndGet_RoundTrip_5MiB(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		key := fmt.Sprintf("bench/roundtrip-5mib/%d", i)
+	iter := 0
+	for b.Loop() {
+		key := fmt.Sprintf("bench/roundtrip-5mib/%d", iter)
 		created := time.Now().UnixMilli()
 
 		_, err := cas.StoreBlob(
@@ -1683,23 +1686,24 @@ func BenchmarkCAS_StoreAndGet_RoundTrip_5MiB(b *testing.B) {
 			*c,
 		)
 		if err != nil {
-			b.Fatalf("StoreBlob failed at iter %d: %v", i, err)
+			b.Fatalf("StoreBlob failed at iter %d: %v", iter, err)
 		}
 
 		blob := firstStoredBlob(b, dr)
 
 		got, err := blob.GetContent(ctx, *c)
 		if err != nil {
-			b.Fatalf("GetContent failed at iter %d: %v", i, err)
+			b.Fatalf("GetContent failed at iter %d: %v", iter, err)
 		}
 		if len(got) != len(payload) {
 			b.Fatalf(
 				"len mismatch at iter %d: want %d, got %d",
-				i,
+				iter,
 				len(payload),
 				len(got),
 			)
 		}
+		iter++
 	}
 }
 
@@ -1724,7 +1728,7 @@ func BenchmarkBlob_GetContent_5MiB(b *testing.B) {
 	_, err := cas.StoreBlob(
 		ctx,
 		payload,
-		"bench/getcontent-5mib",
+		"bench/getContent-5mib",
 		hash.Hash{},
 		created,
 		*c,
@@ -1744,15 +1748,14 @@ func BenchmarkBlob_GetContent_5MiB(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		got, err := blob.GetContent(ctx, *c)
 		if err != nil {
-			b.Fatalf("GetContent failed at iter %d: %v", i, err)
+			b.Fatalf("GetContent failed during loop: %v", err)
 		}
 		if len(got) != len(payload) {
 			b.Fatalf(
-				"len mismatch at iter %d: want %d, got %d",
-				i,
+				"len mismatch during loop: want %d, got %d",
 				len(payload),
 				len(got),
 			)
@@ -1770,7 +1773,7 @@ func BenchmarkValidateReconstructionParameters(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		params, err := validateReconstructionParameters(s)
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
