@@ -2,4 +2,5 @@ main
 *.log
 data/
 .cache/
+.gocache/
 showContentsOutput.txt
