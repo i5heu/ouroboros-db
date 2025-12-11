@@ -18,6 +18,7 @@ type dataRouter interface {
 	GetSealedSlicesForChunk(chunkHash hash.Hash) ([]SealedSlice, error)
 	GetSealedSlice(hash hash.Hash) (SealedSlice, error)
 	SetSealedSlice(ctx context.Context, slice SealedSlice) error
+	GetSealedSlicePayload(hash hash.Hash) ([]byte, error)
 }
 
 type CAS struct {
@@ -64,7 +65,6 @@ func (cas *CAS) StoreBlob(
 		key,
 		parent,
 		created,
-		chunkHashes,
 	)
 
 	return blob, nil

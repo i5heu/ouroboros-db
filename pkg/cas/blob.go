@@ -21,7 +21,6 @@ func NewBlob(
 	key string,
 	parent hash.Hash,
 	created int64,
-	chunks []hash.Hash, // optional
 ) Blob {
 	return Blob{
 		dr:      dr,
@@ -29,7 +28,6 @@ func NewBlob(
 		Key:     key,
 		Parent:  parent,
 		Created: created,
-		chunks:  chunks,
 	}
 }
 

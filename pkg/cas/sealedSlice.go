@@ -48,7 +48,7 @@ type SealedSlice struct {
 	RSSliceIndex uint8
 
 	Nonce         []byte // AES-GCM nonce for encryption
-	SealedPayload []byte // Encrypted slice payload
+	sealedPayload []byte // cache for encrypted slice payload
 }
 
 func NewSealedSlice(
@@ -56,7 +56,7 @@ func NewSealedSlice(
 	ki keyIndex,
 	chunkHash hash.Hash,
 	rsDataSlices, rsParitySlices, rsSliceIndex uint8,
-	nonce, payload []byte,
+	nonce []byte,
 ) SealedSlice {
 	return SealedSlice{
 		dr:             dr,
@@ -66,8 +66,20 @@ func NewSealedSlice(
 		RSParitySlices: rsParitySlices,
 		RSSliceIndex:   rsSliceIndex,
 		Nonce:          nonce,
-		SealedPayload:  payload,
 	}
+}
+
+func (s *SealedSlice) GetSealedPayload() ([]byte, error) {
+	if s.sealedPayload != nil {
+		return s.sealedPayload, nil
+	}
+
+	payload, err := s.dr.GetSealedSlicePayload(s.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sealed slice payload: %w", err)
+	}
+	s.sealedPayload = payload
+	return s.sealedPayload, nil
 }
 
 func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
@@ -81,8 +93,13 @@ func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 		return nil, err
 	}
 
+	_, err = s.GetSealedPayload()
+	if err != nil {
+		return nil, err
+	}
+
 	clearBytes, err := c.Decrypt(&encrypt.EncryptResult{
-		Ciphertext:      s.SealedPayload,
+		Ciphertext:      s.sealedPayload,
 		Nonce:           s.Nonce,
 		EncapsulatedKey: encapsulatedSecret[0],
 	})
@@ -115,12 +132,17 @@ func (s *SealedSlice) generateHash( // H
 		return hash.Hash{}, err
 	}
 
+	_, err = s.GetSealedPayload()
+	if err != nil {
+		return hash.Hash{}, err
+	}
+
 	// Generate the hash
-	buf := make([]byte, 0, 3+len(s.Nonce)+len(s.SealedPayload)+len(s.ChunkHash))
+	buf := make([]byte, 0, 3+len(s.Nonce)+len(s.sealedPayload)+len(s.ChunkHash))
 	buf = append(buf, s.ChunkHash[:]...)
 	buf = append(buf, s.RSDataSlices, s.RSParitySlices, s.RSSliceIndex)
 	buf = append(buf, s.Nonce...)
-	buf = append(buf, s.SealedPayload...)
+	buf = append(buf, s.sealedPayload...)
 
 	newHash := hash.HashBytes(buf)
 
@@ -149,7 +171,15 @@ func (s *SealedSlice) validateDataForHashGeneration() error {
 		return errors.New("missing Nonce field for hash generation")
 	}
 
-	if len(s.SealedPayload) == 0 {
+	_, err := s.GetSealedPayload()
+	if err != nil {
+		return fmt.Errorf(
+			"failed to get sealed payload for hash generation: %w",
+			err,
+		)
+	}
+
+	if len(s.sealedPayload) == 0 {
 		return errors.New("missing Payload field for hash generation")
 	}
 
@@ -320,7 +350,7 @@ func encryptAndSealSlice( // A
 		RSParitySlices: opts.RSParitySlices,
 		RSSliceIndex:   uint8(sliceIndex),
 		Nonce:          encryptResult.Nonce,
-		SealedPayload:  encryptResult.Ciphertext,
+		sealedPayload:  encryptResult.Ciphertext,
 	}
 
 	pubKeyHash, err := opts.Crypt.Encryptor.PublicKey.Hash()
