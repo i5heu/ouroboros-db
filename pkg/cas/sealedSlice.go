@@ -73,7 +73,7 @@ func (s *SealedSlice) GetSealedPayload(ctx context.Context) ([]byte, error) {
 
 	payload, err := s.cas.dr.GetSealedSlicePayload(ctx, s.Hash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sealed slice payload: %w", err)
+		return nil, fmt.Errorf("cas: failed to get sealed slice payload: %w", err)
 	}
 	s.sealedPayload = payload
 	return s.sealedPayload, nil
@@ -150,7 +150,7 @@ func (s *SealedSlice) generateHash( // H
 	// If validating, compare the newly generated hash with the existing one
 	if validate && s.Hash != (hash.Hash{}) && newHash != s.Hash {
 		return hash.Hash{}, fmt.Errorf(
-			"hash validation failed: stored=%s computed=%s",
+			"cas: hash validation failed: stored=%s computed=%s",
 			s.Hash.String(),
 			newHash.String(),
 		)
@@ -166,35 +166,35 @@ func (s *SealedSlice) validateDataForHashGeneration(
 	// Check that required fields are present
 	if s.ChunkHash == (hash.Hash{}) {
 		return errors.New(
-			"missing ChunkHash field for hash generation",
+			"cas: missing ChunkHash field for hash generation",
 		)
 	}
 
 	if len(s.Nonce) == 0 {
-		return errors.New("missing Nonce field for hash generation")
+		return errors.New("cas: missing Nonce field for hash generation")
 	}
 
 	_, err := s.GetSealedPayload(ctx)
 	if err != nil {
 		return fmt.Errorf(
-			"failed to get sealed payload for hash generation: %w",
+			"cas: failed to get sealed payload for hash generation: %w",
 			err,
 		)
 	}
 
 	if len(s.sealedPayload) == 0 {
-		return errors.New("missing Payload field for hash generation")
+		return errors.New("cas: missing Payload field for hash generation")
 	}
 
 	if s.RSDataSlices == 0 {
 		return errors.New(
-			"missing RSDataSlices field for hash generation",
+			"cas: missing RSDataSlices field for hash generation",
 		)
 	}
 
 	if s.RSParitySlices == 0 {
 		return errors.New(
-			"missing RSParitySlices field for hash generation",
+			"cas: missing RSParitySlices field for hash generation",
 		)
 	}
 	return nil
@@ -211,22 +211,22 @@ type storeSealedSlicesFromChunkOpts struct {
 
 func (s *storeSealedSlicesFromChunkOpts) Validate() error { // H
 	if s.CAS == nil {
-		return errors.New("CAS must be provided")
+		return errors.New("cas: CAS must be provided")
 	}
 	if s.Crypt.Encryptor == nil {
-		return errors.New("encryptor must be provided")
+		return errors.New("cas: encryptor must be provided")
 	}
 	if len(s.ClearChunkBytes) == 0 {
-		return errors.New("ClearChunkBytes must be provided")
+		return errors.New("cas: ClearChunkBytes must be provided")
 	}
 	if s.ChunkHash == (hash.Hash{}) {
-		return errors.New("ChunkHash must be provided")
+		return errors.New("cas: ChunkHash must be provided")
 	}
 	if s.RSDataSlices == 0 {
-		return errors.New("RSDataSlices must be greater than zero")
+		return errors.New("cas: RSDataSlices must be greater than zero")
 	}
 	if s.RSParitySlices == 0 {
-		return errors.New("RSParitySlices must be greater than zero")
+		return errors.New("cas: RSParitySlices must be greater than zero")
 	}
 	return nil
 }
@@ -286,14 +286,14 @@ func validateShardCount( // H
 ) error {
 	if len(shards) > int(rsDataSlices)+int(rsParitySlices) {
 		return fmt.Errorf(
-			"number of generated slices exceeds maximum allowed: got %d, max %d",
+			"cas: number of generated slices exceeds maximum allowed: got %d, max %d",
 			len(shards),
 			int(rsDataSlices)+int(rsParitySlices),
 		)
 	}
 	if len(shards) > maxSliceCount {
 		return fmt.Errorf(
-			"number of generated slices exceeds uint8 maximum: got %d, max %d",
+			"cas: number of generated slices exceeds uint8 maximum: got %d, max %d",
 			len(shards),
 			maxSliceCount,
 		)
@@ -309,7 +309,7 @@ func compressChunk(clearChunk []byte) ([]byte, error) { // AC
 	compressedChunk := encoder.EncodeAll(clearChunk, nil)
 	err = encoder.Close()
 	if err != nil {
-		return nil, errors.New("failed to close zstd encoder: " + err.Error())
+		return nil, errors.New("cas: failed to close zstd encoder: " + err.Error())
 	}
 	return compressedChunk, nil
 }

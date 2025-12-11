@@ -7,6 +7,7 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 )
 
+// StoreBlob stores a blob's content as chunks and returns the resulting Blob.
 type Blob struct {
 	cas     *CAS
 	Key     string      // Key like a path or name, this is non-unique
