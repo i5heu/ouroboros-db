@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	CurrentDbVersion = "v0.1.0-alpha-1"
+	CurrentDbVersion = "v0.1.0-alpha-2"
 )
 
 type OuroborosDB struct {
