@@ -340,38 +340,44 @@ func computeFakeBlobHash(
 	return hash.HashBytes(buf)
 }
 
-func firstStoredBlob(t *testing.T, dr *fakeDataRouter) Blob {
-	t.Helper()
+func firstStoredBlob(tb testing.TB, dr *fakeDataRouter) Blob {
+	tb.Helper()
 
 	for _, blob := range dr.BlobsByHash() {
 		if blob.Hash == (hash.Hash{}) {
-			t.Fatalf("stored blob missing hash")
+			tb.Fatalf("stored blob missing hash")
 		}
 		if len(blob.chunks) == 0 {
-			t.Fatalf("stored blob %s missing chunk hashes", blob.Hash.String())
+			tb.Fatalf(
+				"stored blob %s missing chunk hashes",
+				blob.Hash.String(),
+			)
 		}
 		return blob
 	}
-	t.Fatalf("no blob stored in fake data router")
+	tb.Fatalf("no blob stored in fake data router")
 	return Blob{}
 }
 
-func buildChunkSizeMap(t *testing.T, payload []byte) map[hash.Hash]int {
-	t.Helper()
+func buildChunkSizeMap(tb testing.TB, payload []byte) map[hash.Hash]int {
+	tb.Helper()
 
 	chunks, err := chunker(payload)
 	if err != nil {
-		t.Fatalf("failed to chunk payload: %v", err)
+		tb.Fatalf("failed to chunk payload: %v", err)
 	}
 	if len(chunks) == 0 {
-		t.Fatalf("chunker returned no chunks for payload length %d", len(payload))
+		tb.Fatalf(
+			"chunker returned no chunks for payload length %d",
+			len(payload),
+		)
 	}
 
 	sizeMap := make(map[hash.Hash]int)
 	for _, ch := range chunks {
 		compressed, err := compressChunk(ch)
 		if err != nil {
-			t.Fatalf("failed to compress chunk: %v", err)
+			tb.Fatalf("failed to compress chunk: %v", err)
 		}
 		sizeMap[hash.HashBytes(ch)] = len(compressed)
 	}
@@ -1418,5 +1424,364 @@ func TestCAS_StoreBlob_RoundTrip_LargeBlob5MB(t *testing.T) {
 
 	if !bytes.Equal(got, payload) {
 		t.Fatalf("5MB blob content mismatch after roundtrip")
+	}
+}
+
+func TestBlob_getChunkHashes_LoadsFromDataRouterAndCaches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	payload := []byte("blob-get-chunk-hashes-test")
+
+	chunkSizeMap := buildChunkSizeMap(t, payload)
+	dr := newFakeDataRouter(chunkSizeMap)
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+	cas := NewCAS(dr, ki)
+
+	created := time.Now().UnixMilli()
+	_, err := cas.StoreBlob(
+		ctx,
+		payload,
+		"test/blob-get-chunk-hashes",
+		hash.Hash{},
+		created,
+		*c,
+	)
+	if err != nil {
+		t.Fatalf("StoreBlob returned error: %v", err)
+	}
+
+	// Get the stored blob as seen by the data router.
+	original := firstStoredBlob(t, dr)
+
+	if len(original.chunks) == 0 {
+		t.Fatalf(
+			"expected original blob to have chunk hashes, got 0",
+		)
+	}
+
+	// Create a copy with chunks cleared, to force lazy load via cas.dr.
+	blob := original
+	blob.chunks = nil
+
+	if len(blob.chunks) != 0 {
+		t.Fatalf(
+			"expected test blob to start without chunks, got %d",
+			len(blob.chunks),
+		)
+	}
+
+	// Call the method under test.
+	chunks, err := blob.GetChunkHashes(ctx)
+	if err != nil {
+		t.Fatalf("GetChunkHashes returned error: %v", err)
+	}
+
+	if len(chunks) != len(original.chunks) {
+		t.Fatalf(
+			"expected %d chunks, got %d",
+			len(original.chunks),
+			len(chunks),
+		)
+	}
+
+	for i := range chunks {
+		if chunks[i] != original.chunks[i] {
+			t.Fatalf(
+				"chunk hash mismatch at index %d: want %s, got %s",
+				i,
+				original.chunks[i].String(),
+				chunks[i].String(),
+			)
+		}
+	}
+
+	// And it should have populated the cache on the blob itself.
+	if len(blob.chunks) != len(chunks) {
+		t.Fatalf(
+			"expected blob.chunks to be cached with %d hashes, got %d",
+			len(chunks),
+			len(blob.chunks),
+		)
+	}
+}
+
+func TestCAS_GetBlob_DelegatesToDataRouter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("ok", func(t *testing.T) {
+		t.Helper()
+
+		dr := newFakeDataRouter(nil)
+		ki := newFakeKeyIndex()
+		cas := NewCAS(dr, ki)
+
+		h := hash.HashBytes([]byte("blob-ok"))
+		blob := Blob{
+			Hash:    h,
+			Key:     "key-ok",
+			Parent:  hash.Hash{},
+			Created: time.Now().UnixMilli(),
+		}
+
+		// Seed fake router.
+		dr.blobs[h] = blob
+
+		got, err := cas.GetBlob(ctx, h)
+		if err != nil {
+			t.Fatalf("GetBlob returned error: %v", err)
+		}
+		if got.Hash != h {
+			t.Fatalf(
+				"GetBlob returned blob with wrong hash: want %s, got %s",
+				h.String(),
+				got.Hash.String(),
+			)
+		}
+	})
+
+	t.Run("not-found", func(t *testing.T) {
+		t.Helper()
+
+		dr := newFakeDataRouter(nil)
+		ki := newFakeKeyIndex()
+		cas := NewCAS(dr, ki)
+
+		h := hash.HashBytes([]byte("blob-missing"))
+
+		_, err := cas.GetBlob(ctx, h)
+		if err == nil {
+			t.Fatalf(
+				"expected error for missing blob %s, got nil",
+				h.String(),
+			)
+		}
+	})
+}
+
+func TestValidateReconstructionParameters_Valid(t *testing.T) {
+	chunkHash := hash.HashBytes([]byte("chunk"))
+
+	first := SealedSlice{
+		ChunkHash:      chunkHash,
+		RSDataSlices:   2,
+		RSParitySlices: 1,
+	}
+
+	params, err := validateReconstructionParameters(first)
+	if err != nil {
+		t.Fatalf(
+			"expected valid reconstruction params, got error: %v",
+			err,
+		)
+	}
+
+	if params.k != 2 {
+		t.Fatalf("expected k=2, got %d", params.k)
+	}
+	if params.p != 1 {
+		t.Fatalf("expected p=1, got %d", params.p)
+	}
+	if params.total != 3 {
+		t.Fatalf("expected total=3, got %d", params.total)
+	}
+	if params.chunkHash != chunkHash {
+		t.Fatalf(
+			"expected chunkHash=%s, got %s",
+			chunkHash.String(),
+			params.chunkHash.String(),
+		)
+	}
+}
+
+func TestValidateReconstructionParameters_InvalidRSDataSlices(t *testing.T) {
+	first := SealedSlice{
+		ChunkHash:      hash.HashBytes([]byte("chunk-invalid-k")),
+		RSDataSlices:   0, // invalid
+		RSParitySlices: 1,
+	}
+
+	_, err := validateReconstructionParameters(first)
+	if err == nil {
+		t.Fatalf("expected error for RSDataSlices=0, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid RSDataSlices") {
+		t.Fatalf(
+			"expected error about invalid RSDataSlices, got: %v",
+			err,
+		)
+	}
+}
+
+func BenchmarkCAS_StoreBlob_1MiB(b *testing.B) {
+	ctx := context.Background()
+	const size = 1 * 1024 * 1024 // 1 MiB
+
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+
+	chunkSizeMap := buildChunkSizeMap(b, payload)
+	dr := newFakeDataRouter(chunkSizeMap)
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+	cas := NewCAS(dr, ki)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("bench/store-1mib/%d", i)
+		created := time.Now().UnixMilli()
+
+		_, err := cas.StoreBlob(
+			ctx,
+			payload,
+			key,
+			hash.Hash{},
+			created,
+			*c,
+		)
+		if err != nil {
+			b.Fatalf("StoreBlob failed at iter %d: %v", i, err)
+		}
+	}
+}
+
+func BenchmarkCAS_StoreAndGet_RoundTrip_5MiB(b *testing.B) {
+	ctx := context.Background()
+	const size = 5 * 1024 * 1024 // 5 MiB
+
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+
+	chunkSizeMap := buildChunkSizeMap(b, payload)
+	dr := newFakeDataRouter(chunkSizeMap)
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+	cas := NewCAS(dr, ki)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("bench/roundtrip-5mib/%d", i)
+		created := time.Now().UnixMilli()
+
+		_, err := cas.StoreBlob(
+			ctx,
+			payload,
+			key,
+			hash.Hash{},
+			created,
+			*c,
+		)
+		if err != nil {
+			b.Fatalf("StoreBlob failed at iter %d: %v", i, err)
+		}
+
+		blob := firstStoredBlob(b, dr)
+
+		got, err := blob.GetContent(ctx, *c)
+		if err != nil {
+			b.Fatalf("GetContent failed at iter %d: %v", i, err)
+		}
+		if len(got) != len(payload) {
+			b.Fatalf(
+				"len mismatch at iter %d: want %d, got %d",
+				i,
+				len(payload),
+				len(got),
+			)
+		}
+	}
+}
+
+func BenchmarkBlob_GetContent_5MiB(b *testing.B) {
+	ctx := context.Background()
+	const size = 5 * 1024 * 1024 // 5 MiB
+
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+
+	chunkSizeMap := buildChunkSizeMap(b, payload)
+	dr := newFakeDataRouter(chunkSizeMap)
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+	cas := NewCAS(dr, ki)
+
+	created := time.Now().UnixMilli()
+
+	// Store once to populate the fake router.
+	_, err := cas.StoreBlob(
+		ctx,
+		payload,
+		"bench/getcontent-5mib",
+		hash.Hash{},
+		created,
+		*c,
+	)
+	if err != nil {
+		b.Fatalf("StoreBlob failed in setup: %v", err)
+	}
+
+	// Use the stored blob from the fake data router, as in other tests.
+	blob := firstStoredBlob(b, dr)
+
+	// Optional warm-up to populate any lazy caches.
+	if _, err := blob.GetContent(ctx, *c); err != nil {
+		b.Fatalf("GetContent warm-up failed: %v", err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		got, err := blob.GetContent(ctx, *c)
+		if err != nil {
+			b.Fatalf("GetContent failed at iter %d: %v", i, err)
+		}
+		if len(got) != len(payload) {
+			b.Fatalf(
+				"len mismatch at iter %d: want %d, got %d",
+				i,
+				len(payload),
+				len(got),
+			)
+		}
+	}
+}
+
+func BenchmarkValidateReconstructionParameters(b *testing.B) {
+	s := SealedSlice{
+		ChunkHash:      hash.HashBytes([]byte("bench-chunk")),
+		RSDataSlices:   10,
+		RSParitySlices: 4,
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		params, err := validateReconstructionParameters(s)
+		if err != nil {
+			b.Fatalf("unexpected error: %v", err)
+		}
+		if params.k != 10 || params.p != 4 || params.total != 14 {
+			b.Fatalf(
+				"unexpected params: k=%d p=%d total=%d",
+				params.k,
+				params.p,
+				params.total,
+			)
+		}
 	}
 }
