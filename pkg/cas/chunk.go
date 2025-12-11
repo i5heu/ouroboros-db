@@ -26,41 +26,34 @@ func NewChunk(dr dataRouter, ki keyIndex, h hash.Hash) Chunk {
 	}
 }
 
-func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
+func (c *Chunk) GetContent(cr []crypt.Crypt) ([]byte, error) {
 	if c.content != nil {
 		return c.content, nil
 	}
 
-	sealedSlices, err := c.dr.GetSealedSlicesForChunk(c.Hash)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sealed slices for chunk: %w", err)
-	}
+	// sealedSlices, err := c.dr.GetSealedSlicesForChunk(c.Hash)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get sealed slices for chunk: %w", err)
+	// }
 
-	var content []byte
-	for _, sealedSlice := range sealedSlices {
-		sliceContent, err := sealedSlice.Decrypt(cr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt sealed slice: %w", err)
-		}
-		content = append(content, sliceContent...)
-	}
+	// for _, sealedSlice := range sealedSlices {
+	// 	// TODO implement logic to select the correct slices for reconstruction
+	// }
 
-	c.content = content
+	// c.content = content
 	return c.content, nil
 }
 
-func StoreChunkFromBlob(
+func (cas *CAS) storeChunksFromBlob(
 	ctx context.Context,
 	blobByte []byte,
 	c crypt.Crypt,
-	dr dataRouter,
-	ki keyIndex,
 ) ([]Chunk, error) {
 	// Check if dr or ki are nil
-	if dr == nil {
+	if cas.dr == nil {
 		return nil, fmt.Errorf("dataRouter is nil")
 	}
-	if ki == nil {
+	if cas.ki == nil {
 		return nil, fmt.Errorf("keyIndex is nil")
 	}
 
@@ -79,14 +72,14 @@ func StoreChunkFromBlob(
 	}
 	hashAndSlices := []HashAndSlices{}
 
-	for i, chunkByte := range chunkBytes {
+	for _, chunkByte := range chunkBytes {
 
 		chunkHash := hash.HashBytes(chunkByte)
 
-		chunkSealedSlices, err := StoreSealedSlicesFromChunk(
+		chunkSealedSlices, err := storeSealedSlicesFromChunk(
 			ctx,
-			StoreSealedSlicesFromChunkOpts{
-				CAS:             &CAS{dr: dr, ki: ki},
+			storeSealedSlicesFromChunkOpts{
+				CAS:             cas,
 				Crypt:           c,
 				ClearChunkBytes: chunkByte,
 				ChunkHash:       chunkHash,
@@ -98,20 +91,21 @@ func StoreChunkFromBlob(
 			return nil, err
 		}
 
-		hashAndSlices[i] = HashAndSlices{
+		hashAndSlices = append(hashAndSlices, HashAndSlices{
 			ChunkHash:    chunkHash,
 			SealedSlices: chunkSealedSlices,
-		}
+		})
 	}
 
 	chunks := []Chunk{}
 	for _, has := range hashAndSlices {
 		chunk := Chunk{
-			dr:   dr,
+			ki:   cas.ki,
+			dr:   cas.dr,
 			Hash: has.ChunkHash,
 		}
 
-		err = dr.SetChunk(chunk)
+		err = cas.dr.SetChunk(ctx, chunk)
 		if err != nil {
 			return nil, err
 		}

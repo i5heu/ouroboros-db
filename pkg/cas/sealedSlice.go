@@ -70,7 +70,7 @@ func NewSealedSlice(
 	}
 }
 
-func (s SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
+func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 	pubKeyHash, err := c.Encryptor.PublicKey.Hash()
 	if err != nil {
 		return nil, err
@@ -93,15 +93,15 @@ func (s SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 	return clearBytes, nil
 }
 
-func (s SealedSlice) GetHash() (hash.Hash, error) {
+func (s *SealedSlice) GetHash() (hash.Hash, error) {
 	return s.generateHash(false)
 }
 
-func (s SealedSlice) ValidateHash() (hash.Hash, error) {
+func (s *SealedSlice) ValidateHash() (hash.Hash, error) {
 	return s.generateHash(true)
 }
 
-func (s SealedSlice) generateHash( // H
+func (s *SealedSlice) generateHash( // H
 	validate bool,
 ) (hash.Hash, error) {
 	// If the hash is already set, return it.
@@ -137,7 +137,7 @@ func (s SealedSlice) generateHash( // H
 	return s.Hash, nil
 }
 
-func (s SealedSlice) validateDataForHashGeneration() error {
+func (s *SealedSlice) validateDataForHashGeneration() error {
 	// Check that required fields are present
 	if s.ChunkHash == (hash.Hash{}) {
 		return errors.New(
@@ -167,7 +167,7 @@ func (s SealedSlice) validateDataForHashGeneration() error {
 	return nil
 }
 
-type StoreSealedSlicesFromChunkOpts struct {
+type storeSealedSlicesFromChunkOpts struct {
 	CAS             *CAS
 	Crypt           crypt.Crypt
 	ClearChunkBytes []byte
@@ -176,7 +176,7 @@ type StoreSealedSlicesFromChunkOpts struct {
 	RSParitySlices  uint8
 }
 
-func (s *StoreSealedSlicesFromChunkOpts) Validate() error {
+func (s *storeSealedSlicesFromChunkOpts) Validate() error {
 	if s.CAS == nil {
 		return errors.New("CAS must be provided")
 	}
@@ -198,9 +198,9 @@ func (s *StoreSealedSlicesFromChunkOpts) Validate() error {
 	return nil
 }
 
-func StoreSealedSlicesFromChunk( // H
+func storeSealedSlicesFromChunk( // H
 	ctx context.Context,
-	opts StoreSealedSlicesFromChunkOpts,
+	opts storeSealedSlicesFromChunkOpts,
 ) ([]SealedSlice, error) {
 	compressedChunk, err := compressChunk(opts.ClearChunkBytes)
 	if err != nil {
@@ -233,12 +233,11 @@ func StoreSealedSlicesFromChunk( // H
 		if err != nil {
 			return nil, err
 		}
-		slice.dr = opts.CAS.dr
-		sealedSlices = append(sealedSlices, slice)
+		sealedSlices = append(sealedSlices, *slice)
 	}
 
-	for _, slice := range sealedSlices {
-		err = opts.CAS.dr.SetSealedSlice(slice)
+	for _, s := range sealedSlices {
+		err = opts.CAS.dr.SetSealedSlice(ctx, s)
 		if err != nil {
 			return nil, err
 		}
@@ -304,17 +303,17 @@ func createReedSolomonShards( // A
 }
 
 func encryptAndSealSlice( // A
-	opts StoreSealedSlicesFromChunkOpts,
+	opts storeSealedSlicesFromChunkOpts,
 	shard []byte,
 	chunkHash hash.Hash,
 	sliceIndex uint8,
-) (SealedSlice, error) {
+) (*SealedSlice, error) {
 	encryptResult, err := opts.Crypt.Encrypt(shard)
 	if err != nil {
-		return SealedSlice{}, err
+		return &SealedSlice{}, err
 	}
 
-	slice := SealedSlice{
+	slice := &SealedSlice{
 		ki:             opts.CAS.ki,
 		ChunkHash:      chunkHash,
 		RSDataSlices:   opts.RSDataSlices,
@@ -326,17 +325,17 @@ func encryptAndSealSlice( // A
 
 	pubKeyHash, err := opts.Crypt.Encryptor.PublicKey.Hash()
 	if err != nil {
-		return SealedSlice{}, err
+		return &SealedSlice{}, err
 	}
 
 	_, err = slice.generateHash(true)
 	if err != nil {
-		return SealedSlice{}, err
+		return &SealedSlice{}, err
 	}
 
 	err = opts.CAS.ki.Set(slice.Hash, pubKeyHash, encryptResult.EncapsulatedKey)
 	if err != nil {
-		return SealedSlice{}, err
+		return &SealedSlice{}, err
 	}
 
 	return slice, nil
