@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OuroborosDB Benchmarks</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg:#090b10;
+      --card1:#111827;
+      --card2:#020617;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --grid1:#1f2937;
+      --grid2:#111827;
+      --accent-blue:#3b82f6;
+      --accent-blue-line:#93c5fd;
+      --accent-orange:#f97316;
+      --accent-orange-line:#fed7aa;
+    }
+    *{box-sizing:border-box}
+    body{
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem 2rem 4rem;
+    }
+    h1{margin-top:0;font-size:1.8rem}
+    h2{font-size:1.2rem;margin:0 0 .4rem 0}
+    .meta{
+      color:var(--muted);
+      margin-bottom:1.25rem;
+      font-size:.9rem;
+    }
+    section{
+      margin-bottom:2rem;
+      border-radius:.75rem;
+      padding:1rem 1.25rem 1.25rem;
+      background: radial-gradient(circle at top left, var(--card1), var(--card2));
+      box-shadow: 0 16px 40px rgba(0,0,0,.5);
+      border:1px solid var(--card1);
+    }
+    section .subtitle{
+      color:var(--muted);
+      font-size:.9rem;
+      margin:.25rem 0 .75rem 0;
+    }
+    .legend h3{margin:.8rem 0 .35rem 0;font-size:1rem}
+    .legend p, .legend ul{color:var(--muted);margin:.1rem 0 .6rem 0;font-size:.93rem;line-height:1.35rem}
+    .legend ul{padding-left:1.1rem}
+    .summary-table{
+      width:100%;
+      border-collapse:collapse;
+      margin-bottom:.75rem;
+      font-size:.9rem;
+    }
+    .summary-table th,.summary-table td{
+      padding:.35rem .5rem;
+      border-bottom:1px solid var(--grid1);
+      text-align:left;
+      white-space:nowrap;
+    }
+    .summary-table th{color:var(--muted);font-weight:500}
+    .summary-table td.version{font-weight:600}
+    .plot{width:100%;height:380px}
+    code{
+      background: var(--card1);
+      padding:.1rem .35rem;
+      border-radius:.25rem;
+      font-size:.85rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>OuroborosDB Benchmarks</h1>
+  <div class="meta">
+    Generated: __GENERATED_AT__<br>
+    __META_BLOCK__
+  </div>
+
+  <section class="legend">
+    <h2>📘 Benchmark Metrics Explained</h2>
+    <p>
+      This report compares benchmark performance across versions of the repo.
+      Each dot in a boxplot is one <strong>go test benchmark run result</strong> (one ns/op sample).
+    </p>
+
+    <h3>📉 Median ns/op (±95% CI)</h3>
+    <p>
+      The median runtime per operation for a version, plus an approximate
+      95% confidence interval width (±) computed from the sample mean and variance.
+      Lower medians are better; a smaller ± value indicates tighter, more stable measurements.
+    </p>
+
+    <h3>🎯 Δ vs current</h3>
+    <p>
+      Relative change in median runtime compared to the <code>current</code> commit for this benchmark.
+      Example: <code>+5.3%</code> means this version is 5.3% slower than current; <code>-3.0%</code> means 3.0% faster.
+    </p>
+
+    <h3>📈 Noise σ/μ</h3>
+    <p>
+      Relative standard deviation of the ns/op samples (σ/μ). This describes how noisy the timing is:
+      small values (1–3%) indicate very stable measurements, whereas larger values (e.g., &gt;10%) suggest
+      that the environment or benchmark is noisy.
+    </p>
+
+    <h3>📏 95% CI width</h3>
+    <p>
+      Approximate 95% confidence interval width for the mean ns/op, expressed as a ± percentage of the mean.
+      If the CI width is ±3%, any observed difference smaller than about 3% is likely indistinguishable from noise.
+    </p>
+
+    <h3>📦 Boxplots</h3>
+    <ul>
+      <li>Box = interquartile range (IQR); center line = median.</li>
+      <li>All ns/op samples are drawn as points (with slight horizontal jitter).</li>
+      <li>Outliers naturally appear as points beyond the box/whiskers.</li>
+      <li>Hover over a point to see its version, run index, and ns/op value.</li>
+    </ul>
+  </section>
+
+  __BENCH_SECTIONS_HTML__
+
+  <script>
+    const benchData = __BENCH_DATA_JSON__;
+
+    function makePlots() {
+      Object.entries(benchData).forEach(([benchName, info]) => {
+        const elId = "plot-" + info.id;
+        const container = document.getElementById(elId);
+        if (!container) return;
+
+        // Preserve Python order for categories (current, newest → oldest)
+        const categories = Object.keys(info.versions);
+
+        const traces = [];
+        Object.entries(info.versions).forEach(([version, metrics]) => {
+          const ys = metrics.ns || [];
+          if (!ys.length) return;
+
+          const xs = ys.map(_ => version);
+          const runIdx = ys.map((_, i) => i + 1); // run indices starting at 1
+          const isCurrent = version === "current";
+
+          traces.push({
+            type: "box",
+            name: version,
+            x: xs,
+            y: ys,
+            boxpoints: "all",     // show all samples
+            jitter: 0.28,         // small jitter so points don’t fully overlap
+            pointpos: 0,
+            customdata: runIdx,
+            marker: {
+              color: isCurrent ? "#f97316" : "#3b82f6",
+              opacity: isCurrent ? 0.95 : 0.8,
+              size: 5
+            },
+            line: {
+              width: 1.5,
+              color: isCurrent ? "#fed7aa" : "#93c5fd"
+            },
+            hovertemplate: "version=%{x}<br>run=%{customdata}<br>ns/op=%{y}<extra></extra>"
+          });
+        });
+
+        const layout = {
+          margin: { l: 80, r: 20, t: 10, b: 60 },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "#020617",
+          xaxis: {
+            title: "version",
+            gridcolor: "#111827",
+            zerolinecolor: "#4b5563",
+            type: "category",
+            categoryorder: "array",
+            categoryarray: categories
+          },
+          yaxis: {
+            title: "time per op (ns, lower is better)",
+            gridcolor: "#1f2937",
+            zerolinecolor: "#4b5563"
+          },
+          showlegend: false
+        };
+
+        Plotly.newPlot(elId, traces, layout, {
+          displaylogo: false,
+          responsive: true
+        });
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", makePlots);
+    } else {
+      makePlots();
+    }
+  </script>
+</body>
+</html>
