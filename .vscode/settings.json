@@ -1,0 +1,15 @@
+{
+    // Use golangci-lint as linter in this workspace
+    "go.lintTool": "golangci-lint",
+    "go.lintOnSave": "package",
+    "go.lintFlags": [
+        "--fast"
+        // or "--config=./.golangci.yml" if you want to force a config path
+    ],
+    "[go]": {
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+        },
+        "editor.formatOnSave": true
+    }
+}

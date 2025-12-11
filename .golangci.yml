@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  settings:
+    cyclop:
+      # The maximal code complexity to report.
+      max-complexity: 10
+      # The maximal average package complexity.
+      package-average: 0.5
+
+formatters:
+  enable:
+    # - gofumpt
+    # - goimports
+    # - gci
+    - golines
+    # - gofmt
+  settings:
+    gofumpt:
+      extra-rules: true
+    golines:
+      # Target maximum line length.
+      max-len: 100
+      # Length of a tabulation.
+      tab-len: 2
+      # Shorten single-line comments.
+      # Default: false
+      shorten-comments: true
+      # Default: true
+      reformat-tags: false
+      # Split chained methods on the dots as opposed to the arguments.
+      # Default: true
+      chain-split-dots: false
