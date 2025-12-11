@@ -2,3 +2,4 @@ main
 *.log
 data/
 .cache/
+showContentsOutput.txt
