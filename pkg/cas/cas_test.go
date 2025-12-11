@@ -1654,9 +1654,9 @@ func BenchmarkCAS_StoreBlob_1MiB(b *testing.B) {
 	}
 }
 
-func BenchmarkCAS_StoreAndGet_RoundTrip_5MiB(b *testing.B) {
+func BenchmarkCAS_StoreAndGet_RoundTrip_1MiB(b *testing.B) {
 	ctx := context.Background()
-	const size = 5 * 1024 * 1024 // 5 MiB
+	const size = 1 * 1024 * 1024 // 1 MiB
 
 	payload := make([]byte, size)
 	for i := range payload {
