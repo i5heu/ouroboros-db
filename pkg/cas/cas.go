@@ -67,6 +67,11 @@ func (cas *CAS) StoreBlob(
 		created,
 	)
 
+	err = cas.dr.SetBlob(ctx, blob)
+	if err != nil {
+		return Blob{}, err
+	}
+
 	return blob, nil
 }
 
