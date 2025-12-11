@@ -1173,3 +1173,250 @@ func TestCAS_HashRegression_Anchor_12345678(t *testing.T) {
 		)
 	}
 }
+
+func TestCAS_StoreBlob_RoundTrip_LargeBlob10MB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 10MB roundtrip test in -short mode")
+	}
+
+	ctx := context.Background()
+	const size = 10 * 1024 * 1024 // 10MB
+
+	// Build a deterministic payload so any mismatch is reproducible.
+	// Use a simple pattern to avoid big constants.
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+
+	chunkSizeMap := buildChunkSizeMap(t, payload)
+	dr := newFakeDataRouter(chunkSizeMap)
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+	cas := NewCAS(dr, ki)
+
+	created := time.Now().UnixMilli()
+	_, err := cas.StoreBlob(
+		ctx,
+		payload,
+		"test/large-blob-key",
+		hash.Hash{},
+		created,
+		*c,
+	)
+	if err != nil {
+		t.Fatalf("StoreBlob returned error for 10MB blob: %v", err)
+	}
+
+	blob := firstStoredBlob(t, dr)
+
+	content, err := blob.GetContent(ctx, *c)
+	if err != nil {
+		t.Fatalf("GetContent returned error for 10MB blob: %v", err)
+	}
+
+	if len(content) != len(payload) {
+		t.Fatalf(
+			"large blob length mismatch: expected %d bytes, got %d",
+			len(payload),
+			len(content),
+		)
+	}
+	if !bytes.Equal(content, payload) {
+		t.Fatalf("large blob content mismatch after roundtrip")
+	}
+}
+
+func FuzzCAS_StoreBlob_RoundTrip2(f *testing.F) {
+	ctx := context.Background()
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+
+	// Seed corpus
+	f.Add([]byte("hello"))
+	f.Add([]byte("12345678"))
+	f.Add(bytes.Repeat([]byte("x"), 1024))
+
+	f.Fuzz(func(t *testing.T, payload []byte) {
+		if len(payload) == 0 {
+			t.Skip("empty payload not interesting here")
+		}
+
+		chunkSizeMap := buildChunkSizeMap(t, payload)
+		dr := newFakeDataRouter(chunkSizeMap)
+
+		cas := NewCAS(dr, ki)
+		created := time.Now().UnixMilli()
+
+		_, err := cas.StoreBlob(
+			ctx,
+			payload,
+			"fuzz/key",
+			hash.Hash{},
+			created,
+			*c,
+		)
+		if err != nil {
+			t.Fatalf("StoreBlob error: %v", err)
+		}
+
+		blob := firstStoredBlob(t, dr)
+
+		got, err := blob.GetContent(ctx, *c)
+		if err != nil {
+			t.Fatalf("GetContent error: %v", err)
+		}
+
+		if !bytes.Equal(got, payload) {
+			t.Fatalf(
+				"roundtrip mismatch: len(got)=%d len(want)=%d",
+				len(got),
+				len(payload),
+			)
+		}
+	})
+}
+
+func TestCAS_StoreBlob_SameContentSameChunkHashes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	payload := []byte("same-content-for-chunks")
+
+	// First CAS instance
+	chunkSizeMap1 := buildChunkSizeMap(t, payload)
+	dr1 := newFakeDataRouter(chunkSizeMap1)
+	ki1 := newFakeKeyIndex()
+	c1 := crypt.New()
+	cas1 := NewCAS(dr1, ki1)
+
+	created1 := time.Now().UnixMilli()
+	if _, err := cas1.StoreBlob(
+		ctx,
+		payload,
+		"key/first",
+		hash.Hash{}, // parent
+		created1,
+		*c1,
+	); err != nil {
+		t.Fatalf("first StoreBlob returned error: %v", err)
+	}
+
+	// Second CAS instance (different key / timestamp, same content)
+	chunkSizeMap2 := buildChunkSizeMap(t, payload)
+	dr2 := newFakeDataRouter(chunkSizeMap2)
+	ki2 := newFakeKeyIndex()
+	c2 := crypt.New()
+	cas2 := NewCAS(dr2, ki2)
+
+	created2 := created1 + 1234 // deliberately different timestamp
+	if _, err := cas2.StoreBlob(
+		ctx,
+		payload,
+		"key/second",
+		hash.Hash{},
+		created2,
+		*c2,
+	); err != nil {
+		t.Fatalf("second StoreBlob returned error: %v", err)
+	}
+
+	// Collect chunk hashes from both fake data routers.
+	chunksByHash1 := dr1.ChunksByHash()
+	chunksByHash2 := dr2.ChunksByHash()
+
+	if len(chunksByHash1) == 0 || len(chunksByHash2) == 0 {
+		t.Fatalf(
+			"expected chunks for payload, got len(chunks1)=%d len(chunks2)=%d",
+			len(chunksByHash1),
+			len(chunksByHash2),
+		)
+	}
+
+	// Turn maps into sorted slices of hash strings for comparison.
+	hashes1 := make([]string, 0, len(chunksByHash1))
+	for h := range chunksByHash1 {
+		hashes1 = append(hashes1, h.String())
+	}
+	sort.Strings(hashes1)
+
+	hashes2 := make([]string, 0, len(chunksByHash2))
+	for h := range chunksByHash2 {
+		hashes2 = append(hashes2, h.String())
+	}
+	sort.Strings(hashes2)
+
+	if len(hashes1) != len(hashes2) {
+		t.Fatalf(
+			"chunk hash count mismatch: first=%d second=%d\nfirst:  %v\nsecond: %v",
+			len(hashes1),
+			len(hashes2),
+			hashes1,
+			hashes2,
+		)
+	}
+
+	for i := range hashes1 {
+		if hashes1[i] != hashes2[i] {
+			t.Fatalf(
+				"chunk hash mismatch at index %d: first=%s second=%s",
+				i,
+				hashes1[i],
+				hashes2[i],
+			)
+		}
+	}
+}
+
+func TestCAS_StoreBlob_RoundTrip_LargeBlob5MB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 5MB roundtrip test in -short mode")
+	}
+
+	ctx := context.Background()
+	const size = 5 * 1024 * 1024 // 5MB
+
+	// Build a deterministic payload: simple repeating pattern.
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+
+	chunkSizeMap := buildChunkSizeMap(t, payload)
+	dr := newFakeDataRouter(chunkSizeMap)
+	ki := newFakeKeyIndex()
+	c := crypt.New()
+	cas := NewCAS(dr, ki)
+
+	created := time.Now().UnixMilli()
+	_, err := cas.StoreBlob(
+		ctx,
+		payload,
+		"test/roundtrip-5mb",
+		hash.Hash{},
+		created,
+		*c,
+	)
+	if err != nil {
+		t.Fatalf("StoreBlob returned error for 5MB blob: %v", err)
+	}
+
+	blob := firstStoredBlob(t, dr)
+
+	got, err := blob.GetContent(ctx, *c)
+	if err != nil {
+		t.Fatalf("GetContent returned error for 5MB blob: %v", err)
+	}
+
+	if len(got) != len(payload) {
+		t.Fatalf(
+			"5MB blob length mismatch: expected %d bytes, got %d",
+			len(payload),
+			len(got),
+		)
+	}
+
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("5MB blob content mismatch after roundtrip")
+	}
+}
