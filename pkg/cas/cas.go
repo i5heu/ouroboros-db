@@ -9,16 +9,20 @@ import (
 )
 
 type dataRouter interface {
-	GetBlob(hash hash.Hash) (Blob, error)
+	GetBlob(ctx context.Context, hash hash.Hash) (Blob, error)
 	SetBlob(ctx context.Context, blob Blob) error
 
-	GetChunk(hash hash.Hash) (Chunk, error)
+	GetChunk(ctx context.Context, hash hash.Hash) (Chunk, error)
 	SetChunk(ctx context.Context, chunk Chunk) error
 
-	GetSealedSlicesForChunk(chunkHash hash.Hash) ([]SealedSlice, error)
-	GetSealedSlice(hash hash.Hash) (SealedSlice, error)
+	GetSealedSlicesForChunk(
+		ctx context.Context,
+		chunkHash hash.Hash,
+	) ([]SealedSlice, error)
+
+	GetSealedSlice(ctx context.Context, hash hash.Hash) (SealedSlice, error)
 	SetSealedSlice(ctx context.Context, slice SealedSlice) error
-	GetSealedSlicePayload(hash hash.Hash) ([]byte, error)
+	GetSealedSlicePayload(ctx context.Context, hash hash.Hash) ([]byte, error)
 }
 
 type CAS struct {
@@ -75,7 +79,7 @@ func (cas *CAS) StoreBlob(
 }
 
 func (cas *CAS) GetBlob(ctx context.Context, hash hash.Hash) (Blob, error) {
-	blob, err := cas.dr.GetBlob(hash)
+	blob, err := cas.dr.GetBlob(ctx, hash)
 	if err != nil {
 		return Blob{}, err
 	}

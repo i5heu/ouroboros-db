@@ -28,12 +28,15 @@ func NewChunk(cas *CAS, h hash.Hash, size int) Chunk {
 	}
 }
 
-func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
+func (c *Chunk) GetContent(
+	ctx context.Context,
+	cr crypt.Crypt,
+) ([]byte, error) {
 	if c.content != nil {
 		return c.content, nil
 	}
 
-	sealedSlices, err := c.cas.dr.GetSealedSlicesForChunk(c.Hash)
+	sealedSlices, err := c.cas.dr.GetSealedSlicesForChunk(ctx, c.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sealed slices for chunk: %w", err)
 	}
@@ -47,7 +50,7 @@ func (c *Chunk) GetContent(cr crypt.Crypt) ([]byte, error) {
 	}
 	selectedSliceContents := make([][]byte, len(selectedSlices))
 	for i, sealedSlice := range selectedSlices {
-		sliceContent, err := sealedSlice.Decrypt(cr)
+		sliceContent, err := sealedSlice.Decrypt(ctx, cr)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"failed to decrypt sealed slice with hash %s: %w",

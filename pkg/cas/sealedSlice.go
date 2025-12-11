@@ -66,12 +66,12 @@ func NewSealedSlice(
 	}
 }
 
-func (s *SealedSlice) GetSealedPayload() ([]byte, error) {
+func (s *SealedSlice) GetSealedPayload(ctx context.Context) ([]byte, error) {
 	if s.sealedPayload != nil {
 		return s.sealedPayload, nil
 	}
 
-	payload, err := s.cas.dr.GetSealedSlicePayload(s.Hash)
+	payload, err := s.cas.dr.GetSealedSlicePayload(ctx, s.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sealed slice payload: %w", err)
 	}
@@ -79,7 +79,10 @@ func (s *SealedSlice) GetSealedPayload() ([]byte, error) {
 	return s.sealedPayload, nil
 }
 
-func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
+func (s *SealedSlice) Decrypt(
+	ctx context.Context,
+	c crypt.Crypt,
+) ([]byte, error) {
 	pubKeyHash, err := c.Encryptor.PublicKey.Hash()
 	if err != nil {
 		return nil, err
@@ -90,7 +93,7 @@ func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 		return nil, err
 	}
 
-	_, err = s.GetSealedPayload()
+	_, err = s.GetSealedPayload(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -107,15 +110,16 @@ func (s *SealedSlice) Decrypt(c crypt.Crypt) ([]byte, error) {
 	return clearBytes, nil
 }
 
-func (s *SealedSlice) GetHash() (hash.Hash, error) {
-	return s.generateHash(false)
+func (s *SealedSlice) GetHash(ctx context.Context) (hash.Hash, error) {
+	return s.generateHash(ctx, false)
 }
 
-func (s *SealedSlice) ValidateHash() (hash.Hash, error) {
-	return s.generateHash(true)
+func (s *SealedSlice) ValidateHash(ctx context.Context) (hash.Hash, error) {
+	return s.generateHash(ctx, true)
 }
 
 func (s *SealedSlice) generateHash( // H
+	ctx context.Context,
 	validate bool,
 ) (hash.Hash, error) {
 	// If the hash is already set, return it.
@@ -124,12 +128,12 @@ func (s *SealedSlice) generateHash( // H
 	}
 
 	// Validate that all required fields are present
-	err := s.validateDataForHashGeneration()
+	err := s.validateDataForHashGeneration(ctx)
 	if err != nil {
 		return hash.Hash{}, err
 	}
 
-	_, err = s.GetSealedPayload()
+	_, err = s.GetSealedPayload(ctx)
 	if err != nil {
 		return hash.Hash{}, err
 	}
@@ -156,7 +160,9 @@ func (s *SealedSlice) generateHash( // H
 	return s.Hash, nil
 }
 
-func (s *SealedSlice) validateDataForHashGeneration() error { // H
+func (s *SealedSlice) validateDataForHashGeneration(
+	ctx context.Context,
+) error { // H
 	// Check that required fields are present
 	if s.ChunkHash == (hash.Hash{}) {
 		return errors.New(
@@ -168,7 +174,7 @@ func (s *SealedSlice) validateDataForHashGeneration() error { // H
 		return errors.New("missing Nonce field for hash generation")
 	}
 
-	_, err := s.GetSealedPayload()
+	_, err := s.GetSealedPayload(ctx)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get sealed payload for hash generation: %w",
@@ -251,6 +257,7 @@ func storeSealedSlicesFromChunk( // H
 	var sealedSlices []SealedSlice
 	for i, shard := range shards {
 		slice, err := encryptAndSealSlice(
+			ctx,
 			opts,
 			shard,
 			opts.ChunkHash,
@@ -330,6 +337,7 @@ func createReedSolomonShards( // AC
 }
 
 func encryptAndSealSlice( // AC
+	ctx context.Context,
 	opts storeSealedSlicesFromChunkOpts,
 	shard []byte,
 	chunkHash hash.Hash,
@@ -355,7 +363,7 @@ func encryptAndSealSlice( // AC
 		return &SealedSlice{}, err
 	}
 
-	_, err = slice.generateHash(true)
+	_, err = slice.generateHash(ctx, true)
 	if err != nil {
 		return &SealedSlice{}, err
 	}

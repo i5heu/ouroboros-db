@@ -1,6 +1,8 @@
 package cas
 
 import (
+	"context"
+
 	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 )
@@ -28,12 +30,12 @@ func NewBlob(
 	}
 }
 
-func (b *Blob) GetChunkHashes() ([]hash.Hash, error) {
+func (b *Blob) GetChunkHashes(ctx context.Context) ([]hash.Hash, error) {
 	if b.chunks != nil {
 		return b.chunks, nil
 	}
 
-	blob, err := b.cas.dr.GetBlob(b.Hash)
+	blob, err := b.cas.dr.GetBlob(ctx, b.Hash)
 	if err != nil {
 		return nil, err
 	}
@@ -41,19 +43,19 @@ func (b *Blob) GetChunkHashes() ([]hash.Hash, error) {
 	return b.chunks, nil
 }
 
-func (b *Blob) GetContent(c crypt.Crypt) ([]byte, error) {
+func (b *Blob) GetContent(ctx context.Context, c crypt.Crypt) ([]byte, error) {
 	var content []byte
-	chunkHashes, err := b.GetChunkHashes()
+	chunkHashes, err := b.GetChunkHashes(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, chunkHash := range chunkHashes {
-		chunkData, err := b.cas.dr.GetChunk(chunkHash)
+		chunkData, err := b.cas.dr.GetChunk(ctx, chunkHash)
 		if err != nil {
 			return nil, err
 		}
-		chunkContent, err := chunkData.GetContent(c)
+		chunkContent, err := chunkData.GetContent(ctx, c)
 		if err != nil {
 			return nil, err
 		}
