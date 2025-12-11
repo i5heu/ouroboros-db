@@ -22,7 +22,7 @@ The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a represe
 ### Legend
 
 #### Annotation legend for function comments:
-To indicate the correctness and safety of the logic of functions, the following annotations are used in comments directly after the function definitions (See examples below):
+To indicate the correctness and safety of the logic of functions, the following annotations are used in comments directly after the function definitions, at the same line as func (See examples below):
 
 - `// A` - Function and was written by **AI** and was not reviewed by a **human**.
 - `// AP` - Function was written by **AI** and was reviewed but the **human** has found a potential issue which the **human** marked with a `// TODO ` comment.
@@ -60,6 +60,16 @@ func criticalFunction() { // PAP
 // This function performs critical operations X, Y, and Z.
 func criticalFunction() { // PHC
     // Function is high risk and was comprehended by a human who is confident about its correctness and safety.
+}
+
+// If a function has multiline parameters, the annotation goes at the same line as func
+func manyParametersFunction( // AC
+    param1 string, 
+    param2 int, 
+    param3 []byte
+) error { 
+    // function has many parameters, was written by AI and reviewed and approved by a human.
+    return nil
 }
 ```
 
