@@ -68,18 +68,14 @@ func (m *model) applyDelete(sliceHash hash.Hash) {
 
 	// Remove from all indexes
 	for chk, set := range m.byChunk {
-		if _, ok := set[sh]; ok {
-			delete(set, sh)
-		}
+		delete(set, sh)
 		if len(set) == 0 {
 			delete(m.byChunk, chk)
 		}
 	}
 	for chk, byPk := range m.byChunkPub {
 		for pk, set := range byPk {
-			if _, ok := set[sh]; ok {
-				delete(set, sh)
-			}
+			delete(set, sh)
 			if len(set) == 0 {
 				delete(byPk, pk)
 			}
@@ -151,9 +147,24 @@ func genHash(t *rapid.T) hash.Hash {
 }
 
 func genSealedSlice(t *rapid.T, chunk hash.Hash) cas.SealedSliceWithPayload {
-	rsData := uint8(rapid.IntRange(1, 128).Draw(t, "rsData"))
-	rsParity := uint8(rapid.IntRange(1, 128).Draw(t, "rsParity"))
-	idx := uint8(rapid.IntRange(0, int(rsData)+int(rsParity)-1).Draw(t, "idx"))
+	rsData := rapid.Uint8Range(1, 128).Draw(t, "rsData")
+	rsParity := rapid.Uint8Range(1, 128).Draw(t, "rsParity")
+	// Compute sum in a wider type and clamp to 255 before converting to uint8 to
+	// avoid overflow.
+	sum := uint16(rsData) + uint16(rsParity)
+	var maxIndex uint8
+	if sum == 0 {
+		maxIndex = 0
+	} else {
+		s := sum - 1
+		// Only convert to uint8 after ensuring s fits in the uint8 range.
+		if s > 255 {
+			maxIndex = 255
+		} else {
+			maxIndex = uint8(s)
+		}
+	}
+	idx := rapid.Uint8Range(0, maxIndex).Draw(t, "idx")
 	nonce := rapid.SliceOfN(rapid.Byte(), 12, 12).Draw(t, "nonce")
 	payload := rapid.SliceOfN(rapid.Byte(), 1, 1024).Draw(t, "payload")
 
@@ -188,13 +199,13 @@ func Test_LocalSealedSliceStore_StatefulPBT(t *testing.T) {
 		if err != nil {
 			t.Fatalf("open badger: %v", err)
 		}
-		defer db.Close()
+		defer func() {
+			if err := db.Close(); err != nil {
+				t.Fatalf("close badger: %v", err)
+			}
+		}()
 
-		s := local.New(db)
-		m := newModel()
-
-		// Keep some known hashes around so Get/Delete are meaningful.
-		var known []hash.Hash
+		st := newPBTState(local.New(db))
 
 		steps := rapid.IntRange(50, 200).Draw(t, "steps")
 		for i := 0; i < steps; i++ {
@@ -202,86 +213,115 @@ func Test_LocalSealedSliceStore_StatefulPBT(t *testing.T) {
 
 			switch op {
 			case 0: // Store
-				chunk := genHash(t)
-				pub := genHash(t)
-				ss := genSealedSlice(t, chunk)
-
-				gotHash, err := s.Store(ss, pub)
-				if err != nil {
-					t.Fatalf("Store error: %v", err)
-				}
-
-				enc := mustEncodeSealedSlice(t, ss)
-				m.applyStore(chunk, pub, gotHash, enc)
-				known = append(known, gotHash)
+				st.opStore(t)
 
 			case 1: // Get
-				if len(known) == 0 {
-					continue
-				}
-				h := known[pickIndex(t, len(known), "pickGet")]
-				ss, err := s.Get(h)
-
-				encExpected, ok := m.bySlice[key(h)]
-				if !ok {
-					// should be deleted / missing
-					if err == nil {
-						t.Fatalf("expected Get to error for missing hash")
-					}
-					continue
-				}
-				if err != nil {
-					t.Fatalf("Get error: %v", err)
-				}
-				encGot := mustEncodeSealedSlice(t, ss)
-				if !bytes.Equal(encGot, encExpected) {
-					t.Fatalf("Get mismatch for hash %x", h[:])
-				}
+				st.opGet(t)
 
 			case 2: // Delete
-				if len(known) == 0 {
-					continue
-				}
-				h := known[pickIndex(t, len(known), "pickDel")]
-				_ = s.Delete(
-					h,
-				) // choose semantics: deleting missing can be nil or error
-				m.applyDelete(h)
+				st.opDelete(t)
 
 			case 3: // List checks (global invariant sampling)
-				// Pick a random chunk/pubkey and compare lists to model.
-				chunk := genHash(t)
-				pub := genHash(t)
-
-				got1, err := s.ChunkListSealedSlices(chunk)
-				if err != nil {
-					t.Fatalf("ChunkListSealedSlices error: %v", err)
-				}
-				wantSet := m.byChunk[key(chunk)]
-				want1 := setToHashes(wantSet)
-				sortHashes(got1)
-				sortHashes(want1)
-				if !equalHashes(got1, want1) {
-					t.Fatalf("ChunkListSealedSlices mismatch")
-				}
-
-				got2, err := s.ChunkListSealedSlicesForPubKey(chunk, pub)
-				if err != nil {
-					t.Fatalf("ChunkListSealedSlicesForPubKey error: %v", err)
-				}
-				wantSet2 := m.byChunkPub[key(chunk)][key(pub)]
-				want2 := setToHashes(wantSet2)
-				sortHashes(got2)
-				sortHashes(want2)
-				if !equalHashes(got2, want2) {
-					t.Fatalf("ChunkListSealedSlicesForPubKey mismatch")
-				}
+				st.opListChecks(t)
 			}
 
 			// Optional: after every step, you can sample-check some known hashes.
 			// (Often catches indexing bugs faster.)
 		}
 	})
+}
+
+type pbtState struct {
+	s     local.LocalSealedSliceStore
+	m     *model
+	known []hash.Hash
+}
+
+func newPBTState(s local.LocalSealedSliceStore) *pbtState { // A
+	return &pbtState{
+		s: s,
+		m: newModel(),
+	}
+}
+
+func (st *pbtState) opStore(t *rapid.T) { // A
+	chunk := genHash(t)
+	pub := genHash(t)
+	ss := genSealedSlice(t, chunk)
+
+	gotHash, err := st.s.Store(ss, pub)
+	if err != nil {
+		t.Fatalf("Store error: %v", err)
+	}
+
+	enc := mustEncodeSealedSlice(t, ss)
+	st.m.applyStore(chunk, pub, gotHash, enc)
+	st.known = append(st.known, gotHash)
+}
+
+func (st *pbtState) opGet(t *rapid.T) { // A
+	if len(st.known) == 0 {
+		return
+	}
+
+	h := st.known[pickIndex(t, len(st.known), "pickGet")]
+	ss, err := st.s.Get(h)
+
+	encExpected, ok := st.m.bySlice[key(h)]
+	if !ok {
+		if err == nil {
+			t.Fatalf("expected Get to error for missing hash")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+
+	encGot := mustEncodeSealedSlice(t, ss)
+	if !bytes.Equal(encGot, encExpected) {
+		t.Fatalf("Get mismatch for hash %x", h[:])
+	}
+}
+
+func (st *pbtState) opDelete(t *rapid.T) { // A
+	if len(st.known) == 0 {
+		return
+	}
+
+	h := st.known[pickIndex(t, len(st.known), "pickDel")]
+	_ = st.s.Delete(h) // choose semantics: deleting missing can be nil or error
+	st.m.applyDelete(h)
+}
+
+func (st *pbtState) opListChecks(t *rapid.T) { // A
+	// Pick a random chunk/pubkey and compare lists to model.
+	chunk := genHash(t)
+	pub := genHash(t)
+
+	got1, err := st.s.ChunkListSealedSlices(chunk)
+	if err != nil {
+		t.Fatalf("ChunkListSealedSlices error: %v", err)
+	}
+	wantSet := st.m.byChunk[key(chunk)]
+	want1 := setToHashes(wantSet)
+	sortHashes(got1)
+	sortHashes(want1)
+	if !equalHashes(got1, want1) {
+		t.Fatalf("ChunkListSealedSlices mismatch")
+	}
+
+	got2, err := st.s.ChunkListSealedSlicesForPubKey(chunk, pub)
+	if err != nil {
+		t.Fatalf("ChunkListSealedSlicesForPubKey error: %v", err)
+	}
+	wantSet2 := st.m.byChunkPub[key(chunk)][key(pub)]
+	want2 := setToHashes(wantSet2)
+	sortHashes(got2)
+	sortHashes(want2)
+	if !equalHashes(got2, want2) {
+		t.Fatalf("ChunkListSealedSlicesForPubKey mismatch")
+	}
 }
 
 func equalHashes(a, b []hash.Hash) bool {
