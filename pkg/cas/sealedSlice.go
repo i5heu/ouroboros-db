@@ -46,8 +46,10 @@ type SealedSlice struct {
 	// data(k) slice indices are 0,1,2,3 and parity(p) slice indices are 4,5
 	RSSliceIndex uint8
 
-	Nonce         []byte // AES-GCM nonce for encryption
-	sealedPayload []byte // cache for encrypted slice payload
+	Nonce []byte // AES-GCM nonce for encryption
+
+	// cache for encrypted slice payload also used when storing new SealedSlice
+	sealedPayload []byte
 }
 
 func NewSealedSlice(
