@@ -123,6 +123,12 @@ classDiagram
             +DeleteBlob(hash.Hash) error
         }
 
+        class CAS {
+            +StoreBlob(blob Blob) (hash.Hash, error)
+            +GetBlob(hash.Hash) (Blob, error)
+            +DeleteBlob(hash.Hash) error
+        }
+
         class LocalKVStore {
             +string key
             +byte[] value
@@ -163,7 +169,8 @@ classDiagram
     Cluster "1" *-- "*" Node : contains
     Node "1" o-- "*" ClusterController : listensOn
     ClusterController "1" *-- "1" MessageTunnel : communicatesVia
-    Node "1" o-- "1" DataRouter : persists blobs
+    Node "1" o-- "1" CAS : persists blobs
+    CAS "1" o-- "1" DataRouter : delegates persistence to
     DataRouter "1" *-- "1" LocalKVStore : uses
     ClusterController "1" *-- "1" DistributedIndex : LooksUps
     DistributedIndex "1" *-- "1" HashToNode : used for mapping
