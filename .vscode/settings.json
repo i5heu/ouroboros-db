@@ -26,6 +26,7 @@
     "cSpell.words": [
         "boxo",
         "Buzhash",
+        "cespare",
         "chunker",
         "Ciphertext",
         "cyclop",
@@ -43,9 +44,11 @@
         "klauspost",
         "lmittmann",
         "nolint",
+        "pgregory",
         "reedsolomon",
         "sloglint",
         "staticcheck",
+        "structpb",
         "Zstandard"
     ]
 }
