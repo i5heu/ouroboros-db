@@ -129,9 +129,12 @@ classDiagram
             +DeleteBlob(hash.Hash) error
         }
 
-        class LocalKVStore {
-            +string key
-            +byte[] value
+        class LocalSealedSliceStore {
+            +Store(sealedSlice SealedSlice, HashOfPubKey hash.Hash) error
+            +Get(hash.Hash) (SealedSlice, error)
+            +Delete(hash.Hash) error
+            +ChunkListSealedSlices(chunkHash.Hash) (sealedSliceHashes []hash.Hash, error)
+            +ChunkListSealedSlicesForPubKey(hash.Hash, HashOfPubKey hash.Hash) (sealedSliceHashes []hash.Hash, error)
         }
 
         class DeletionWAL {
@@ -171,7 +174,7 @@ classDiagram
     ClusterController "1" *-- "1" MessageTunnel : communicatesVia
     Node "1" o-- "1" CAS : persists blobs
     CAS "1" o-- "1" DataRouter : delegates persistence to
-    DataRouter "1" *-- "1" LocalKVStore : uses
+    DataRouter "1" *-- "1" LocalSealedSliceStore : uses
     ClusterController "1" *-- "1" DistributedIndex : LooksUps
     DistributedIndex "1" *-- "1" HashToNode : used for mapping
     DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
@@ -189,7 +192,7 @@ classDiagram
 
     namespace IndexModel {
         class Index {
-            -LocalKVStore store
+            -LocalIndexStore store
         }
         class parentChildIndex {
             - map<hash.Hash, []hash.Hash> ParentToChildren
@@ -239,13 +242,13 @@ classDiagram
         }
     }
 
-    LocalKVStore "1" o-- "*" Blob : stores
+    LocalSealedSliceStore "1" o-- "*" Blob : stores
     Blob "1" *-- "*" Chunk : materializes Content
     Chunk "1" *-- "*" SealedSlice : materializes ChunkData
     SealedSlice "1" *-- "*" KeyIndex : provides Key
     note for SealedSlice "
 Blob, Chunk and SealedSlice are all persisted
-as key/value entries in LocalKVStores on one
+as key/value entries in LocalSealedSliceStores on one
 or more Nodes in the Cluster.
 If a SealedSlice is stored on a Node it does not
 imply that Node has the entire Blob or Chunk."
