@@ -8,6 +8,8 @@ require (
 	github.com/klauspost/compress v1.18.0
 	github.com/klauspost/reedsolomon v1.12.6
 	github.com/lmittmann/tint v1.1.2
+	google.golang.org/protobuf v1.36.10
+	pgregory.net/rapid v1.2.0
 )
 
 require (
@@ -28,8 +30,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
-	pgregory.net/rapid v1.2.0 // indirect
 )
 
 require (
