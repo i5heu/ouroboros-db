@@ -72,13 +72,19 @@ func (s *Store) Store(
 	}
 
 	if sealedSlice.ChunkHash == (hash.Hash{}) {
-		return hash.Hash{}, errors.New("localSealedSliceStore: chunk hash is required")
+		return hash.Hash{}, errors.New(
+			"localSealedSliceStore: chunk hash is required",
+		)
 	}
 	if hashOfPubKey == (hash.Hash{}) {
-		return hash.Hash{}, errors.New("localSealedSliceStore: pub key hash is required")
+		return hash.Hash{}, errors.New(
+			"localSealedSliceStore: pub key hash is required",
+		)
 	}
 	if len(sealedSlice.SealedPayload) == 0 {
-		return hash.Hash{}, errors.New("localSealedSliceStore: sealed payload is required")
+		return hash.Hash{}, errors.New(
+			"localSealedSliceStore: sealed payload is required",
+		)
 	}
 	if len(sealedSlice.Nonce) == 0 {
 		return hash.Hash{}, errors.New("localSealedSliceStore: nonce is required")
@@ -194,7 +200,8 @@ func (s *Store) Delete(sliceHash hash.Hash) error { // A
 		if err := txn.Delete(baseKey); err != nil {
 			return fmt.Errorf("localSealedSliceStore: delete payload: %w", err)
 		}
-		if err := txn.Delete(metaKey(baseKey)); err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
+		if err := txn.Delete(metaKey(baseKey)); err != nil &&
+			!errors.Is(err, badger.ErrKeyNotFound) {
 			return fmt.Errorf("localSealedSliceStore: delete metadata: %w", err)
 		}
 		return nil
@@ -427,7 +434,10 @@ func encodeMetadata(
 		"nonce":           base64.StdEncoding.EncodeToString(sealedSlice.Nonce),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("localSealedSliceStore: build metadata struct: %w", err)
+		return nil, fmt.Errorf(
+			"localSealedSliceStore: build metadata struct: %w",
+			err,
+		)
 	}
 
 	metaBytes, err := proto.Marshal(metaStruct)
@@ -441,7 +451,10 @@ func encodeMetadata(
 func decodeMetadata(metaBytes []byte) (sliceMetadata, error) {
 	var metaStruct structpb.Struct
 	if err := proto.Unmarshal(metaBytes, &metaStruct); err != nil {
-		return sliceMetadata{}, fmt.Errorf("localSealedSliceStore: unmarshal metadata: %w", err)
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: unmarshal metadata: %w",
+			err,
+		)
 	}
 
 	fields := metaStruct.AsMap()
@@ -476,7 +489,10 @@ func decodeMetadata(metaBytes []byte) (sliceMetadata, error) {
 	}
 	nonce, err := base64.StdEncoding.DecodeString(nonceStr)
 	if err != nil {
-		return sliceMetadata{}, fmt.Errorf("localSealedSliceStore: decode nonce: %w", err)
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: decode nonce: %w",
+			err,
+		)
 	}
 
 	return sliceMetadata{
@@ -490,7 +506,10 @@ func decodeMetadata(metaBytes []byte) (sliceMetadata, error) {
 	}, nil
 }
 
-func parseHashField(fields map[string]interface{}, key string) (hash.Hash, error) {
+func parseHashField(
+	fields map[string]interface{},
+	key string,
+) (hash.Hash, error) {
 	value, err := parseStringField(fields, key)
 	if err != nil {
 		return hash.Hash{}, err
@@ -498,12 +517,19 @@ func parseHashField(fields map[string]interface{}, key string) (hash.Hash, error
 
 	parsed, err := hash.HashHexadecimal(value)
 	if err != nil {
-		return hash.Hash{}, fmt.Errorf("localSealedSliceStore: parse %s: %w", key, err)
+		return hash.Hash{}, fmt.Errorf(
+			"localSealedSliceStore: parse %s: %w",
+			key,
+			err,
+		)
 	}
 	return parsed, nil
 }
 
-func parseStringField(fields map[string]interface{}, key string) (string, error) {
+func parseStringField(
+	fields map[string]interface{},
+	key string,
+) (string, error) {
 	raw, ok := fields[key]
 	if !ok {
 		return "", fmt.Errorf("localSealedSliceStore: metadata missing %s", key)

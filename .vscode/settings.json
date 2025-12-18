@@ -59,6 +59,7 @@
         "staticcheck",
         "stdr",
         "structpb",
+        "whyrusleeping",
         "xxhash",
         "Zstandard"
     ]

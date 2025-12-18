@@ -36,7 +36,11 @@ func TestLocalStorePropertyLifecycle(t *testing.T) {
 				t.Fatalf("store returned error: %v", err)
 			}
 			if returnedHash != slice.Hash {
-				t.Fatalf("store returned unexpected hash: got %s want %s", returnedHash, slice.Hash)
+				t.Fatalf(
+					"store returned unexpected hash: got %s want %s",
+					returnedHash,
+					slice.Hash,
+				)
 			}
 
 			stored = append(stored, slice)
@@ -48,7 +52,11 @@ func TestLocalStorePropertyLifecycle(t *testing.T) {
 			t.Fatalf("chunk list failed: %v", err)
 		}
 		if !unorderedHashEqual(chunkHashes, collectHashes(stored)) {
-			t.Fatalf("chunk list mismatch: got %d hashes expected %d", len(chunkHashes), len(stored))
+			t.Fatalf(
+				"chunk list mismatch: got %d hashes expected %d",
+				len(chunkHashes),
+				len(stored),
+			)
 		}
 
 		for _, pubKey := range uniqueHashes(storedPubKeys) {
@@ -56,7 +64,10 @@ func TestLocalStorePropertyLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("chunk list for pubkey failed: %v", err)
 			}
-			if !unorderedHashEqual(pubHashes, collectPubHashes(stored, storedPubKeys, pubKey)) {
+			if !unorderedHashEqual(
+				pubHashes,
+				collectPubHashes(stored, storedPubKeys, pubKey),
+			) {
 				t.Fatalf("chunk list for pubkey mismatch for %s", pubKey)
 			}
 		}
@@ -116,7 +127,14 @@ func openInMemoryDB(t *rapid.T) *badger.DB {
 }
 
 func randomHash(t *rapid.T) hash.Hash {
-	bytes := rapid.SliceOfN(rapid.Byte(), hashLength, hashLength).Draw(t, "hashBytes")
+	bytes := rapid.SliceOfN(
+		rapid.Byte(),
+		hashLength,
+		hashLength,
+	).Draw(
+		t,
+		"hashBytes",
+	)
 	var h hash.Hash
 	copy(h[:], bytes)
 	if h == (hash.Hash{}) {
