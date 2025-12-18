@@ -1,3 +1,20 @@
+// Package cas implements the Content-Addressable Storage (CAS) layer used by
+// OuroborosDB.
+//
+// The CAS is responsible for storing and retrieving blobs, chunks and sealed
+// slices. It provides APIs to:
+// - store and fetch blobs (logical objects with metadata and chunk references),
+//   - chunk blob payloads and persist chunks,
+//   - store and find sealed slices (sealed units of storage), and
+//   - interact with a dataRouter and keyIndex to persist and look up objects.
+//
+// CAS ensures content-addressability via cryptographic hashes and acts as the
+// library-level facade for higher-level operations; higher-level packages
+// should
+// use `NewCAS` and the CAS methods to interact with persisted content.
+//
+// Note: CAS itself does not implement on-disk layout; it delegates persistence
+// to the configured dataRouter implementation.
 package cas
 
 import (
