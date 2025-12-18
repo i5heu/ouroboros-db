@@ -121,6 +121,7 @@ classDiagram
             +StoreBlob(blob Blob) (hash.Hash, error)
             +RetrieveBlob(hash.Hash) (Blob, error)
             +DeleteBlob(hash.Hash) error
+            +SetSealedSlice(SealedSliceWithPayload) error
         }
 
         class CAS {
@@ -130,7 +131,7 @@ classDiagram
         }
 
         class LocalSealedSliceStore {
-            +Store(sealedSlice SealedSlice, HashOfPubKey hash.Hash) error
+            +Store(sealedSlice SealedSliceWithPayload, HashOfPubKey hash.Hash) error
             +Get(hash.Hash) (SealedSlice, error)
             +Delete(hash.Hash) error
             +ChunkListSealedSlices(chunkHash.Hash) (sealedSliceHashes []hash.Hash, error)
@@ -233,8 +234,12 @@ classDiagram
         class SealedSlice {
             +hash.Hash SliceHash
             -[]byte Nonce
-            -[]byte SealedPayload
             +Get() []byte
+        }
+
+        class SealedSliceWithPayload {
+            +SealedSlice SealedSlice
+            +[]byte SealedPayload
         }
 
         class KeyIndex {
@@ -245,6 +250,7 @@ classDiagram
     LocalSealedSliceStore "1" o-- "*" Blob : stores
     Blob "1" *-- "*" Chunk : materializes Content
     Chunk "1" *-- "*" SealedSlice : materializes ChunkData
+    SealedSliceWithPayload "1" *-- "1" SealedSlice : wraps
     SealedSlice "1" *-- "*" KeyIndex : provides Key
     note for SealedSlice "
 Blob, Chunk and SealedSlice are all persisted
