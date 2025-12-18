@@ -118,14 +118,8 @@ func assertRetrievedSlices(
 		if err != nil {
 			t.Fatalf("get failed for %s: %v", slice.Hash, err)
 		}
-		if got.Hash != slice.Hash ||
-			got.ChunkHash != slice.ChunkHash ||
-			got.RSDataSlices != slice.RSDataSlices ||
-			got.RSParitySlices != slice.RSParitySlices ||
-			got.RSSliceIndex != slice.RSSliceIndex ||
-			!bytes.Equal(got.Nonce, slice.Nonce) {
-			t.Fatalf("retrieved slice metadata mismatch at index %d", i)
-		}
+
+		assertSealedSliceMetadataEqual(t, i, got, slice.SealedSlice)
 
 		payload, err := got.GetSealedPayload(context.Background())
 		if err != nil {
@@ -134,6 +128,38 @@ func assertRetrievedSlices(
 		if !bytes.Equal(payload, slice.SealedPayload) {
 			t.Fatalf("payload mismatch at index %d", i)
 		}
+	}
+}
+
+func assertSealedSliceMetadataEqual(
+	t *rapid.T,
+	index int,
+	got cas.SealedSlice,
+	want cas.SealedSlice,
+) {
+	t.Helper()
+	if got.Hash != want.Hash {
+		t.Fatalf(
+			"retrieved slice hash mismatch at index %d: got %s want %s",
+			index,
+			got.Hash,
+			want.Hash,
+		)
+	}
+	if got.ChunkHash != want.ChunkHash {
+		t.Fatalf("retrieved slice chunkHash mismatch at index %d", index)
+	}
+	if got.RSDataSlices != want.RSDataSlices {
+		t.Fatalf("retrieved slice RSDataSlices mismatch at index %d", index)
+	}
+	if got.RSParitySlices != want.RSParitySlices {
+		t.Fatalf("retrieved slice RSParitySlices mismatch at index %d", index)
+	}
+	if got.RSSliceIndex != want.RSSliceIndex {
+		t.Fatalf("retrieved slice RSSliceIndex mismatch at index %d", index)
+	}
+	if !bytes.Equal(got.Nonce, want.Nonce) {
+		t.Fatalf("retrieved slice nonce mismatch at index %d", index)
 	}
 }
 

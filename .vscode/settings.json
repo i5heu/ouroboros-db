@@ -58,6 +58,7 @@
         "sloglint",
         "staticcheck",
         "stdr",
+        "Storepb",
         "structpb",
         "whyrusleeping",
         "xxhash",
