@@ -108,7 +108,7 @@ classDiagram
             +BootstrapNode(node Node) error
         }
 
-        class MessageTunnel {
+        class Carrier {
             +Broadcast(message Message)
             +SendMessageToNode(nodeID NodeID, message Message)
         }
@@ -172,7 +172,7 @@ classDiagram
 
     Cluster "1" *-- "*" Node : contains
     Node "1" o-- "*" ClusterController : listensOn
-    ClusterController "1" *-- "1" MessageTunnel : communicatesVia
+    ClusterController "1" *-- "1" Carrier : communicatesVia
     Node "1" o-- "1" CAS : persists blobs
     CAS "1" o-- "1" DataRouter : delegates persistence to
     DataRouter "1" *-- "1" LocalSealedSliceStore : uses
@@ -181,7 +181,7 @@ classDiagram
     DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
     ClusterController "1" *-- "1" DataReBalancer : manages
     DataReBalancer "1" *-- "1" ReplicationMonitoring : utilizes
-    MessageTunnel "1" *-- "1" MessageAuthenticator : secures
+    Carrier "1" *-- "1" MessageAuthenticator : secures
     DataRouter "1" *-- "1" ClusterController : interacts with
     ClusterController "1" *-- "1" BootStrapper : initializes
     ClusterController "1" *-- "1" ClusterMonitor : monitors
