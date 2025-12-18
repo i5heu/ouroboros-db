@@ -3,4 +3,6 @@ main
 data/
 .cache/
 .gocache/
+.gomodcache/
+.golangci-cache/
 showContentsOutput.txt
