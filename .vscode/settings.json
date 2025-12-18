@@ -29,6 +29,7 @@
         "chunker",
         "Ciphertext",
         "cyclop",
+        "dgraph",
         "Encryptor",
         "errcheck",
         "gofmt",

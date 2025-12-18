@@ -131,7 +131,7 @@ func (f *fakeDataRouter) GetSealedSlice(
 
 func (f *fakeDataRouter) SetSealedSlice(
 	ctx context.Context,
-	slice SealedSlice,
+	slice SealedSliceWithPayload,
 ) error {
 	if slice.Hash == (hash.Hash{}) {
 		return fmt.Errorf("sealed slice hash must be set")
@@ -139,11 +139,11 @@ func (f *fakeDataRouter) SetSealedSlice(
 	if slice.ChunkHash == (hash.Hash{}) {
 		return fmt.Errorf("sealed slice %s missing chunk hash", slice.Hash.String())
 	}
-	if len(slice.sealedPayload) == 0 {
+	if len(slice.SealedPayload) == 0 {
 		return fmt.Errorf("sealed slice %s missing payload", slice.Hash.String())
 	}
 
-	cloned := f.cloneSealedSlice(slice)
+	cloned := f.cloneSealedSlice(slice.SealedSlice)
 	f.sealedSlices[cloned.Hash] = cloned
 	f.sealedPayloads[cloned.Hash] = cloned.sealedPayload
 	f.chunkSealed[cloned.ChunkHash] = append(

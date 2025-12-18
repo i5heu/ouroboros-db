@@ -52,6 +52,13 @@ type SealedSlice struct {
 	sealedPayload []byte
 }
 
+// SealedSliceWithPayload is a wrapper for SealedSlice that includes the
+// sealed payload.
+type SealedSliceWithPayload struct {
+	SealedSlice
+	SealedPayload []byte
+}
+
 func NewSealedSlice(
 	cas *CAS,
 	chunkHash hash.Hash,
@@ -256,7 +263,7 @@ func storeSealedSlicesFromChunk( // H
 		return nil, err
 	}
 
-	var sealedSlices []SealedSlice
+	var sealedSlicesWithPayload []SealedSliceWithPayload
 	for i, shard := range shards {
 		slice, err := encryptAndSealSlice(
 			ctx,
@@ -269,14 +276,19 @@ func storeSealedSlicesFromChunk( // H
 		if err != nil {
 			return nil, err
 		}
-		sealedSlices = append(sealedSlices, *slice)
+		sealedSlicesWithPayload = append(sealedSlicesWithPayload, *slice)
 	}
 
-	for _, s := range sealedSlices {
+	for _, s := range sealedSlicesWithPayload {
 		err = opts.CAS.dr.SetSealedSlice(ctx, s)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	var sealedSlices []SealedSlice
+	for _, s := range sealedSlicesWithPayload {
+		sealedSlices = append(sealedSlices, s.SealedSlice)
 	}
 
 	return sealedSlices, nil
@@ -344,13 +356,13 @@ func encryptAndSealSlice( // AC
 	shard []byte,
 	chunkHash hash.Hash,
 	sliceIndex uint8,
-) (*SealedSlice, error) {
+) (*SealedSliceWithPayload, error) {
 	encryptResult, err := opts.Crypt.Encrypt(shard)
 	if err != nil {
-		return &SealedSlice{}, err
+		return &SealedSliceWithPayload{}, err
 	}
 
-	slice := &SealedSlice{
+	slice := SealedSlice{
 		cas:            opts.CAS,
 		ChunkHash:      chunkHash,
 		RSDataSlices:   opts.RSDataSlices,
@@ -362,12 +374,12 @@ func encryptAndSealSlice( // AC
 
 	pubKeyHash, err := opts.Crypt.Encryptor.PublicKey.Hash()
 	if err != nil {
-		return &SealedSlice{}, err
+		return &SealedSliceWithPayload{}, err
 	}
 
 	_, err = slice.generateHash(ctx, true)
 	if err != nil {
-		return &SealedSlice{}, err
+		return &SealedSliceWithPayload{}, err
 	}
 
 	err = opts.CAS.ki.Set(
@@ -376,8 +388,11 @@ func encryptAndSealSlice( // AC
 		encryptResult.EncapsulatedKey,
 	)
 	if err != nil {
-		return &SealedSlice{}, err
+		return &SealedSliceWithPayload{}, err
 	}
 
-	return slice, nil
+	return &SealedSliceWithPayload{
+		SealedSlice:   slice,
+		SealedPayload: encryptResult.Ciphertext,
+	}, nil
 }

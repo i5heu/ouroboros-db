@@ -38,7 +38,7 @@ type dataRouter interface {
 	) ([]SealedSlice, error)
 
 	GetSealedSlice(ctx context.Context, hash hash.Hash) (SealedSlice, error)
-	SetSealedSlice(ctx context.Context, slice SealedSlice) error
+	SetSealedSlice(ctx context.Context, slice SealedSliceWithPayload) error
 	GetSealedSlicePayload(ctx context.Context, hash hash.Hash) ([]byte, error)
 }
 
