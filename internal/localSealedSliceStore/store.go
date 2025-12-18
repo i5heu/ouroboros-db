@@ -11,7 +11,10 @@ import (
 type LocalSealedSliceStore interface {
 	// Store persists a SealedSlice associated with a public key hash.
 	// Returns the hash of the stored slice or an error.
-	Store(sealedSlice cas.SealedSlice, hashOfPubKey hash.Hash) (hash.Hash, error)
+	Store(
+		sealedSlice cas.SealedSliceWithPayload,
+		hashOfPubKey hash.Hash,
+	) (hash.Hash, error)
 
 	// Get retrieves a SealedSlice by its hash.
 	Get(sliceHash hash.Hash) (cas.SealedSlice, error)
