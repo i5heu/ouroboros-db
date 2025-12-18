@@ -2,17 +2,15 @@ package localSealedSliceStore
 
 import (
 	"bytes"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"reflect"
 	"unsafe"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
+	"github.com/i5heu/ouroboros-db/internal/localSealedSliceStorepb"
 	"github.com/i5heu/ouroboros-db/pkg/cas"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // LocalSealedSliceStore manages the local persistence of SealedSlices.
@@ -67,32 +65,8 @@ func (s *Store) Store(
 	sealedSlice cas.SealedSliceWithPayload,
 	hashOfPubKey hash.Hash,
 ) (hash.Hash, error) { // A
-	if s.db == nil {
-		return hash.Hash{}, errors.New("localSealedSliceStore: db is nil")
-	}
-
-	if sealedSlice.ChunkHash == (hash.Hash{}) {
-		return hash.Hash{}, errors.New(
-			"localSealedSliceStore: chunk hash is required",
-		)
-	}
-	if hashOfPubKey == (hash.Hash{}) {
-		return hash.Hash{}, errors.New(
-			"localSealedSliceStore: pub key hash is required",
-		)
-	}
-	if len(sealedSlice.SealedPayload) == 0 {
-		return hash.Hash{}, errors.New(
-			"localSealedSliceStore: sealed payload is required",
-		)
-	}
-	if len(sealedSlice.Nonce) == 0 {
-		return hash.Hash{}, errors.New("localSealedSliceStore: nonce is required")
-	}
-	if sealedSlice.RSDataSlices == 0 || sealedSlice.RSParitySlices == 0 {
-		return hash.Hash{}, errors.New(
-			"localSealedSliceStore: RSDataSlices and RSParitySlices must be > 0",
-		)
+	if err := s.validateStoreInput(sealedSlice, hashOfPubKey); err != nil {
+		return hash.Hash{}, err
 	}
 
 	sliceHash, err := ensureSealedSliceHash(sealedSlice)
@@ -295,6 +269,34 @@ func (s *Store) ChunkListSealedSlicesForPubKey(
 	return hashes, err
 }
 
+func (s *Store) validateStoreInput(
+	sealedSlice cas.SealedSliceWithPayload,
+	hashOfPubKey hash.Hash,
+) error {
+	if s.db == nil {
+		return errors.New("localSealedSliceStore: db is nil")
+	}
+
+	if sealedSlice.ChunkHash == (hash.Hash{}) {
+		return errors.New("localSealedSliceStore: chunk hash is required")
+	}
+	if hashOfPubKey == (hash.Hash{}) {
+		return errors.New("localSealedSliceStore: pub key hash is required")
+	}
+	if len(sealedSlice.SealedPayload) == 0 {
+		return errors.New("localSealedSliceStore: sealed payload is required")
+	}
+	if len(sealedSlice.Nonce) == 0 {
+		return errors.New("localSealedSliceStore: nonce is required")
+	}
+	if sealedSlice.RSDataSlices == 0 || sealedSlice.RSParitySlices == 0 {
+		return errors.New(
+			"localSealedSliceStore: RSDataSlices and RSParitySlices must be > 0",
+		)
+	}
+	return nil
+}
+
 func ensureSealedSliceHash(
 	sealedSlice cas.SealedSliceWithPayload,
 ) (hash.Hash, error) {
@@ -424,23 +426,17 @@ func encodeMetadata(
 	sealedSlice cas.SealedSliceWithPayload,
 	pubKeyHash, sliceHash hash.Hash,
 ) ([]byte, error) {
-	metaStruct, err := structpb.NewStruct(map[string]interface{}{
-		"chunkHash":       sealedSlice.ChunkHash.String(),
-		"pubKeyHash":      pubKeyHash.String(),
-		"sealedSliceHash": sliceHash.String(),
-		"rsDataSlices":    int64(sealedSlice.RSDataSlices),
-		"rsParitySlices":  int64(sealedSlice.RSParitySlices),
-		"rsSliceIndex":    int64(sealedSlice.RSSliceIndex),
-		"nonce":           base64.StdEncoding.EncodeToString(sealedSlice.Nonce),
-	})
-	if err != nil {
-		return nil, fmt.Errorf(
-			"localSealedSliceStore: build metadata struct: %w",
-			err,
-		)
+	meta := &localSealedSliceStorepb.SliceMetadata{
+		ChunkHash:       sealedSlice.ChunkHash[:],
+		PubKeyHash:      pubKeyHash[:],
+		SealedSliceHash: sliceHash[:],
+		RsDataSlices:    uint32(sealedSlice.RSDataSlices),
+		RsParitySlices:  uint32(sealedSlice.RSParitySlices),
+		RsSliceIndex:    uint32(sealedSlice.RSSliceIndex),
+		Nonce:           sealedSlice.Nonce,
 	}
 
-	metaBytes, err := proto.Marshal(metaStruct)
+	metaBytes, err := proto.Marshal(meta)
 	if err != nil {
 		return nil, fmt.Errorf("localSealedSliceStore: marshal metadata: %w", err)
 	}
@@ -449,51 +445,57 @@ func encodeMetadata(
 }
 
 func decodeMetadata(metaBytes []byte) (sliceMetadata, error) {
-	var metaStruct structpb.Struct
-	if err := proto.Unmarshal(metaBytes, &metaStruct); err != nil {
+	var meta localSealedSliceStorepb.SliceMetadata
+	if err := proto.Unmarshal(metaBytes, &meta); err != nil {
 		return sliceMetadata{}, fmt.Errorf(
 			"localSealedSliceStore: unmarshal metadata: %w",
 			err,
 		)
 	}
 
-	fields := metaStruct.AsMap()
-
-	chunkHash, err := parseHashField(fields, "chunkHash")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	pubKeyHash, err := parseHashField(fields, "pubKeyHash")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	sliceHash, err := parseHashField(fields, "sealedSliceHash")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	rsData, err := parseUint8Field(fields, "rsDataSlices")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	rsParity, err := parseUint8Field(fields, "rsParitySlices")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	rsIndex, err := parseUint8Field(fields, "rsSliceIndex")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	nonceStr, err := parseStringField(fields, "nonce")
-	if err != nil {
-		return sliceMetadata{}, err
-	}
-	nonce, err := base64.StdEncoding.DecodeString(nonceStr)
+	chunkHash, err := bytesToHash(meta.GetChunkHash())
 	if err != nil {
 		return sliceMetadata{}, fmt.Errorf(
-			"localSealedSliceStore: decode nonce: %w",
+			"localSealedSliceStore: chunk hash: %w",
 			err,
 		)
 	}
+	pubKeyHash, err := bytesToHash(meta.GetPubKeyHash())
+	if err != nil {
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: pub key hash: %w",
+			err,
+		)
+	}
+	sliceHash, err := bytesToHash(meta.GetSealedSliceHash())
+	if err != nil {
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: sealed slice hash: %w",
+			err,
+		)
+	}
+	rsData, err := uint32ToUint8(meta.GetRsDataSlices())
+	if err != nil {
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: rs data slices: %w",
+			err,
+		)
+	}
+	rsParity, err := uint32ToUint8(meta.GetRsParitySlices())
+	if err != nil {
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: rs parity slices: %w",
+			err,
+		)
+	}
+	rsIndex, err := uint32ToUint8(meta.GetRsSliceIndex())
+	if err != nil {
+		return sliceMetadata{}, fmt.Errorf(
+			"localSealedSliceStore: rs slice index: %w",
+			err,
+		)
+	}
+	nonce := meta.GetNonce()
 
 	return sliceMetadata{
 		ChunkHash:       chunkHash,
@@ -506,71 +508,38 @@ func decodeMetadata(metaBytes []byte) (sliceMetadata, error) {
 	}, nil
 }
 
-func parseHashField(
-	fields map[string]interface{},
-	key string,
-) (hash.Hash, error) {
-	value, err := parseStringField(fields, key)
-	if err != nil {
-		return hash.Hash{}, err
+func bytesToHash(b []byte) (hash.Hash, error) {
+	if len(b) != hashLength {
+		return hash.Hash{}, fmt.Errorf("unexpected hash length %d", len(b))
 	}
-
-	parsed, err := hash.HashHexadecimal(value)
-	if err != nil {
-		return hash.Hash{}, fmt.Errorf(
-			"localSealedSliceStore: parse %s: %w",
-			key,
-			err,
-		)
-	}
-	return parsed, nil
+	var h hash.Hash
+	copy(h[:], b)
+	return h, nil
 }
 
-func parseStringField(
-	fields map[string]interface{},
-	key string,
-) (string, error) {
-	raw, ok := fields[key]
-	if !ok {
-		return "", fmt.Errorf("localSealedSliceStore: metadata missing %s", key)
+func uint32ToUint8(v uint32) (uint8, error) {
+	if v > uint32(^uint8(0)) {
+		return 0, fmt.Errorf("value %d overflows uint8", v)
 	}
-	str, ok := raw.(string)
-	if ok {
-		return str, nil
-	}
-	return "", fmt.Errorf("localSealedSliceStore: metadata %s not a string", key)
-}
-
-func parseUint8Field(fields map[string]interface{}, key string) (uint8, error) {
-	raw, ok := fields[key]
-	if !ok {
-		return 0, fmt.Errorf("localSealedSliceStore: metadata missing %s", key)
-	}
-
-	switch v := raw.(type) {
-	case float64:
-		if v < 0 || v > 255 {
-			return 0, fmt.Errorf("localSealedSliceStore: metadata %s out of range", key)
-		}
-		return uint8(v), nil
-	case int64:
-		if v < 0 || v > 255 {
-			return 0, fmt.Errorf("localSealedSliceStore: metadata %s out of range", key)
-		}
-		return uint8(v), nil
-	default:
-		return 0, fmt.Errorf("localSealedSliceStore: metadata %s not numeric", key)
-	}
+	return uint8(v), nil
 }
 
 func setSealedPayload(slice *cas.SealedSlice, payload []byte) {
-	value := reflect.ValueOf(slice).Elem().FieldByName("sealedPayload")
-	if !value.IsValid() {
-		return
+	//nolint:govet // mirrors external struct layout
+	type sealedSliceMirror struct {
+		cas            *cas.CAS
+		Hash           hash.Hash
+		ChunkHash      hash.Hash
+		RSDataSlices   uint8
+		RSParitySlices uint8
+		RSSliceIndex   uint8
+		Nonce          []byte
+		sealedPayload  []byte
 	}
-	reflect.NewAt(value.Type(), unsafe.Pointer(value.UnsafeAddr())).
-		Elem().
-		SetBytes(payload)
+
+	//nolint:gosec // required to hydrate payload
+	mirror := (*sealedSliceMirror)(unsafe.Pointer(slice))
+	mirror.sealedPayload = payload
 }
 
 func (s *Store) findBaseKeyBySliceHash(sliceHash hash.Hash) ([]byte, error) {

@@ -24,96 +24,143 @@ func TestLocalStorePropertyLifecycle(t *testing.T) {
 		pubKeys := randomPubKeys(t)
 		sliceCount := rapid.IntRange(1, 5).Draw(t, "sliceCount")
 
-		var stored []cas.SealedSliceWithPayload
-		var storedPubKeys []hash.Hash
+		stored, storedPubKeys := storeRandomSlices(
+			t,
+			store,
+			chunkHash,
+			pubKeys,
+			sliceCount,
+		)
 
-		for i := 0; i < sliceCount; i++ {
-			slice := randomSealedSlice(t, chunkHash)
-			pubKey := pubKeys[rapid.IntRange(0, len(pubKeys)-1).Draw(t, "pubKeyIndex")]
+		assertChunkListings(t, store, chunkHash, stored, storedPubKeys)
+		assertRetrievedSlices(t, store, stored)
+		assertDeleteFlow(t, store, chunkHash, stored)
+	})
+}
 
-			returnedHash, err := store.Store(slice, pubKey)
-			if err != nil {
-				t.Fatalf("store returned error: %v", err)
-			}
-			if returnedHash != slice.Hash {
-				t.Fatalf(
-					"store returned unexpected hash: got %s want %s",
-					returnedHash,
-					slice.Hash,
-				)
-			}
+func storeRandomSlices(
+	t *rapid.T,
+	store *Store,
+	chunkHash hash.Hash,
+	pubKeys []hash.Hash,
+	count int,
+) ([]cas.SealedSliceWithPayload, []hash.Hash) {
+	var stored []cas.SealedSliceWithPayload
+	var storedPubKeys []hash.Hash
 
-			stored = append(stored, slice)
-			storedPubKeys = append(storedPubKeys, pubKey)
-		}
+	for i := 0; i < count; i++ {
+		slice := randomSealedSlice(t, chunkHash)
+		pubKey := pubKeys[rapid.IntRange(0, len(pubKeys)-1).
+			Draw(t, "pubKeyIndex")]
 
-		chunkHashes, err := store.ChunkListSealedSlices(chunkHash)
+		returnedHash, err := store.Store(slice, pubKey)
 		if err != nil {
-			t.Fatalf("chunk list failed: %v", err)
+			t.Fatalf("store returned error: %v", err)
 		}
-		if !unorderedHashEqual(chunkHashes, collectHashes(stored)) {
+		if returnedHash != slice.Hash {
 			t.Fatalf(
-				"chunk list mismatch: got %d hashes expected %d",
-				len(chunkHashes),
-				len(stored),
+				"store hash mismatch: got %s want %s",
+				returnedHash,
+				slice.Hash,
 			)
 		}
 
-		for _, pubKey := range uniqueHashes(storedPubKeys) {
-			pubHashes, err := store.ChunkListSealedSlicesForPubKey(chunkHash, pubKey)
-			if err != nil {
-				t.Fatalf("chunk list for pubkey failed: %v", err)
-			}
-			if !unorderedHashEqual(
-				pubHashes,
-				collectPubHashes(stored, storedPubKeys, pubKey),
-			) {
-				t.Fatalf("chunk list for pubkey mismatch for %s", pubKey)
-			}
-		}
+		stored = append(stored, slice)
+		storedPubKeys = append(storedPubKeys, pubKey)
+	}
 
-		for i, slice := range stored {
-			got, err := store.Get(slice.Hash)
-			if err != nil {
-				t.Fatalf("get failed for %s: %v", slice.Hash, err)
-			}
-			if got.Hash != slice.Hash ||
-				got.ChunkHash != slice.ChunkHash ||
-				got.RSDataSlices != slice.RSDataSlices ||
-				got.RSParitySlices != slice.RSParitySlices ||
-				got.RSSliceIndex != slice.RSSliceIndex ||
-				!bytes.Equal(got.Nonce, slice.Nonce) {
-				t.Fatalf("retrieved slice metadata mismatch at index %d", i)
-			}
+	return stored, storedPubKeys
+}
 
-			payload, err := got.GetSealedPayload(context.Background())
-			if err != nil {
-				t.Fatalf("get payload failed: %v", err)
-			}
-			if !bytes.Equal(payload, slice.SealedPayload) {
-				t.Fatalf("payload mismatch at index %d", i)
-			}
-		}
+func assertChunkListings(
+	t *rapid.T,
+	store *Store,
+	chunkHash hash.Hash,
+	stored []cas.SealedSliceWithPayload,
+	storedPubKeys []hash.Hash,
+) {
+	chunkHashes, err := store.ChunkListSealedSlices(chunkHash)
+	if err != nil {
+		t.Fatalf("chunk list failed: %v", err)
+	}
+	if !unorderedHashEqual(chunkHashes, collectHashes(stored)) {
+		t.Fatalf(
+			"chunk list mismatch: got %d hashes expected %d",
+			len(chunkHashes),
+			len(stored),
+		)
+	}
 
-		deleteIndex := rapid.IntRange(0, len(stored)-1).Draw(t, "deleteIndex")
-		deleteHash := stored[deleteIndex].Hash
-
-		if err := store.Delete(deleteHash); err != nil {
-			t.Fatalf("delete failed: %v", err)
-		}
-		if _, err := store.Get(deleteHash); err == nil {
-			t.Fatalf("get succeeded after delete for %s", deleteHash)
-		}
-
-		expectedRemaining := removeHash(collectHashes(stored), deleteHash)
-		chunkHashesAfterDelete, err := store.ChunkListSealedSlices(chunkHash)
+	for _, pubKey := range uniqueHashes(storedPubKeys) {
+		pubHashes, err := store.ChunkListSealedSlicesForPubKey(
+			chunkHash,
+			pubKey,
+		)
 		if err != nil {
-			t.Fatalf("chunk list after delete failed: %v", err)
+			t.Fatalf("chunk list for pubkey failed: %v", err)
 		}
-		if !unorderedHashEqual(chunkHashesAfterDelete, expectedRemaining) {
-			t.Fatalf("chunk list after delete mismatch")
+		if !unorderedHashEqual(
+			pubHashes,
+			collectPubHashes(stored, storedPubKeys, pubKey),
+		) {
+			t.Fatalf("chunk list for pubkey mismatch for %s", pubKey)
 		}
-	})
+	}
+}
+
+func assertRetrievedSlices(
+	t *rapid.T,
+	store *Store,
+	stored []cas.SealedSliceWithPayload,
+) {
+	for i, slice := range stored {
+		got, err := store.Get(slice.Hash)
+		if err != nil {
+			t.Fatalf("get failed for %s: %v", slice.Hash, err)
+		}
+		if got.Hash != slice.Hash ||
+			got.ChunkHash != slice.ChunkHash ||
+			got.RSDataSlices != slice.RSDataSlices ||
+			got.RSParitySlices != slice.RSParitySlices ||
+			got.RSSliceIndex != slice.RSSliceIndex ||
+			!bytes.Equal(got.Nonce, slice.Nonce) {
+			t.Fatalf("retrieved slice metadata mismatch at index %d", i)
+		}
+
+		payload, err := got.GetSealedPayload(context.Background())
+		if err != nil {
+			t.Fatalf("get payload failed: %v", err)
+		}
+		if !bytes.Equal(payload, slice.SealedPayload) {
+			t.Fatalf("payload mismatch at index %d", i)
+		}
+	}
+}
+
+func assertDeleteFlow(
+	t *rapid.T,
+	store *Store,
+	chunkHash hash.Hash,
+	stored []cas.SealedSliceWithPayload,
+) {
+	deleteIndex := rapid.IntRange(0, len(stored)-1).Draw(t, "deleteIndex")
+	deleteHash := stored[deleteIndex].Hash
+
+	if err := store.Delete(deleteHash); err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	if _, err := store.Get(deleteHash); err == nil {
+		t.Fatalf("get succeeded after delete for %s", deleteHash)
+	}
+
+	expectedRemaining := removeHash(collectHashes(stored), deleteHash)
+	chunkHashesAfterDelete, err := store.ChunkListSealedSlices(chunkHash)
+	if err != nil {
+		t.Fatalf("chunk list after delete failed: %v", err)
+	}
+	if !unorderedHashEqual(chunkHashesAfterDelete, expectedRemaining) {
+		t.Fatalf("chunk list after delete mismatch")
+	}
 }
 
 func openInMemoryDB(t *rapid.T) *badger.DB {
@@ -164,7 +211,14 @@ func randomSealedSlice(
 	rsData := rapid.Uint8Range(1, 6).Draw(t, "rsData")
 	rsParity := rapid.Uint8Range(1, 6).Draw(t, "rsParity")
 	total := int(rsData) + int(rsParity)
-	rsIndex := uint8(rapid.IntRange(0, total-1).Draw(t, "rsIndex"))
+	maxIndex := total - 1
+	if maxIndex < 0 || maxIndex > int(^uint8(0)) {
+		t.Fatalf("invalid slice index bounds: %d", maxIndex)
+	}
+	rsIndex := rapid.Uint8Range(
+		0,
+		uint8(maxIndex),
+	).Draw(t, "rsIndex")
 
 	nonce := randomBytes(t, 12, 32)
 	payload := randomBytes(t, 1, 512)
