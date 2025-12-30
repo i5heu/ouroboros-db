@@ -20,9 +20,7 @@ classDiagram
         +TrackAvailability()
     }
 
-    class BootStrapper {
-        +BootstrapNode(node Node) error
-    }
+
 
     class Carrier {
         +GetNodes() []Node
@@ -32,6 +30,12 @@ classDiagram
         +JoinCluster(clusterNode Node, Cert NodeCert) error
         +LeaveCluster(clusterNode Node) error
     }
+
+    class BootStrapper {
+        +BootstrapNode(node Node) error
+    }
+
+    Carrier "1" *-- "1" BootStrapper : initializes
 
     class Message  {
         +MessageType Type
@@ -43,14 +47,17 @@ classDiagram
         <<Enumeration>>
         SealedSlicePayloadRequest
         ChunkMetaRequest
-        ChunkPayloadRequest %% Not used yet
         BlobMetaRequest
-        BlobPayloadRequest %% Not used yet
-        Heartbeat %% This is also used for Monitoring
+        %% Heartbeat is also used for monitoring information
+        Heartbeat
         NodeJoinRequest
         NodeLeaveNotification
         UserAuthDecision
         NewNodeAnnouncement
+
+        %% Not used yet
+        ChunkPayloadRequest 
+        BlobPayloadRequest
     }
     Message "1" o-- "1" MessageType : has type
 
@@ -111,6 +118,7 @@ classDiagram
     Node "1" o-- "*" ClusterController : listensOn
     ClusterController "1" *-- "1" Carrier : communicatesVia
     Node "1" o-- "1" CAS : persists blobs
+    DataRouter "1" *-- "1" ClusterController : interacts with
     CAS "1" o-- "1" DataRouter : delegates persistence to
     DataRouter "1" *-- "1" LocalSealedSliceStore : uses
     ClusterController "1" *-- "1" DistributedIndex : LooksUps
@@ -118,8 +126,6 @@ classDiagram
     DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
     ClusterController "1" *-- "1" DataReBalancer : manages
     DataReBalancer "1" *-- "1" ReplicationMonitoring : utilizes
-    DataRouter "1" *-- "1" ClusterController : interacts with
-    ClusterController "1" *-- "1" BootStrapper : initializes
     ClusterController "1" *-- "1" ClusterMonitor : monitors
     Node "1" *-- "1" BackupManager : manages backups
     ClusterMonitor "1" *-- "1" NodeAvailabilityTracker : utilizes
