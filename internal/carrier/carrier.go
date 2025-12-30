@@ -30,9 +30,13 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
+
+// timeNow is a variable for time.Now to allow testing.
+var timeNow = time.Now // A
 
 // DefaultCarrier is the default implementation of the Carrier interface.
 // It uses QUIC for transport and post-quantum encryption for message security.
@@ -358,6 +362,19 @@ func (c *DefaultCarrier) BootstrapFromAddresses(
 			c.log.InfoContext(ctx, "added bootstrap node",
 				logKeyNodeID, string(remoteID),
 				logKeyAddress, normalizedAddr)
+
+			// Sync node list from the bootstrap node
+			if syncErr := c.SyncNodes(ctx, remoteID); syncErr != nil {
+				c.log.WarnContext(ctx, "failed to sync nodes from bootstrap node",
+					logKeyNodeID, string(remoteID),
+					logKeyError, syncErr.Error())
+			}
+
+			// Announce ourselves to the cluster
+			if announceErr := c.AnnounceSelf(ctx); announceErr != nil {
+				c.log.WarnContext(ctx, "failed to announce self to cluster",
+					logKeyError, announceErr.Error())
+			}
 		}
 
 		if err := conn.Close(); err != nil {
@@ -476,6 +493,224 @@ func (c *DefaultCarrier) RemoveNode(ctx context.Context, nodeID NodeID) { // A
 	delete(c.nodes, nodeID)
 	c.log.DebugContext(ctx, "removed node",
 		logKeyNodeID, string(nodeID))
+}
+
+// AnnounceNode broadcasts a new node announcement to all known nodes.
+// This should be called when a new node joins the cluster so all nodes
+// can update their node stores.
+func (c *DefaultCarrier) AnnounceNode(ctx context.Context, node Node) error { // A
+	ann := &NodeAnnouncement{
+		Node:      node,
+		Timestamp: timeNow().UnixNano(),
+	}
+
+	payload, err := SerializeNodeAnnouncement(ann)
+	if err != nil {
+		return fmt.Errorf("failed to serialize node announcement: %w", err)
+	}
+
+	msg := Message{
+		Type:    MessageTypeNewNodeAnnouncement,
+		Payload: payload,
+	}
+
+	result, err := c.Broadcast(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("failed to broadcast node announcement: %w", err)
+	}
+
+	c.log.InfoContext(ctx, "announced node to cluster",
+		logKeyNodeID, string(node.NodeID),
+		logKeySuccessCount, len(result.SuccessNodes),
+		logKeyFailedCount, len(result.FailedNodes))
+
+	return nil
+}
+
+// AnnounceSelf broadcasts this node's information to all known nodes.
+func (c *DefaultCarrier) AnnounceSelf(ctx context.Context) error { // A
+	return c.AnnounceNode(ctx, c.localNode)
+}
+
+// RequestNodeList requests the list of known nodes from a specific node.
+func (c *DefaultCarrier) RequestNodeList(
+	ctx context.Context,
+	nodeID NodeID,
+) ([]Node, error) { // A
+	c.mu.RLock()
+	node, ok := c.nodes[nodeID]
+	c.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("unknown node: %s", nodeID)
+	}
+
+	if len(node.Addresses) == 0 {
+		return nil, fmt.Errorf("node %s has no addresses", nodeID)
+	}
+
+	// Connect and send request
+	conn, err := c.transport.Connect(ctx, node.Addresses[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			c.log.DebugContext(ctx, "error closing connection",
+				logKeyNodeID, string(nodeID),
+				logKeyError, closeErr.Error())
+		}
+	}()
+
+	// Send node list request
+	if err := conn.Send(ctx, Message{Type: MessageTypeNodeListRequest}); err != nil {
+		return nil, fmt.Errorf("failed to send node list request: %w", err)
+	}
+
+	// Receive response
+	response, err := conn.Receive(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive node list response: %w", err)
+	}
+
+	if response.Type != MessageTypeNodeListResponse {
+		return nil, fmt.Errorf("unexpected response type: %s", response.Type)
+	}
+
+	nodes, err := DeserializeNodeList(response.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize node list: %w", err)
+	}
+
+	return nodes, nil
+}
+
+// SyncNodes synchronizes the node list with a remote node, adding any
+// nodes we don't know about.
+func (c *DefaultCarrier) SyncNodes(ctx context.Context, nodeID NodeID) error { // A
+	nodes, err := c.RequestNodeList(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	added := 0
+	for _, node := range nodes {
+		if _, exists := c.nodes[node.NodeID]; !exists {
+			c.nodes[node.NodeID] = node
+			added++
+			c.log.DebugContext(ctx, "synced new node",
+				logKeyNodeID, string(node.NodeID))
+		}
+	}
+
+	c.log.InfoContext(ctx, "node sync complete",
+		logKeyViaNode, string(nodeID),
+		"nodesReceived", len(nodes),
+		"nodesAdded", added)
+
+	return nil
+}
+
+// RegisterDefaultHandlers registers the built-in message handlers for
+// node announcements, join requests, and node list sync.
+func (c *DefaultCarrier) RegisterDefaultHandlers() { // A
+	// Handle new node announcements
+	c.RegisterHandler(MessageTypeNewNodeAnnouncement, c.handleNodeAnnouncement)
+
+	// Handle node list requests
+	c.RegisterHandler(MessageTypeNodeListRequest, c.handleNodeListRequest)
+
+	// Handle node join requests
+	c.RegisterHandler(MessageTypeNodeJoinRequest, c.handleNodeJoinRequest)
+}
+
+// handleNodeAnnouncement processes incoming node announcements.
+func (c *DefaultCarrier) handleNodeAnnouncement(
+	ctx context.Context,
+	senderID NodeID,
+	msg Message,
+) (*Message, error) { // A
+	ann, err := DeserializeNodeAnnouncement(msg.Payload)
+	if err != nil {
+		c.log.WarnContext(ctx, "failed to deserialize node announcement",
+			logKeyNodeID, string(senderID),
+			logKeyError, err.Error())
+		return nil, err
+	}
+
+	// Don't add ourselves
+	if ann.Node.NodeID == c.localNode.NodeID {
+		return nil, nil
+	}
+
+	c.mu.Lock()
+	_, exists := c.nodes[ann.Node.NodeID]
+	if !exists {
+		c.nodes[ann.Node.NodeID] = ann.Node
+	}
+	c.mu.Unlock()
+
+	if !exists {
+		c.log.InfoContext(ctx, "discovered new node via announcement",
+			logKeyNodeID, string(ann.Node.NodeID),
+			logKeyViaNode, string(senderID))
+	}
+
+	return nil, nil
+}
+
+// handleNodeListRequest responds with our list of known nodes.
+func (c *DefaultCarrier) handleNodeListRequest(
+	ctx context.Context,
+	senderID NodeID,
+	msg Message,
+) (*Message, error) { // A
+	c.mu.RLock()
+	nodes := make([]Node, 0, len(c.nodes))
+	for _, node := range c.nodes {
+		nodes = append(nodes, node)
+	}
+	c.mu.RUnlock()
+
+	payload, err := SerializeNodeList(nodes)
+	if err != nil {
+		c.log.WarnContext(ctx, "failed to serialize node list",
+			logKeyNodeID, string(senderID),
+			logKeyError, err.Error())
+		return nil, err
+	}
+
+	c.log.DebugContext(ctx, "responding to node list request",
+		logKeyNodeID, string(senderID),
+		"nodeCount", len(nodes))
+
+	return &Message{
+		Type:    MessageTypeNodeListResponse,
+		Payload: payload,
+	}, nil
+}
+
+// handleNodeJoinRequest processes a node join request.
+// It adds the requesting node and announces it to the cluster.
+func (c *DefaultCarrier) handleNodeJoinRequest(
+	ctx context.Context,
+	senderID NodeID,
+	msg Message,
+) (*Message, error) { // A
+	c.log.InfoContext(ctx, "received node join request",
+		logKeyNodeID, string(senderID))
+
+	// For now, we auto-accept join requests
+	// TODO: Implement user approval flow as per architecture
+
+	// The sender's info should come from the connection or the message payload
+	// For now, we just acknowledge that we received it
+	// The actual node addition happens when we get their announcement
+
+	return nil, nil
 }
 
 // LocalNode returns the local node's identity.

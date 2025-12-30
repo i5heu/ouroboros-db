@@ -24,6 +24,10 @@ const (
 	MessageTypeUserAuthDecision
 	// MessageTypeNewNodeAnnouncement announces a new node to the cluster.
 	MessageTypeNewNodeAnnouncement
+	// MessageTypeNodeListRequest requests the list of known nodes.
+	MessageTypeNodeListRequest
+	// MessageTypeNodeListResponse responds with the list of known nodes.
+	MessageTypeNodeListResponse
 	// MessageTypeChunkPayloadRequest requests chunk data (reserved for future
 	// use).
 	MessageTypeChunkPayloadRequest
@@ -53,6 +57,8 @@ var messageTypeNames = map[MessageType]string{ // A
 	MessageTypeNodeLeaveNotification:     "NodeLeaveNotification",
 	MessageTypeUserAuthDecision:          "UserAuthDecision",
 	MessageTypeNewNodeAnnouncement:       "NewNodeAnnouncement",
+	MessageTypeNodeListRequest:           "NodeListRequest",
+	MessageTypeNodeListResponse:          "NodeListResponse",
 	MessageTypeChunkPayloadRequest:       "ChunkPayloadRequest",
 	MessageTypeBlobPayloadRequest:        "BlobPayloadRequest",
 }
