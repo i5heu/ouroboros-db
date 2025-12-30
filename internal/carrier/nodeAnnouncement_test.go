@@ -23,8 +23,12 @@ func TestSerializeDeserializeNodeAnnouncement(t *testing.T) { // A
 			name: "multiple addresses",
 			ann: &NodeAnnouncement{
 				Node: Node{
-					NodeID:    "multi-addr-node",
-					Addresses: []string{"192.168.1.1:4242", "10.0.0.1:4242", "node.example.com:4242"},
+					NodeID: "multi-addr-node",
+					Addresses: []string{
+						"192.168.1.1:4242",
+						"10.0.0.1:4242",
+						"node.example.com:4242",
+					},
 				},
 				Timestamp: 9876543210,
 			},
@@ -78,7 +82,12 @@ func TestSerializeDeserializeNodeAnnouncement(t *testing.T) { // A
 
 			for i, addr := range tt.ann.Node.Addresses {
 				if got.Node.Addresses[i] != addr {
-					t.Errorf("Addresses[%d] = %v, want %v", i, got.Node.Addresses[i], addr)
+					t.Errorf(
+						"Addresses[%d] = %v, want %v",
+						i,
+						got.Node.Addresses[i],
+						addr,
+					)
 				}
 			}
 		})
@@ -99,14 +108,19 @@ func TestDeserializeNodeAnnouncement_InvalidData(t *testing.T) { // A
 	}{
 		{"empty", []byte{}},
 		{"too short", []byte{1, 2, 3}},
-		{"invalid nodeID length", []byte{0, 0, 0, 0, 0, 0, 0, 1, 255, 255, 255, 255}},
+		{
+			"invalid nodeID length",
+			[]byte{0, 0, 0, 0, 0, 0, 0, 1, 255, 255, 255, 255},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := DeserializeNodeAnnouncement(tt.data)
 			if err == nil {
-				t.Error("DeserializeNodeAnnouncement should return error for invalid data")
+				t.Error(
+					"DeserializeNodeAnnouncement should return error for invalid data",
+				)
 			}
 		})
 	}
@@ -115,7 +129,10 @@ func TestDeserializeNodeAnnouncement_InvalidData(t *testing.T) { // A
 func TestSerializeDeserializeNodeList(t *testing.T) { // A
 	nodes := []Node{
 		{NodeID: "node-1", Addresses: []string{"localhost:4242"}},
-		{NodeID: "node-2", Addresses: []string{"192.168.1.1:4242", "10.0.0.1:4242"}},
+		{
+			NodeID:    "node-2",
+			Addresses: []string{"192.168.1.1:4242", "10.0.0.1:4242"},
+		},
 		{NodeID: "node-3", Addresses: []string{"node3.example.com:4242"}},
 	}
 

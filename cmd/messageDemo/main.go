@@ -149,72 +149,84 @@ func main() {
 	}
 	fmt.Println()
 
-	// Read and send messages
-	reader := bufio.NewReader(os.Stdin)
+	// Read input in a goroutine so we can handle cancellation
+	inputCh := make(chan string)
+	go func() {
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				close(inputCh)
+				return
+			}
+			inputCh <- strings.TrimSpace(line)
+		}
+	}()
+
+	// Process input
+	fmt.Print("> ")
 	for {
-		fmt.Print("> ")
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
-
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if errors.Is(err, io.EOF) {
+		case line, ok := <-inputCh:
+			if !ok {
 				return
 			}
-			continue
-		}
 
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		// Handle special commands
-		if line == "/nodes" {
-			nodes, nodesErr := c.GetNodes(ctx)
-			if nodesErr != nil {
-				fmt.Printf("Error: %v\n", nodesErr)
-			} else {
-				fmt.Printf("Known nodes (%d):\n", len(nodes))
-				for _, node := range nodes {
-					marker := ""
-					if node.NodeID == nodeID {
-						marker = " (self)"
-					}
-					fmt.Printf("  - %s... @ %v%s\n",
-						string(node.NodeID)[:8], node.Addresses, marker)
-				}
+			if line == "" {
+				fmt.Print("> ")
+				continue
 			}
-			continue
-		}
 
-		if line == "/help" {
-			fmt.Println("Commands:")
-			fmt.Println("  /nodes  - List known nodes")
-			fmt.Println("  /help   - Show this help")
-			fmt.Println("  <text>  - Send message to all peers")
-			continue
-		}
+			// Handle special commands
+			if line == "/nodes" {
+				nodes, nodesErr := c.GetNodes(ctx)
+				if nodesErr != nil {
+					fmt.Printf("Error: %v\n", nodesErr)
+				} else {
+					fmt.Printf("Known nodes (%d):\n", len(nodes))
+					for _, node := range nodes {
+						marker := ""
+						if node.NodeID == nodeID {
+							marker = " (self)"
+						}
+						fmt.Printf("  - %s... @ %v%s\n",
+							string(node.NodeID)[:8], node.Addresses, marker)
+					}
+				}
+				fmt.Print("> ")
+				continue
+			}
 
-		msg := carrier.Message{
-			Type:    MessageTypeChat,
-			Payload: []byte(line),
-		}
+			if line == "/help" {
+				fmt.Println("Commands:")
+				fmt.Println("  /nodes  - List known nodes")
+				fmt.Println("  /help   - Show this help")
+				fmt.Println("  <text>  - Send message to all peers")
+				fmt.Print("> ")
+				continue
+			}
 
-		result, err := c.Broadcast(ctx, msg)
-		if err != nil {
-			logger.Error("broadcast failed", "error", err)
-			continue
-		}
+			msg := carrier.Message{
+				Type:    MessageTypeChat,
+				Payload: []byte(line),
+			}
 
-		if len(result.SuccessNodes) == 0 && len(result.FailedNodes) == 0 {
-			fmt.Println("(no peers connected)")
-		} else if len(result.FailedNodes) > 0 {
-			fmt.Printf("(sent to %d, failed %d)\n",
-				len(result.SuccessNodes), len(result.FailedNodes))
+			result, err := c.Broadcast(ctx, msg)
+			if err != nil {
+				logger.Error("broadcast failed", "error", err)
+				fmt.Print("> ")
+				continue
+			}
+
+			if len(result.SuccessNodes) == 0 && len(result.FailedNodes) == 0 {
+				fmt.Println("(no peers connected)")
+			} else if len(result.FailedNodes) > 0 {
+				fmt.Printf("(sent to %d, failed %d)\n",
+					len(result.SuccessNodes), len(result.FailedNodes))
+			}
+			fmt.Print("> ")
 		}
 	}
 }

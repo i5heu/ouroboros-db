@@ -498,7 +498,10 @@ func (c *DefaultCarrier) RemoveNode(ctx context.Context, nodeID NodeID) { // A
 // AnnounceNode broadcasts a new node announcement to all known nodes.
 // This should be called when a new node joins the cluster so all nodes
 // can update their node stores.
-func (c *DefaultCarrier) AnnounceNode(ctx context.Context, node Node) error { // A
+func (c *DefaultCarrier) AnnounceNode(
+	ctx context.Context,
+	node Node,
+) error { // A
 	ann := &NodeAnnouncement{
 		Node:      node,
 		Timestamp: timeNow().UnixNano(),
@@ -587,7 +590,10 @@ func (c *DefaultCarrier) RequestNodeList(
 
 // SyncNodes synchronizes the node list with a remote node, adding any
 // nodes we don't know about.
-func (c *DefaultCarrier) SyncNodes(ctx context.Context, nodeID NodeID) error { // A
+func (c *DefaultCarrier) SyncNodes(
+	ctx context.Context,
+	nodeID NodeID,
+) error { // A
 	nodes, err := c.RequestNodeList(ctx, nodeID)
 	if err != nil {
 		return err

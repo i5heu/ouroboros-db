@@ -1704,3 +1704,392 @@ func TestBootstrapAddressesConfiguration(t *testing.T) { // A
 		}
 	}
 }
+
+// TestRegisterDefaultHandlers verifies that default handlers are registered.
+func TestRegisterDefaultHandlers(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	c, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	c.RegisterDefaultHandlers()
+
+	// Check that handlers are registered by checking the handlers map
+	c.handlersMu.RLock()
+	defer c.handlersMu.RUnlock()
+
+	if len(c.handlers[MessageTypeNewNodeAnnouncement]) == 0 {
+		t.Error("Expected handler for MessageTypeNewNodeAnnouncement")
+	}
+	if len(c.handlers[MessageTypeNodeListRequest]) == 0 {
+		t.Error("Expected handler for MessageTypeNodeListRequest")
+	}
+	if len(c.handlers[MessageTypeNodeJoinRequest]) == 0 {
+		t.Error("Expected handler for MessageTypeNodeJoinRequest")
+	}
+}
+
+// TestHandleNodeAnnouncement verifies node announcement handling.
+func TestHandleNodeAnnouncement(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	c, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	c.RegisterDefaultHandlers()
+
+	// Create a node announcement
+	newNode := Node{
+		NodeID:    "new-node-123",
+		Addresses: []string{"192.168.1.100:4242"},
+	}
+	ann := &NodeAnnouncement{
+		Node:      newNode,
+		Timestamp: 1234567890,
+	}
+	payload, err := SerializeNodeAnnouncement(ann)
+	if err != nil {
+		t.Fatalf("Failed to serialize announcement: %v", err)
+	}
+
+	msg := Message{
+		Type:    MessageTypeNewNodeAnnouncement,
+		Payload: payload,
+	}
+
+	// Dispatch the message
+	ctx := context.Background()
+	_, err = c.dispatchMessage(ctx, "sender-node", msg)
+	if err != nil {
+		t.Fatalf("dispatchMessage() error = %v", err)
+	}
+
+	// Verify the node was added
+	c.mu.RLock()
+	_, exists := c.nodes[newNode.NodeID]
+	c.mu.RUnlock()
+
+	if !exists {
+		t.Error("Expected new node to be added to nodes map")
+	}
+}
+
+// TestHandleNodeAnnouncement_IgnoresSelf verifies self-announcements are
+// ignored.
+func TestHandleNodeAnnouncement_IgnoresSelf(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	c, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	c.RegisterDefaultHandlers()
+
+	// Create a self-announcement (should be ignored)
+	ann := &NodeAnnouncement{
+		Node: Node{
+			NodeID:    nodeID, // Same as local node
+			Addresses: []string{"different-addr:4242"},
+		},
+		Timestamp: 1234567890,
+	}
+	payload, err := SerializeNodeAnnouncement(ann)
+	if err != nil {
+		t.Fatalf("Failed to serialize announcement: %v", err)
+	}
+
+	// Get initial node count
+	c.mu.RLock()
+	initialCount := len(c.nodes)
+	c.mu.RUnlock()
+
+	msg := Message{
+		Type:    MessageTypeNewNodeAnnouncement,
+		Payload: payload,
+	}
+
+	ctx := context.Background()
+	_, err = c.dispatchMessage(ctx, "sender-node", msg)
+	if err != nil {
+		t.Fatalf("dispatchMessage() error = %v", err)
+	}
+
+	// Verify node count hasn't changed
+	c.mu.RLock()
+	finalCount := len(c.nodes)
+	c.mu.RUnlock()
+
+	if finalCount != initialCount {
+		t.Errorf("Node count changed from %d to %d, expected no change",
+			initialCount, finalCount)
+	}
+}
+
+// TestHandleNodeListRequest verifies node list request handling.
+func TestHandleNodeListRequest(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	c, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	// Add some nodes
+	ctx := context.Background()
+	_ = c.AddNode(
+		ctx,
+		Node{NodeID: "node-2", Addresses: []string{"localhost:4243"}},
+	)
+	_ = c.AddNode(
+		ctx,
+		Node{NodeID: "node-3", Addresses: []string{"localhost:4244"}},
+	)
+
+	c.RegisterDefaultHandlers()
+
+	// Send node list request
+	msg := Message{Type: MessageTypeNodeListRequest}
+	response, err := c.dispatchMessage(ctx, "requester-node", msg)
+	if err != nil {
+		t.Fatalf("dispatchMessage() error = %v", err)
+	}
+
+	if response == nil {
+		t.Fatal("Expected response, got nil")
+	}
+
+	if response.Type != MessageTypeNodeListResponse {
+		t.Errorf("Response type = %v, want %v",
+			response.Type, MessageTypeNodeListResponse)
+	}
+
+	// Deserialize and verify
+	nodes, err := DeserializeNodeList(response.Payload)
+	if err != nil {
+		t.Fatalf("DeserializeNodeList() error = %v", err)
+	}
+
+	// Should have 3 nodes (self + 2 added)
+	if len(nodes) != 3 {
+		t.Errorf("Node count = %d, want 3", len(nodes))
+	}
+}
+
+// TestAnnounceNode verifies node announcement broadcast.
+func TestAnnounceNode(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	transport := newMockTransport()
+	c, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    transport,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	// Add a remote node to broadcast to
+	ctx := context.Background()
+	remoteNode := Node{
+		NodeID:    "remote-node",
+		Addresses: []string{"localhost:4243"},
+	}
+	_ = c.AddNode(ctx, remoteNode)
+
+	// Announce a new node
+	newNode := Node{
+		NodeID:    "announced-node",
+		Addresses: []string{"192.168.1.50:4242"},
+	}
+
+	err = c.AnnounceNode(ctx, newNode)
+	if err != nil {
+		t.Fatalf("AnnounceNode() error = %v", err)
+	}
+
+	// Verify a message was sent to the remote node
+	transport.mu.Lock()
+	conn, exists := transport.connections["localhost:4243"]
+	transport.mu.Unlock()
+
+	if !exists {
+		t.Error("Expected connection to remote node")
+	}
+
+	if len(conn.messages) == 0 {
+		t.Error("Expected message to be sent")
+	}
+
+	if conn.messages[0].Type != MessageTypeNewNodeAnnouncement {
+		t.Errorf("Message type = %v, want %v",
+			conn.messages[0].Type, MessageTypeNewNodeAnnouncement)
+	}
+}
+
+// TestAnnounceSelf verifies self-announcement.
+func TestAnnounceSelf(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	transport := newMockTransport()
+	c, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    transport,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	// Add a remote node
+	ctx := context.Background()
+	_ = c.AddNode(
+		ctx,
+		Node{NodeID: "remote-node", Addresses: []string{"localhost:4243"}},
+	)
+
+	err = c.AnnounceSelf(ctx)
+	if err != nil {
+		t.Fatalf("AnnounceSelf() error = %v", err)
+	}
+
+	// Verify announcement was sent
+	transport.mu.Lock()
+	conn, exists := transport.connections["localhost:4243"]
+	transport.mu.Unlock()
+
+	if !exists {
+		t.Error("Expected connection to remote node")
+	}
+
+	if len(conn.messages) == 0 {
+		t.Error("Expected message to be sent")
+	}
+
+	// Verify the announcement contains our node info
+	ann, err := DeserializeNodeAnnouncement(conn.messages[0].Payload)
+	if err != nil {
+		t.Fatalf("DeserializeNodeAnnouncement() error = %v", err)
+	}
+
+	if ann.Node.NodeID != nodeID {
+		t.Errorf("Announced NodeID = %v, want %v", ann.Node.NodeID, nodeID)
+	}
+}

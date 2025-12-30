@@ -71,7 +71,9 @@ func SerializeNodeAnnouncement(ann *NodeAnnouncement) ([]byte, error) { // A
 
 // DeserializeNodeAnnouncement decodes a NodeAnnouncement from bytes.
 func DeserializeNodeAnnouncement(data []byte) (*NodeAnnouncement, error) { // A
-	if len(data) < 16 { // minimum: timestamp + nodeID len + addr count + pubkey len
+	if len(
+		data,
+	) < 16 { // minimum: timestamp + nodeID len + addr count + pubkey len
 		return nil, errors.New("data too short for node announcement")
 	}
 
@@ -142,7 +144,11 @@ func SerializeNodeList(nodes []Node) ([]byte, error) { // A
 		ann := &NodeAnnouncement{Node: node, Timestamp: 0}
 		data, err := SerializeNodeAnnouncement(ann)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize node %s: %w", node.NodeID, err)
+			return nil, fmt.Errorf(
+				"failed to serialize node %s: %w",
+				node.NodeID,
+				err,
+			)
 		}
 		nodeData[i] = data
 		size += 4 + len(data) // length prefix + data
