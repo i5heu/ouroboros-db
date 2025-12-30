@@ -1,0 +1,7 @@
+sequenceDiagram
+    A->>+B: Please send me a SealedSlice with Hash X and HashOfPubKey
+    alt SealedSlice is available
+        B->>A: Here is the SealedSlice with Hash X and HashOfPubKey
+    else SealedSlice is not available
+        B->>A: Not Found
+    end

@@ -1,0 +1,9 @@
+sequenceDiagram
+    A->>+B: Please send me the Meta of Chunk with Hash X
+    alt B has Chunk Meta with Hash X
+        B-->>-A: Here is the Meta of Chunk with Hash X
+    else B does not have Chunk Meta with Hash X
+        B->>A: Not Found
+    end
+    
+
