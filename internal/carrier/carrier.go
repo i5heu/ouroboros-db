@@ -566,7 +566,8 @@ func (c *DefaultCarrier) RequestNodeList(
 	}()
 
 	// Send node list request
-	if err := conn.Send(ctx, Message{Type: MessageTypeNodeListRequest}); err != nil {
+	msg := Message{Type: MessageTypeNodeListRequest}
+	if err := conn.Send(ctx, msg); err != nil {
 		return nil, fmt.Errorf("failed to send node list request: %w", err)
 	}
 
@@ -614,8 +615,8 @@ func (c *DefaultCarrier) SyncNodes(
 
 	c.log.InfoContext(ctx, "node sync complete",
 		logKeyViaNode, string(nodeID),
-		"nodesReceived", len(nodes),
-		"nodesAdded", added)
+		logKeyNodesRecv, len(nodes),
+		logKeyNodesAdded, added)
 
 	return nil
 }
@@ -691,7 +692,7 @@ func (c *DefaultCarrier) handleNodeListRequest(
 
 	c.log.DebugContext(ctx, "responding to node list request",
 		logKeyNodeID, string(senderID),
-		"nodeCount", len(nodes))
+		logKeyNodeCount, len(nodes))
 
 	return &Message{
 		Type:    MessageTypeNodeListResponse,

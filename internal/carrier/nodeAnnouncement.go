@@ -42,21 +42,25 @@ func SerializeNodeAnnouncement(ann *NodeAnnouncement) ([]byte, error) { // A
 	buf := make([]byte, size)
 	offset := 0
 
-	// Timestamp
+	// Timestamp (safe: negative timestamps become large positive, which is fine)
+	// nolint:gosec // timestamp conversion is intentional
 	binary.BigEndian.PutUint64(buf[offset:], uint64(ann.Timestamp))
 	offset += 8
 
 	// NodeID
+	// nolint:gosec // length is bounded by size calculation above
 	binary.BigEndian.PutUint32(buf[offset:], uint32(len(nodeIDBytes)))
 	offset += 4
 	copy(buf[offset:], nodeIDBytes)
 	offset += len(nodeIDBytes)
 
 	// Addresses
+	// nolint:gosec // length is bounded by input data
 	binary.BigEndian.PutUint32(buf[offset:], uint32(len(ann.Node.Addresses)))
 	offset += 4
 	for _, addr := range ann.Node.Addresses {
 		addrBytes := []byte(addr)
+		// nolint:gosec // length is bounded by input data
 		binary.BigEndian.PutUint32(buf[offset:], uint32(len(addrBytes)))
 		offset += 4
 		copy(buf[offset:], addrBytes)
@@ -80,7 +84,8 @@ func DeserializeNodeAnnouncement(data []byte) (*NodeAnnouncement, error) { // A
 	offset := 0
 	ann := &NodeAnnouncement{}
 
-	// Timestamp
+	// Timestamp (safe: large uint64 becomes negative int64, which is fine)
+	// nolint:gosec // timestamp conversion is intentional
 	ann.Timestamp = int64(binary.BigEndian.Uint64(data[offset:]))
 	offset += 8
 
@@ -157,10 +162,12 @@ func SerializeNodeList(nodes []Node) ([]byte, error) { // A
 	buf := make([]byte, size)
 	offset := 0
 
+	//nolint:gosec // length is bounded by input size
 	binary.BigEndian.PutUint32(buf[offset:], uint32(len(nodes)))
 	offset += 4
 
 	for _, data := range nodeData {
+		//nolint:gosec // length is bounded by serialization size
 		binary.BigEndian.PutUint32(buf[offset:], uint32(len(data)))
 		offset += 4
 		copy(buf[offset:], data)
