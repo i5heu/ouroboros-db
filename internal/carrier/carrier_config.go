@@ -22,6 +22,31 @@ func DefaultQUICConfig() QUICConfig { // A
 }
 
 // Config holds configuration for the DefaultCarrier.
+//
+// Example usage with bootstrap addresses:
+//
+//	carrier, err := NewDefaultCarrier(Config{
+//		LocalNode:    myNode,
+//		NodeIdentity: identity,
+//		Logger:       logger,
+//		Transport:    transport,
+//		// Bootstrap from seed nodes
+//		BootstrapAddresses: []string{
+//			"seed1.cluster.example.com:4242",
+//			"seed2.cluster.example.com", // Uses DefaultPort
+//			"192.168.1.100:4242",
+//		},
+//		DefaultPort: 4242, // Optional, defaults to 4242
+//	})
+//	if err != nil {
+//		return err
+//	}
+//
+//	// Join cluster using configured addresses
+//	err = carrier.Bootstrap(ctx)
+//
+//	// Or bootstrap from specific addresses at runtime
+//	err = carrier.BootstrapFromAddresses(ctx, []string{"other-node:4242"})
 type Config struct { // A
 	// LocalNode is this node's identity information.
 	LocalNode Node
@@ -35,4 +60,12 @@ type Config struct { // A
 	BootStrapper BootStrapper
 	// QUICConfig holds QUIC-specific settings.
 	QUICConfig QUICConfig
+	// BootstrapAddresses is a list of addresses or domains used to discover
+	// and join an existing cluster. These can be in the format "host:port"
+	// or just "host" (in which case the default port will be used).
+	// If empty, the node starts as a standalone cluster.
+	BootstrapAddresses []string
+	// DefaultPort is the default port used when a bootstrap address does not
+	// specify a port. Defaults to 4242 if not set.
+	DefaultPort uint16
 }

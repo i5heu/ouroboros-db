@@ -1472,3 +1472,235 @@ func (c *mockConnectionWithReceive) Receive(
 		return msg, nil
 	}
 }
+
+// TestHasPort verifies the hasPort function correctly detects port presence.
+func TestHasPort(t *testing.T) { // A
+	tests := []struct {
+		name     string
+		addr     string
+		expected bool
+	}{
+		{"IPv4 with port", "192.168.1.1:8080", true},
+		{"IPv4 without port", "192.168.1.1", false},
+		{"hostname with port", "example.com:4242", true},
+		{"hostname without port", "example.com", false},
+		{"localhost with port", "localhost:8080", true},
+		{"localhost without port", "localhost", false},
+		{"IPv6 bracketed with port", "[::1]:8080", true},
+		{"IPv6 bracketed without port", "[::1]", false},
+		{"IPv6 full bracketed with port", "[2001:db8::1]:8080", true},
+		{"IPv6 full bracketed without port", "[2001:db8::1]", false},
+		{"IPv6 unbracketed", "::1", false},
+		{"IPv6 full unbracketed", "2001:db8::1", false},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasPort(tt.addr)
+			if result != tt.expected {
+				t.Errorf("hasPort(%q) = %v, want %v", tt.addr, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestNormalizeAddress verifies address normalization with default ports.
+func TestNormalizeAddress(t *testing.T) { // A
+	tests := []struct {
+		name        string
+		addr        string
+		defaultPort uint16
+		expected    string
+	}{
+		{"IPv4 with port", "192.168.1.1:8080", 4242, "192.168.1.1:8080"},
+		{"IPv4 without port", "192.168.1.1", 4242, "192.168.1.1:4242"},
+		{"hostname with port", "example.com:8080", 4242, "example.com:8080"},
+		{"hostname without port", "example.com", 4242, "example.com:4242"},
+		{"localhost with port", "localhost:9000", 4242, "localhost:9000"},
+		{"localhost without port", "localhost", 4242, "localhost:4242"},
+		{"IPv6 bracketed with port", "[::1]:8080", 4242, "[::1]:8080"},
+		{"IPv6 bracketed without port", "[::1]", 4242, "[::1]:4242"},
+		{"different default port", "example.com", 5555, "example.com:5555"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeAddress(tt.addr, tt.defaultPort)
+			if result != tt.expected {
+				t.Errorf("normalizeAddress(%q, %d) = %q, want %q",
+					tt.addr, tt.defaultPort, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestBootstrapFromAddresses_NoAddresses verifies error when no addresses.
+func TestBootstrapFromAddresses_NoAddresses(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	carrier, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	err = carrier.BootstrapFromAddresses(context.Background(), []string{})
+	if err == nil {
+		t.Error("Expected error when no bootstrap addresses provided")
+	}
+}
+
+// TestBootstrap_NoConfiguredAddresses verifies no-op when no addresses
+// configured.
+func TestBootstrap_NoConfiguredAddresses(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	carrier, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+		// No BootstrapAddresses configured
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	// Should not error - just no-op
+	err = carrier.Bootstrap(context.Background())
+	if err != nil {
+		t.Errorf("Bootstrap() should not error with no addresses: %v", err)
+	}
+}
+
+// TestDefaultPortConfiguration verifies default port is set correctly.
+func TestDefaultPortConfiguration(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	// Test default port when not configured
+	carrier1, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	if carrier1.DefaultPort() != 4242 {
+		t.Errorf("DefaultPort() = %d, want 4242", carrier1.DefaultPort())
+	}
+
+	// Test custom port
+	carrier2, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity: nodeIdentity,
+		Logger:       logger,
+		Transport:    newMockTransport(),
+		DefaultPort:  5555,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	if carrier2.DefaultPort() != 5555 {
+		t.Errorf("DefaultPort() = %d, want 5555", carrier2.DefaultPort())
+	}
+}
+
+// TestBootstrapAddressesConfiguration verifies bootstrap addresses are stored.
+func TestBootstrapAddressesConfiguration(t *testing.T) { // A
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	nodeIdentity, err := NewNodeIdentity()
+	if err != nil {
+		t.Fatalf("Failed to create node identity: %v", err)
+	}
+
+	nodeID, err := NodeIDFromPublicKey(&nodeIdentity.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create node ID: %v", err)
+	}
+
+	addresses := []string{"node1.example.com:4242", "node2.example.com"}
+
+	carrier, err := NewDefaultCarrier(Config{
+		LocalNode: Node{
+			NodeID:    nodeID,
+			Addresses: []string{"localhost:4242"},
+		},
+		NodeIdentity:       nodeIdentity,
+		Logger:             logger,
+		Transport:          newMockTransport(),
+		BootstrapAddresses: addresses,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create carrier: %v", err)
+	}
+
+	got := carrier.BootstrapAddresses()
+	if len(got) != len(addresses) {
+		t.Errorf("BootstrapAddresses() len = %d, want %d", len(got), len(addresses))
+	}
+	for i, addr := range addresses {
+		if got[i] != addr {
+			t.Errorf("BootstrapAddresses()[%d] = %q, want %q", i, got[i], addr)
+		}
+	}
+}

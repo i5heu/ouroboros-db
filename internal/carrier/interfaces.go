@@ -45,6 +45,11 @@ type Carrier interface { // A
 	// RegisterHandler registers a handler for a specific message type.
 	// Multiple handlers can be registered for the same type.
 	RegisterHandler(msgType MessageType, handler MessageHandler)
+
+	// BootstrapFromAddresses attempts to join a cluster by connecting to one
+	// of the provided bootstrap addresses. It tries each address in order
+	// until one succeeds. Returns an error if all addresses fail.
+	BootstrapFromAddresses(ctx context.Context, addresses []string) error
 }
 
 // BootStrapper handles the initialization of nodes joining the cluster.

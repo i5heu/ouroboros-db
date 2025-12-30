@@ -40,6 +40,7 @@ const (
 	logKeySuccessCount = "successCount"
 	logKeyFailedCount  = "failedCount"
 	logKeyViaNode      = "viaNode"
+	logKeyAddressCount = "addressCount"
 )
 
 // messageTypeNames maps MessageType values to their string representations.

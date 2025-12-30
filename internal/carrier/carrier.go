@@ -44,6 +44,10 @@ type DefaultCarrier struct { // A
 	bootStrapper BootStrapper
 	qConfig      QUICConfig
 
+	// Bootstrap configuration
+	bootstrapAddresses []string
+	defaultPort        uint16
+
 	mu    sync.RWMutex
 	nodes map[NodeID]Node
 
@@ -80,15 +84,22 @@ func NewDefaultCarrier(cfg Config) (*DefaultCarrier, error) { // A
 		qConfig = DefaultQUICConfig()
 	}
 
+	defaultPort := cfg.DefaultPort
+	if defaultPort == 0 {
+		defaultPort = 4242 // Default OuroborosDB port
+	}
+
 	c := &DefaultCarrier{
-		localNode:    cfg.LocalNode,
-		nodeIdentity: cfg.NodeIdentity,
-		log:          cfg.Logger,
-		transport:    cfg.Transport,
-		bootStrapper: cfg.BootStrapper,
-		qConfig:      qConfig,
-		nodes:        make(map[NodeID]Node),
-		handlers:     make(map[MessageType][]MessageHandler),
+		localNode:          cfg.LocalNode,
+		nodeIdentity:       cfg.NodeIdentity,
+		log:                cfg.Logger,
+		transport:          cfg.Transport,
+		bootStrapper:       cfg.BootStrapper,
+		qConfig:            qConfig,
+		bootstrapAddresses: cfg.BootstrapAddresses,
+		defaultPort:        defaultPort,
+		nodes:              make(map[NodeID]Node),
+		handlers:           make(map[MessageType][]MessageHandler),
 	}
 
 	// Add self to known nodes
@@ -273,6 +284,137 @@ func (c *DefaultCarrier) JoinCluster(
 	return nil
 }
 
+// BootstrapFromAddresses attempts to join a cluster by connecting to one of
+// the provided bootstrap addresses. It tries each address in order until one
+// succeeds. The addresses can be in the format "host:port" or just "host"
+// (in which case port 4242 is used by default).
+func (c *DefaultCarrier) BootstrapFromAddresses(
+	ctx context.Context,
+	addresses []string,
+) error { // A
+	if len(addresses) == 0 {
+		return errors.New("no bootstrap addresses provided")
+	}
+
+	c.log.InfoContext(ctx, "bootstrapping cluster from addresses",
+		logKeyAddressCount, len(addresses))
+
+	var lastErr error
+	for _, addr := range addresses {
+		// Normalize address: add default port if not specified
+		normalizedAddr := normalizeAddress(addr, 4242)
+
+		c.log.DebugContext(ctx, "attempting bootstrap from address",
+			logKeyAddress, normalizedAddr)
+
+		// Try to connect and get cluster info
+		conn, err := c.transport.Connect(ctx, normalizedAddr)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to connect to %s: %w", normalizedAddr, err)
+			c.log.DebugContext(ctx, "bootstrap connection failed",
+				logKeyAddress, normalizedAddr,
+				logKeyError, err.Error())
+			continue
+		}
+
+		// Send join request
+		joinMsg := Message{
+			Type:    MessageTypeNodeJoinRequest,
+			Payload: nil, // TODO: serialize join request with local node info
+		}
+
+		if err := conn.Send(ctx, joinMsg); err != nil {
+			if closeErr := conn.Close(); closeErr != nil {
+				c.log.DebugContext(ctx, "error closing connection",
+					logKeyAddress, normalizedAddr,
+					logKeyError, closeErr.Error())
+			}
+			lastErr = fmt.Errorf(
+				"failed to send join request to %s: %w",
+				normalizedAddr,
+				err,
+			)
+			c.log.DebugContext(ctx, "bootstrap send failed",
+				logKeyAddress, normalizedAddr,
+				logKeyError, err.Error())
+			continue
+		}
+
+		// Get the remote node info if available
+		remoteID := conn.RemoteNodeID()
+		remotePub := conn.RemotePublicKey()
+
+		// Add the bootstrap node to known nodes if we have its info
+		if remoteID != "" {
+			bootstrapNode := Node{
+				NodeID:    remoteID,
+				Addresses: []string{normalizedAddr},
+				PublicKey: remotePub,
+			}
+			c.mu.Lock()
+			c.nodes[remoteID] = bootstrapNode
+			c.mu.Unlock()
+
+			c.log.InfoContext(ctx, "added bootstrap node",
+				logKeyNodeID, string(remoteID),
+				logKeyAddress, normalizedAddr)
+		}
+
+		if err := conn.Close(); err != nil {
+			c.log.DebugContext(ctx, "error closing connection",
+				logKeyAddress, normalizedAddr,
+				logKeyError, err.Error())
+		}
+
+		c.log.InfoContext(ctx, "successfully bootstrapped from address",
+			logKeyAddress, normalizedAddr)
+		return nil
+	}
+
+	return fmt.Errorf("failed to bootstrap from any address: %w", lastErr)
+}
+
+// normalizeAddress ensures an address has a port. If no port is specified,
+// the default port is appended.
+func normalizeAddress(addr string, defaultPort uint16) string { // A
+	// Check if address already has a port
+	// Handle IPv6 addresses in brackets
+	if hasPort(addr) {
+		return addr
+	}
+	return fmt.Sprintf("%s:%d", addr, defaultPort)
+}
+
+// hasPort checks if an address string already contains a port.
+func hasPort(addr string) bool { // A
+	// Handle IPv6 addresses: [::1]:8080
+	if len(addr) > 0 && addr[0] == '[' {
+		// IPv6 in brackets - port comes after ]
+		closeBracket := -1
+		for i, c := range addr {
+			if c == ']' {
+				closeBracket = i
+				break
+			}
+		}
+		if closeBracket == -1 {
+			return false // Malformed IPv6
+		}
+		// Check if there's a :port after the bracket
+		return len(addr) > closeBracket+1 && addr[closeBracket+1] == ':'
+	}
+	// IPv4 or hostname: count colons
+	colonCount := 0
+	for _, c := range addr {
+		if c == ':' {
+			colonCount++
+		}
+	}
+	// IPv4/hostname with port has exactly one colon
+	// IPv6 without brackets has multiple colons (no port can be specified)
+	return colonCount == 1
+}
+
 // LeaveCluster notifies the cluster that this node is leaving.
 func (c *DefaultCarrier) LeaveCluster(ctx context.Context) error { // A
 	c.log.InfoContext(ctx, "leaving cluster",
@@ -344,6 +486,30 @@ func (c *DefaultCarrier) LocalNode() Node { // A
 // NodeIdentity returns the cryptographic identity of this node.
 func (c *DefaultCarrier) NodeIdentity() *NodeIdentity { // A
 	return c.nodeIdentity
+}
+
+// Bootstrap attempts to join a cluster using the configured bootstrap
+// addresses. If no bootstrap addresses were configured, this is a no-op
+// and the node starts as a standalone cluster.
+func (c *DefaultCarrier) Bootstrap(ctx context.Context) error { // A
+	if len(c.bootstrapAddresses) == 0 {
+		c.log.InfoContext(
+			ctx,
+			"no bootstrap addresses configured, starting as standalone",
+		)
+		return nil
+	}
+	return c.BootstrapFromAddresses(ctx, c.bootstrapAddresses)
+}
+
+// BootstrapAddresses returns the configured bootstrap addresses.
+func (c *DefaultCarrier) BootstrapAddresses() []string { // A
+	return c.bootstrapAddresses
+}
+
+// DefaultPort returns the configured default port for bootstrap addresses.
+func (c *DefaultCarrier) DefaultPort() uint16 { // A
+	return c.defaultPort
 }
 
 // EncryptMessageFor encrypts a message for a specific recipient node.
