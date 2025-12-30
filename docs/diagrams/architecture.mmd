@@ -6,6 +6,7 @@ classDiagram
     class Node {
         +string NodeID
         +[]string Addresses
+        +Cert NodeCert
     }
 
     class ClusterController {
@@ -27,6 +28,9 @@ classDiagram
         +GetNodes() []Node
         +Broadcast(message Message) (success []Node, error)
         +SendMessageToNode(nodeID NodeID, message Message) error
+        
+        +JoinCluster(clusterNode Node, Cert NodeCert) error
+        +LeaveCluster(clusterNode Node) error
     }
 
     class Message  {
@@ -43,14 +47,13 @@ classDiagram
         BlobMetaRequest
         BlobPayloadRequest %% Not used yet
         Heartbeat %% This is also used for Monitoring
+        NodeJoinRequest
+        NodeLeaveNotification
+        UserAuthDecision
+        NewNodeAnnouncement
     }
     Message "1" o-- "1" MessageType : has type
 
-
-
-    class MessageAuthenticator {
-        +AuthenticateMessage(message Message) bool
-    }
 
     class DataRouter {
         +StoreBlob(blob Blob) (hash.Hash, error)
@@ -115,7 +118,6 @@ classDiagram
     DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
     ClusterController "1" *-- "1" DataReBalancer : manages
     DataReBalancer "1" *-- "1" ReplicationMonitoring : utilizes
-    Carrier "1" *-- "1" MessageAuthenticator : secures
     DataRouter "1" *-- "1" ClusterController : interacts with
     ClusterController "1" *-- "1" BootStrapper : initializes
     ClusterController "1" *-- "1" ClusterMonitor : monitors

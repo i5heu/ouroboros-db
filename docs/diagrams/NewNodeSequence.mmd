@@ -1,0 +1,16 @@
+sequenceDiagram
+    NewNode->>+ClusterNodeA: I want to join the network. Here is my Node information.
+    ClusterNodeA->>NewNode: I check with user.
+    ClusterNodeA->>AllNodes: NodeJoinRequest: Notify about new node request.
+    AllNodes->>User: A new node wants to join the network. Do you accept?
+    User->>SomeClusterNode: Node decision.
+    SomeClusterNode->>ClusterNodeA: Relay user decision.
+    alt User accepts NewNode as Level 1 Node (authenticated but untrusted)
+        ClusterNodeA->>NewNode: Welcome to the network! You are now a Level 1 Node.
+        ClusterNodeA->>AllNodes: Notify about new Level 1 Node.
+    else User accepts NewNode as Level 2 Node (authenticated and trusted)
+        ClusterNodeA->>NewNode: Welcome to the network! You are now a Level 2 Node.
+        ClusterNodeA->>AllNodes: Notify about new Level 2 Node.
+    else User rejects
+        ClusterNodeA->>NewNode: Sorry, you cannot join the network.
+    end
