@@ -1,0 +1,327 @@
+classDiagram
+    class Cluster {
+        -[]Node Nodes
+    }
+
+    class Node {
+        +string NodeID
+        +[]string Addresses
+        +Cert NodeCert
+    }
+
+    class ClusterController {
+    }
+
+    class ClusterMonitor {
+        +MonitorNodeHealth()
+    }
+
+    class NodeAvailabilityTracker {
+        +TrackAvailability()
+    }
+
+    class Carrier {
+        +GetNodes() []Node
+        +Broadcast(message Message) (success []Node, error)
+        +SendMessageToNode(nodeID NodeID, message Message) error
+        
+        +JoinCluster(clusterNode Node, Cert NodeCert) error
+        +LeaveCluster(clusterNode Node) error
+    }
+
+    class BootStrapper {
+        +BootstrapNode(node Node) error
+    }
+
+    Carrier "1" *-- "1" BootStrapper : initializes
+
+    class Message  {
+        +MessageType Type
+        +[]byte Payload
+    }
+    Carrier "1" o-- "*" Message : sends/receives
+
+    class MessageType {
+        <<Enumeration>>
+        BlockSliceRequest
+        BlockSliceResponse
+        ChunkMetaRequest
+        VertexMetaRequest
+        %% Heartbeat is also used for monitoring information
+        Heartbeat
+        NodeJoinRequest
+        NodeLeaveNotification
+        UserAuthDecision
+        NewNodeAnnouncement
+        KeyEntryRequest
+        KeyEntryResponse
+        BlockSyncRequest
+    }
+    Message "1" o-- "1" MessageType : has type
+
+
+    %% DataRouter: Routes data operations across the cluster.
+    %% Coordinates with CAS for content operations and handles
+    %% distribution of blocks/slices to appropriate nodes.
+    class DataRouter {
+        +StoreVertex(vertex Vertex) (hash.Hash, error)
+        +RetrieveVertex(hash.Hash) (Vertex, error)
+        +DeleteVertex(hash.Hash) error
+        +DistributeBlockSlices(block Block) error
+        +RetrieveBlock(hash.Hash) (Block, error)
+    }
+
+    %% CAS: Content Addressable Storage - the main management layer.
+    %% Provides high-level API for content operations, coordinating
+    %% encryption, WAL buffering, block storage, and access control.
+    class CAS {
+        %% Content operations (high-level API)
+        +StoreContent(content []byte, parentHash hash.Hash) (Vertex, error)
+        +GetContent(vertexHash hash.Hash) ([]byte, error)
+        +DeleteContent(vertexHash hash.Hash) error
+        
+        %% Vertex operations
+        +GetVertex(hash.Hash) (Vertex, error)
+        +ListChildren(parentHash hash.Hash) ([]Vertex, error)
+        
+        %% Internal dependencies
+        -DistributedWAL wal
+        -BlockStore blockStore
+        -EncryptionService encryptor
+    }
+
+    %% BlockStore: Low-level Block and BlockSlice persistence.
+    %% Handles physical storage and retrieval of blocks and their shards.
+    class BlockStore {
+        +StoreBlock(Block) error
+        +GetBlock(hash.Hash) (Block, error)
+        +DeleteBlock(hash.Hash) error
+        +StoreBlockSlice(BlockSlice) error
+        +GetBlockSlice(hash.Hash) (BlockSlice, error)
+        +ListBlockSlices(blockHash hash.Hash) ([]BlockSlice, error)
+
+        %% Region-based retrieval for efficient partial reads
+        +GetSealedChunkByRegion(blockHash hash.Hash, region ChunkRegion) (SealedChunk, error)
+        +GetVertexByRegion(blockHash hash.Hash, region VertexRegion) (Vertex, error)
+    }
+
+    %% EncryptionService: Handles encryption/decryption of chunks.
+    %% Manages the Chunk <-> SealedChunk transformation.
+    class EncryptionService {
+        +SealChunk(Chunk, pubKeys [][]byte) (SealedChunk, []KeyEntry, error)
+        +UnsealChunk(SealedChunk, KeyEntry, privKey []byte) (Chunk, error)
+        +GenerateKeyEntry(chunkHash hash.Hash, pubKey []byte, aesKey []byte) (KeyEntry, error)
+    }
+
+    class DeletionWAL {
+        +LogDeletion(hash.Hash) error
+        +ProcessDeletions() error
+    }
+
+    class DistributedIndex 
+
+    class HashToNode {
+        +GetNodeForHash(hash.Hash) Node
+    }
+
+    class KeyToHashAndNode {
+        +GetHashAndNodeForKey(string) (hash.Hash, Node, error)
+    }
+
+    class DataReBalancer {
+        +BalanceData()
+    }
+
+    class ReplicationMonitoring {
+        +MonitorReplications()
+    }
+
+    class SyncIndexTree {
+        +Sync()
+    }
+
+    class BackupManager {
+        +BackupData()
+    }
+
+    Cluster "1" *-- "*" Node : contains
+    Node "1" o-- "*" ClusterController : listensOn
+    ClusterController "1" *-- "1" Carrier : communicatesVia
+    Node "1" o-- "1" CAS : manages content
+    Node "1" *-- "1" BlockStore : persists blocks
+    DataRouter "1" *-- "1" ClusterController : interacts with
+    CAS "1" *-- "1" DataRouter : coordinates distribution via
+    CAS "1" *-- "1" BlockStore : stores blocks via
+    CAS "1" *-- "1" EncryptionService : encrypts/decrypts via
+    CAS "1" *-- "1" DistributedWAL : buffers writes via
+    ClusterController "1" *-- "1" DistributedIndex : LooksUps
+    DistributedIndex "1" *-- "1" HashToNode : used for mapping
+    DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
+    ClusterController "1" *-- "1" DataReBalancer : manages
+    DataReBalancer "1" *-- "1" ReplicationMonitoring : utilizes
+    ClusterController "1" *-- "1" ClusterMonitor : monitors
+    Node "1" *-- "1" BackupManager : manages backups
+    ClusterMonitor "1" *-- "1" NodeAvailabilityTracker : utilizes
+    DataReBalancer "1" *-- "1" SyncIndexTree : utilizes
+    Node "1" *-- "1" DeletionWAL : logs deletions
+
+
+    namespace IndexModel {
+        class Index {
+            -LocalIndexStore store
+        }
+        class parentChildIndex {
+            - map<hash.Hash, []hash.Hash> ParentToChildren
+            - map<hash.Hash, hash.Hash> ChildToParent
+        }
+        class VersionIndex {
+            - map<hash.Hash, []hash.Hash> VersionVectorHeads
+        }
+        class KeyToHashIndex {
+            - map<string, hash.Hash> KeyToHash
+        }
+    }
+
+    Node "1" o-- "1" Index : indexes relations and metadata
+    Index "1" o-- "1" parentChildIndex : manages
+    Index "1" o-- "1" VersionIndex : manages
+
+    namespace Logical_Hierarchy {
+        %% Vertex (formerly Blob): The logical node in the DAG.
+        %% stored UNENCRYPTED in the VertexSection of the Block.
+        class Vertex {
+            +hash.Hash Hash
+            +hash.Hash Parent
+            +int64 Created
+            -[]hash.Hash ChunkHashes
+            +GetContent() []byte
+        }
+
+        %% Chunk: The cleartext content.
+        %% Only exists temporarily in memory during processing/decryption.
+        class Chunk {
+            +hash.Hash Hash
+            +int Size
+            -[]byte content
+            +GetContent() []byte
+        }
+    }
+
+    namespace Block_Storage_Modern {
+        %% DistributedWAL: Intake buffer.
+        %% Aggregates items until Block size (e.g., 16MB) is reached.
+        class DistributedWAL {
+            +AppendChunk(SealedChunk)
+            +AppendVertex(Vertex)
+            +SealBlock() Block
+            -[]SealedChunk chunkBuffer
+            -[]Vertex vertexBuffer
+        }
+
+        %% SealedChunk: The encrypted payload.
+        %% Now includes SealedHash for integrity checking of the encrypted data 
+        %% without needing decryption keys.
+        class SealedChunk {
+            +hash.Hash ChunkHash
+            +hash.Hash SealedHash
+            +[]byte EncryptedContent
+            +[]byte Nonce
+            +int OriginalSize
+        }
+
+        %% KeyEntry: The Access Control unit.
+        %% Explicitly links the User (PubKey) to the Content (ChunkHash).
+        %% The Chunk must not be in the same Block as its KeyEntry.
+        class KeyEntry {
+            +hash.Hash ChunkHash
+            +hash.Hash PubKeyHash
+            +[]byte EncapsulatedAESKey
+        }
+
+        %% The Indices that allow for byte range like requests
+        %% This prevents that we need to decode the whole Block to get a single Chunk/Vertex.
+        class ChunkRegion {
+            +hash.Hash ChunkHash
+            +uint32 Offset
+            +uint32 Length
+        }
+        class VertexRegion {
+            +hash.Hash VertexHash
+            +uint32 Offset
+            +uint32 Length
+        }
+
+        %% BlockHeader: Global block settings.
+        class BlockHeader {
+            +uint8 Version
+            +int64 Created
+            +uint8 RSDataSlices
+            +uint8 RSParitySlices
+            +uint32 ChunkCount
+            +uint32 VertexCount
+            +uint32 TotalSize
+        }
+
+        %% Block: The Central Archive.
+        class Block {
+            +hash.Hash Hash
+            +BlockHeader Header
+            +[]byte DataSection
+            +[]byte VertexSection
+            +map~Hash, []KeyEntry~ KeyRegistry
+        }
+
+        %% BlockSlice: The physical shard.
+        class BlockSlice {
+            +hash.Hash Hash
+            +hash.Hash BlockHash
+            +uint8 RSSliceIndex
+            +uint8 RSDataSlices
+            +uint8 RSParitySlices
+            +[]byte Payload
+        }
+    }
+
+    %% ==========================================
+    %% 1. LOGICAL RELATIONSHIPS
+    %% ==========================================
+    Vertex "1" ..> "*" Chunk : references (via ChunkHash)
+
+    %% ==========================================
+    %% 2. PIPELINE & TRANSFORMATION
+    %% ==========================================
+    Chunk ..> SealedChunk : encrypts to
+    SealedChunk --* DistributedWAL : buffered in
+    Vertex --* DistributedWAL : buffered in
+    DistributedWAL ..> Block : produces (SealBlock)
+
+    %% ==========================================
+    %% 3. BLOCK COMPOSITION
+    %% ==========================================
+    %% Structure
+    Block "1" *-- "1" BlockHeader : has
+    Block "1" *-- "*" ChunkRegion : indexes
+    Block "1" *-- "*" VertexRegion : indexes
+    
+    %% Payloads
+    Block "1" *-- "*" SealedChunk : contains (in DataSection)
+    Block "1" *-- "*" Vertex : contains (in VertexSection)
+    
+    %% Registries
+    Block "1" *-- "*" KeyEntry : registry (Access Control)
+
+    %% ==========================================
+    %% 4. PHYSICAL STORAGE
+    %% ==========================================
+    BlockSlice ..> Block : shards/reconstructs
+    BlockStore "1" o-- "*" Block : persists
+    BlockStore "1" o-- "*" BlockSlice : persists
+    
+    %% ==========================================
+    %% 5. FUNCTIONAL LINKS
+    %% ==========================================
+    ChunkRegion ..> SealedChunk : locates bytes of
+    VertexRegion ..> Vertex : locates bytes of
+    KeyEntry ..> SealedChunk : unlocks (via ChunkHash)
+    EncryptionService ..> SealedChunk : produces
+    EncryptionService ..> KeyEntry : produces
