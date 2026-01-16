@@ -13,26 +13,19 @@ import (
 //
 // # Key Encapsulation
 //
-// The EncapsulatedAESKey field contains the AES-256 key used to encrypt
+// The EncapsulatedAESKey field contains the AES-256-GCM key used to encrypt
 // the chunk, wrapped using ML-KEM (post-quantum key encapsulation) for
 // the recipient's public key. Only the holder of the corresponding
 // private key can recover the AES key and decrypt the content.
 //
 // # Access Grant Flow
 //
-//  1. Content is encrypted with a random AES-256 key
+//  1. Content is encrypted with a random AES-256-GCM key
 //  2. For each authorized user, a KeyEntry is created:
 //     - ChunkHash: identifies the encrypted content
 //     - PubKeyHash: identifies the authorized user
 //     - EncapsulatedAESKey: AES key wrapped for that user's public key
 //  3. KeyEntry is stored separately from the encrypted content
-//
-// # Security Constraint
-//
-// CRITICAL: A KeyEntry must NEVER be stored in the same Block as its
-// corresponding SealedChunk. This separation ensures that compromising
-// a single Block does not expose both the encrypted content and the
-// keys needed to decrypt it.
 //
 // # Decryption Flow
 //
@@ -57,7 +50,7 @@ type KeyEntry struct {
 	// the EncapsulatedAESKey.
 	PubKeyHash hash.Hash
 
-	// EncapsulatedAESKey is the AES-256 key encapsulated using ML-KEM
+	// EncapsulatedAESKey is the AES-256-GCM key encapsulated using ML-KEM
 	// for the public key identified by PubKeyHash. The encapsulated
 	// key can only be recovered using the corresponding private key.
 	EncapsulatedAESKey []byte
