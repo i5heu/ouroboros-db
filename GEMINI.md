@@ -64,4 +64,8 @@ The system is composed of several key layers:
 - `pkg/storage/cas.go`: CAS interface and documentation.
 - `pkg/model/`: Core data models (`vertex.go`, `chunk.go`, etc.).
 - `internal/carrier/`: Implementation of the communication layer.
+    - `carrier.go`: Core struct and constructor.
+    - `carrier_membership.go`: Node and cluster management.
+    - `carrier_messaging.go`: Messaging and encryption.
+    - `carrier_server.go`: Server lifecycle and connection handling.
 - `docs/diagrams/`: Mermaid diagrams of the architecture and sequences.
