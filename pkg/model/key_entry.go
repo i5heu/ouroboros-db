@@ -25,7 +25,6 @@ import (
 //     - ChunkHash: identifies the encrypted content
 //     - PubKeyHash: identifies the authorized user
 //     - EncapsulatedAESKey: AES key wrapped for that user's public key
-//  3. KeyEntry is stored separately from the encrypted content
 //
 // # Decryption Flow
 //

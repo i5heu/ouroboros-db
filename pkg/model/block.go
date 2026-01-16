@@ -101,8 +101,6 @@ type Block struct {
 	VertexSection []byte
 
 	// KeyRegistry maps chunk hashes to their key entries for access control.
-	// Note: KeyEntries for chunks in this block should be stored in
-	// OTHER blocks for security isolation.
 	KeyRegistry map[hash.Hash][]KeyEntry
 
 	// ChunkIndex maps chunk hashes to their byte region in the DataSection.

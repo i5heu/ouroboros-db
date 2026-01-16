@@ -231,7 +231,6 @@ classDiagram
 
         %% KeyEntry: The Access Control unit.
         %% Explicitly links the User (PubKey) to the Content (ChunkHash).
-        %% The Chunk must not be in the same Block as its KeyEntry.
         class KeyEntry {
             +hash.Hash ChunkHash
             +hash.Hash PubKeyHash

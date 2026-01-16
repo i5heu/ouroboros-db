@@ -85,9 +85,6 @@ type EncryptionService interface {
 	//   - []KeyEntry: One KeyEntry per public key (same order as pubKeys)
 	//   - error: If encryption fails
 	//
-	// The returned KeyEntries must be stored separately (not in the same
-	// Block as the SealedChunk) for security isolation.
-	//
 	// Example:
 	//
 	//	sealed, entries, err := enc.SealChunk(chunk, [][]byte{user1PubKey, user2PubKey})

@@ -32,8 +32,6 @@ import (
 //
 // Access to a SealedChunk is controlled through KeyEntry records. Each
 // KeyEntry contains the AES key encapsulated for a specific user's public key.
-// Important: KeyEntry records must NOT be stored in the same Block as
-// their corresponding SealedChunk for security isolation.
 //
 // # Storage Location
 //
