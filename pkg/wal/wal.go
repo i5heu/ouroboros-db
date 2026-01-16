@@ -100,6 +100,18 @@ type DistributedWAL interface {
 	//   - Error if the append fails
 	AppendVertex(ctx context.Context, vertex model.Vertex) error
 
+	// AppendKeyEntry adds a key entry to the buffer.
+	//
+	// The key entry is added to the WAL buffer. Key entries provide access
+	// control for encrypted chunks.
+	//
+	// Parameters:
+	//   - keyEntry: The key entry to buffer
+	//
+	// Returns:
+	//   - Error if the append fails
+	AppendKeyEntry(ctx context.Context, keyEntry model.KeyEntry) error
+
 	// SealBlock creates a new Block from all buffered items.
 	//
 	// This is called when the buffer reaches the target size. It:
