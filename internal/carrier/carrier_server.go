@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Start begins listening for incoming connections on the local node's address.
@@ -103,6 +104,15 @@ func (c *DefaultCarrier) acceptLoop(ctx context.Context) { // A
 
 			c.log.WarnContext(ctx, "error accepting connection",
 				logKeyError, err.Error())
+
+			// Avoid tight loop on repeated errors
+			select {
+			case <-c.stopCh:
+				return
+			case <-ctx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
 			continue
 		}
 
