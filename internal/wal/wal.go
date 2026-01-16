@@ -4,7 +4,6 @@ package wal
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
@@ -17,11 +16,10 @@ const DefaultBlockSize = 16 * 1024 * 1024
 
 // DefaultDistributedWAL implements the DistributedWAL interface.
 type DefaultDistributedWAL struct {
-	mu           sync.Mutex
-	chunks       []model.SealedChunk
-	vertices     []model.Vertex
-	bufferSize   int64
-	targetSize   int64
+	chunks     []model.SealedChunk
+	vertices   []model.Vertex
+	bufferSize int64
+	targetSize int64
 }
 
 // NewDistributedWAL creates a new DefaultDistributedWAL instance.
@@ -34,20 +32,20 @@ func NewDistributedWAL() *DefaultDistributedWAL {
 }
 
 // AppendChunk adds a sealed chunk to the buffer.
-func (w *DefaultDistributedWAL) AppendChunk(ctx context.Context, chunk model.SealedChunk) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *DefaultDistributedWAL) AppendChunk(
+	ctx context.Context,
+	chunk model.SealedChunk,
+) error {
 	w.chunks = append(w.chunks, chunk)
 	w.bufferSize += int64(len(chunk.EncryptedContent))
 	return nil
 }
 
 // AppendVertex adds a vertex to the buffer.
-func (w *DefaultDistributedWAL) AppendVertex(ctx context.Context, vertex model.Vertex) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *DefaultDistributedWAL) AppendVertex(
+	ctx context.Context,
+	vertex model.Vertex,
+) error {
 	w.vertices = append(w.vertices, vertex)
 	// Estimate vertex size (simplified)
 	w.bufferSize += int64(len(vertex.ChunkHashes) * 16)
@@ -55,10 +53,9 @@ func (w *DefaultDistributedWAL) AppendVertex(ctx context.Context, vertex model.V
 }
 
 // SealBlock creates a new block from the buffered items.
-func (w *DefaultDistributedWAL) SealBlock(ctx context.Context) (model.Block, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *DefaultDistributedWAL) SealBlock(
+	ctx context.Context,
+) (model.Block, error) {
 	if len(w.chunks) == 0 && len(w.vertices) == 0 {
 		return model.Block{}, fmt.Errorf("wal: no data to seal")
 	}
@@ -75,14 +72,13 @@ func (w *DefaultDistributedWAL) SealBlock(ctx context.Context) (model.Block, err
 
 // GetBufferSize returns the current size of buffered data.
 func (w *DefaultDistributedWAL) GetBufferSize() int64 {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	return w.bufferSize
 }
 
 // Flush forces the creation of a block even if the buffer isn't full.
-func (w *DefaultDistributedWAL) Flush(ctx context.Context) (model.Block, error) {
+func (w *DefaultDistributedWAL) Flush(
+	ctx context.Context,
+) (model.Block, error) {
 	return w.SealBlock(ctx)
 }
 
@@ -107,7 +103,8 @@ func (w *DefaultDistributedWAL) createBlock() model.Block {
 	vertexIndex := make(map[hash.Hash]model.VertexRegion)
 	offset = 0
 	for _, vertex := range w.vertices {
-		// Simplified serialization - actual implementation would use proper encoding
+		// Simplified serialization - actual implementation would use proper
+		// encoding
 		vertexBytes := vertex.Hash[:]
 		length := uint32(len(vertexBytes))
 		vertexIndex[vertex.Hash] = model.VertexRegion{
@@ -126,11 +123,11 @@ func (w *DefaultDistributedWAL) createBlock() model.Block {
 	return model.Block{
 		Hash: blockHash,
 		Header: model.BlockHeader{
-			Version:      1,
-			Created:      time.Now().UnixMilli(),
-			ChunkCount:   uint32(len(w.chunks)),
-			VertexCount:  uint32(len(w.vertices)),
-			TotalSize:    uint32(len(dataSection) + len(vertexSection)),
+			Version:     1,
+			Created:     time.Now().UnixMilli(),
+			ChunkCount:  uint32(len(w.chunks)),
+			VertexCount: uint32(len(w.vertices)),
+			TotalSize:   uint32(len(dataSection) + len(vertexSection)),
 		},
 		DataSection:   dataSection,
 		VertexSection: vertexSection,
@@ -145,7 +142,6 @@ var _ wal.DistributedWAL = (*DefaultDistributedWAL)(nil)
 
 // DefaultDeletionWAL implements the DeletionWAL interface.
 type DefaultDeletionWAL struct {
-	mu               sync.Mutex
 	pendingDeletions []hash.Hash
 }
 
@@ -157,19 +153,16 @@ func NewDeletionWAL() *DefaultDeletionWAL {
 }
 
 // LogDeletion records a hash for deletion.
-func (w *DefaultDeletionWAL) LogDeletion(ctx context.Context, h hash.Hash) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *DefaultDeletionWAL) LogDeletion(
+	ctx context.Context,
+	h hash.Hash,
+) error {
 	w.pendingDeletions = append(w.pendingDeletions, h)
 	return nil
 }
 
 // ProcessDeletions processes pending deletions.
 func (w *DefaultDeletionWAL) ProcessDeletions(ctx context.Context) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	// Implementation will actually delete the data
 	// This is a placeholder for the actual implementation
 	w.pendingDeletions = make([]hash.Hash, 0)
@@ -177,10 +170,9 @@ func (w *DefaultDeletionWAL) ProcessDeletions(ctx context.Context) error {
 }
 
 // GetPendingDeletions returns the list of hashes pending deletion.
-func (w *DefaultDeletionWAL) GetPendingDeletions(ctx context.Context) ([]hash.Hash, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *DefaultDeletionWAL) GetPendingDeletions(
+	ctx context.Context,
+) ([]hash.Hash, error) {
 	result := make([]hash.Hash, len(w.pendingDeletions))
 	copy(result, w.pendingDeletions)
 	return result, nil

@@ -3,7 +3,6 @@ package health
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/i5heu/ouroboros-db/pkg/cluster"
@@ -12,7 +11,6 @@ import (
 
 // DefaultClusterMonitor implements the ClusterMonitor interface.
 type DefaultClusterMonitor struct {
-	mu        sync.RWMutex
 	statuses  map[cluster.NodeID]monitor.NodeStatus
 	callbacks []monitor.HealthCallback
 	tracker   *DefaultNodeAvailabilityTracker
@@ -36,9 +34,6 @@ func (m *DefaultClusterMonitor) MonitorNodeHealth(ctx context.Context) error {
 
 // GetNodeStatus returns the current status of a specific node.
 func (m *DefaultClusterMonitor) GetNodeStatus(ctx context.Context, nodeID cluster.NodeID) (monitor.NodeStatus, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	status, exists := m.statuses[nodeID]
 	if !exists {
 		return monitor.NodeStatus{
@@ -51,9 +46,6 @@ func (m *DefaultClusterMonitor) GetNodeStatus(ctx context.Context, nodeID cluste
 
 // GetClusterHealth returns the overall health of the cluster.
 func (m *DefaultClusterMonitor) GetClusterHealth(ctx context.Context) (monitor.ClusterHealth, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	available := 0
 	unavailable := 0
 	for _, status := range m.statuses {
@@ -75,20 +67,15 @@ func (m *DefaultClusterMonitor) GetClusterHealth(ctx context.Context) (monitor.C
 
 // RegisterHealthCallback registers a callback for health status changes.
 func (m *DefaultClusterMonitor) RegisterHealthCallback(callback monitor.HealthCallback) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.callbacks = append(m.callbacks, callback)
 }
 
 // UpdateNodeStatus updates the status of a node and notifies callbacks.
 func (m *DefaultClusterMonitor) UpdateNodeStatus(nodeID cluster.NodeID, newStatus monitor.NodeStatus) {
-	m.mu.Lock()
 	oldStatus := m.statuses[nodeID]
 	m.statuses[nodeID] = newStatus
 	callbacks := make([]monitor.HealthCallback, len(m.callbacks))
 	copy(callbacks, m.callbacks)
-	m.mu.Unlock()
 
 	// Notify callbacks
 	for _, cb := range callbacks {
@@ -101,7 +88,6 @@ var _ monitor.ClusterMonitor = (*DefaultClusterMonitor)(nil)
 
 // DefaultNodeAvailabilityTracker implements the NodeAvailabilityTracker interface.
 type DefaultNodeAvailabilityTracker struct {
-	mu          sync.RWMutex
 	available   map[cluster.NodeID]bool
 	nodes       map[cluster.NodeID]cluster.Node
 	lastChecked map[cluster.NodeID]time.Time
@@ -125,17 +111,11 @@ func (t *DefaultNodeAvailabilityTracker) TrackAvailability(ctx context.Context) 
 
 // IsNodeAvailable returns whether a node is currently available.
 func (t *DefaultNodeAvailabilityTracker) IsNodeAvailable(nodeID cluster.NodeID) bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
 	return t.available[nodeID]
 }
 
 // GetAvailableNodes returns all currently available nodes.
 func (t *DefaultNodeAvailabilityTracker) GetAvailableNodes() []cluster.Node {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
 	var nodes []cluster.Node
 	for nodeID, isAvailable := range t.available {
 		if isAvailable {
@@ -149,9 +129,6 @@ func (t *DefaultNodeAvailabilityTracker) GetAvailableNodes() []cluster.Node {
 
 // GetUnavailableNodes returns all currently unavailable nodes.
 func (t *DefaultNodeAvailabilityTracker) GetUnavailableNodes() []cluster.Node {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
 	var nodes []cluster.Node
 	for nodeID, isAvailable := range t.available {
 		if !isAvailable {
@@ -165,25 +142,16 @@ func (t *DefaultNodeAvailabilityTracker) GetUnavailableNodes() []cluster.Node {
 
 // MarkNodeUnavailable manually marks a node as unavailable.
 func (t *DefaultNodeAvailabilityTracker) MarkNodeUnavailable(nodeID cluster.NodeID) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.available[nodeID] = false
 }
 
 // MarkNodeAvailable manually marks a node as available.
 func (t *DefaultNodeAvailabilityTracker) MarkNodeAvailable(nodeID cluster.NodeID) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.available[nodeID] = true
 }
 
 // AddNode adds a node to track.
 func (t *DefaultNodeAvailabilityTracker) AddNode(node cluster.Node) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.nodes[node.NodeID] = node
 	t.available[node.NodeID] = false // Start as unavailable until verified
 }

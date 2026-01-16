@@ -4,7 +4,6 @@ package routing
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/pkg/datarouter"
@@ -13,7 +12,6 @@ import (
 
 // DefaultDataRouter implements the DataRouter interface.
 type DefaultDataRouter struct {
-	mu       sync.RWMutex
 	vertices map[hash.Hash]model.Vertex
 	blocks   map[hash.Hash]model.Block
 }
@@ -28,9 +26,6 @@ func NewDataRouter() *DefaultDataRouter {
 
 // StoreVertex stores a vertex and returns its hash.
 func (r *DefaultDataRouter) StoreVertex(ctx context.Context, vertex model.Vertex) (hash.Hash, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if vertex.Hash == (hash.Hash{}) {
 		return hash.Hash{}, fmt.Errorf("datarouter: vertex hash is required")
 	}
@@ -41,9 +36,6 @@ func (r *DefaultDataRouter) StoreVertex(ctx context.Context, vertex model.Vertex
 
 // RetrieveVertex retrieves a vertex by its hash.
 func (r *DefaultDataRouter) RetrieveVertex(ctx context.Context, vertexHash hash.Hash) (model.Vertex, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	vertex, exists := r.vertices[vertexHash]
 	if !exists {
 		return model.Vertex{}, fmt.Errorf("datarouter: vertex %s not found", vertexHash)
@@ -53,9 +45,6 @@ func (r *DefaultDataRouter) RetrieveVertex(ctx context.Context, vertexHash hash.
 
 // DeleteVertex marks a vertex for deletion.
 func (r *DefaultDataRouter) DeleteVertex(ctx context.Context, vertexHash hash.Hash) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	delete(r.vertices, vertexHash)
 	return nil
 }
@@ -64,18 +53,12 @@ func (r *DefaultDataRouter) DeleteVertex(ctx context.Context, vertexHash hash.Ha
 func (r *DefaultDataRouter) DistributeBlockSlices(ctx context.Context, block model.Block) error {
 	// Implementation will distribute slices across the cluster
 	// This is a placeholder for the actual implementation
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.blocks[block.Hash] = block
 	return nil
 }
 
 // RetrieveBlock retrieves a block, potentially reconstructing from slices.
 func (r *DefaultDataRouter) RetrieveBlock(ctx context.Context, blockHash hash.Hash) (model.Block, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	block, exists := r.blocks[blockHash]
 	if !exists {
 		return model.Block{}, fmt.Errorf("datarouter: block %s not found", blockHash)

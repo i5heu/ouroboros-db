@@ -3,7 +3,6 @@ package rebalance
 
 import (
 	"context"
-	"sync"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/pkg/rebalance"
@@ -11,7 +10,6 @@ import (
 
 // DefaultDataReBalancer implements the DataReBalancer interface.
 type DefaultDataReBalancer struct {
-	mu          sync.RWMutex
 	inProgress  bool
 	status      rebalance.RebalanceStatus
 }
@@ -23,9 +21,7 @@ func NewDataReBalancer() *DefaultDataReBalancer {
 
 // BalanceData initiates a rebalancing operation.
 func (r *DefaultDataReBalancer) BalanceData(ctx context.Context) error {
-	r.mu.Lock()
 	if r.inProgress {
-		r.mu.Unlock()
 		return nil // Already in progress
 	}
 	r.inProgress = true
@@ -33,7 +29,6 @@ func (r *DefaultDataReBalancer) BalanceData(ctx context.Context) error {
 		InProgress: true,
 		Progress:   0,
 	}
-	r.mu.Unlock()
 
 	// Implementation will perform actual rebalancing
 	// This is a placeholder for the actual implementation
@@ -43,17 +38,11 @@ func (r *DefaultDataReBalancer) BalanceData(ctx context.Context) error {
 
 // GetRebalanceStatus returns the current rebalancing status.
 func (r *DefaultDataReBalancer) GetRebalanceStatus(ctx context.Context) (rebalance.RebalanceStatus, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	return r.status, nil
 }
 
 // CancelRebalance cancels an ongoing rebalance operation.
 func (r *DefaultDataReBalancer) CancelRebalance(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.inProgress = false
 	r.status.InProgress = false
 	return nil
@@ -64,10 +53,9 @@ var _ rebalance.DataReBalancer = (*DefaultDataReBalancer)(nil)
 
 // DefaultReplicationMonitoring implements the ReplicationMonitoring interface.
 type DefaultReplicationMonitoring struct {
-	mu                   sync.RWMutex
-	underReplicated      []hash.Hash
-	overReplicated       []hash.Hash
-	targetReplication    int
+	underReplicated   []hash.Hash
+	overReplicated    []hash.Hash
+	targetReplication int
 }
 
 // NewReplicationMonitoring creates a new DefaultReplicationMonitoring instance.
@@ -88,9 +76,6 @@ func (m *DefaultReplicationMonitoring) MonitorReplications(ctx context.Context) 
 
 // GetUnderReplicatedBlocks returns blocks that don't meet the replication target.
 func (m *DefaultReplicationMonitoring) GetUnderReplicatedBlocks(ctx context.Context) ([]hash.Hash, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	result := make([]hash.Hash, len(m.underReplicated))
 	copy(result, m.underReplicated)
 	return result, nil
@@ -98,9 +83,6 @@ func (m *DefaultReplicationMonitoring) GetUnderReplicatedBlocks(ctx context.Cont
 
 // GetOverReplicatedBlocks returns blocks that exceed the replication target.
 func (m *DefaultReplicationMonitoring) GetOverReplicatedBlocks(ctx context.Context) ([]hash.Hash, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	result := make([]hash.Hash, len(m.overReplicated))
 	copy(result, m.overReplicated)
 	return result, nil
@@ -118,7 +100,6 @@ var _ rebalance.ReplicationMonitoring = (*DefaultReplicationMonitoring)(nil)
 
 // DefaultSyncIndexTree implements the SyncIndexTree interface.
 type DefaultSyncIndexTree struct {
-	mu     sync.RWMutex
 	status rebalance.SyncStatus
 }
 
@@ -136,9 +117,6 @@ func (s *DefaultSyncIndexTree) Sync(ctx context.Context) error {
 
 // GetSyncStatus returns the current synchronization status.
 func (s *DefaultSyncIndexTree) GetSyncStatus(ctx context.Context) (rebalance.SyncStatus, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	return s.status, nil
 }
 
