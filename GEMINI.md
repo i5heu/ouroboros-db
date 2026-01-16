@@ -6,74 +6,62 @@ This document provides context for the Gemini AI assistant to understand and ass
 
 OuroborosDB is a distributed, content-addressable database library for Go. It is designed to be a stateless-ish and self-healing cluster. Data is addressed by hashes and organized in a Git-like DAG of Blobs.
 
-The core data structures are:
+The project is currently in an early alpha stage and is intended to be embedded into other Go projects.
 
-*   **Blobs**: Versioned objects, forming a Git-like DAG with parents and heads.
-*   **Chunks**: Deduplicated content blocks.
-*   **SealedSlices**: Compressed, erasure-coded, and encrypted fragments distributed across nodes.
+### Core Data Structures
+- **Blobs**: Versioned objects forming a Git-like DAG with parents and heads.
+- **Vertices**: The logical units in the DAG containing metadata (parent, timestamp) and references to content (ChunkHashes).
+- **Chunks**: Deduplicated content blocks.
+- **SealedChunks**: Encrypted and integrity-verified chunks.
+- **Blocks**: Archive structures (approx. 16MB) containing multiple SealedChunks and Vertices.
+- **SealedSlices**: Compressed, erasure-coded (Reed-Solomon), and encrypted fragments of blocks distributed across nodes.
 
-The cluster relies on a `SyncIndexTree` (Merkle-style sync) and a `DeletionWAL` (tombstone propagation) to keep replicas convergent without a global consensus log.
-
-OuroborosDB is intended to be embedded into other Go projects as a single root package.
+### Key Features
+- **Content-Addressable**: Data is identified by its hash.
+- **Post-Quantum Cryptography**: Uses `ouroboros-crypt` for ML-KEM (key encapsulation) and ML-DSA (signatures).
+- **QUIC Transport**: Reliable, encrypted communication between nodes.
+- **Self-Healing**: Convergence via `SyncIndexTree` (Merkle-style sync) and `DeletionWAL` (tombstone propagation).
 
 ## Building and Running
 
 ### Dependencies
+- Go 1.24.6+
+- `github.com/i5heu/ouroboros-crypt`: Cryptographic primitives.
+- `github.com/lmittmann/tint`: Structured logging.
 
-The project uses Go modules for dependency management. The main dependencies are:
-
-*   `github.com/dgraph-io/badger/v4`: A fast key-value DB in Go.
-*   `github.com/i5heu/ouroboros-crypt`: Cryptographic primitives for OuroborosDB.
-*   `github.com/klauspost/compress`: Compression libraries for Go.
-*   `github.com/klauspost/reedsolomon`: Reed-Solomon erasure coding in Go.
-*   `google.golang.org/protobuf`: Protocol Buffers for Go.
-
-### Building
-
-To build the project, use the standard Go build command:
-
-```bash
-go build ./...
-```
-
-### Testing
-
-The project has a suite of tests that can be run with the following command:
-
-```bash
-go test ./...
-```
-
-There is also a "heavy" test suite that can be run with:
-
-```bash
-./testHeavy.sh
-```
+### Key Commands
+- **Build**: `go build ./...`
+- **Test**: `go test ./...`
+- **Heavy Tests**: `./testHeavy.sh`
+- **Benchmark**: `benchmarkVersions.bash`
 
 ## Development Conventions
 
-The project uses a system of annotations in function comments to indicate the correctness and safety of the logic. These annotations are:
+### Correctness Annotations
+The project uses specific annotations in function comments (on the same line as the `func` keyword) to indicate the status of the logic:
 
-*   `// A`: Written by AI, not reviewed.
-*   `// AP`: Written by AI, potential issue found.
-*   `// AC`: Written by AI, reviewed and approved with medium confidence.
-*   `// H`: Written by a human.
-*   `// HP`: Written by a human, potential issue found.
-*   `// HC`: Written by a human, high confidence in correctness.
+- `// A`: Written by AI, not reviewed.
+- `// AP`: Written by AI, potential issue found (marked with `// TODO`).
+- `// AC`: Written by AI, reviewed and approved with medium confidence.
+- `// H`: Written by a human.
+- `// HP`: Written by a human, potential issue found.
+- `// HC`: Written by a human, high confidence in correctness and safety.
 
-A `P` prefix can be added for high-priority functions that must be brought to `PHC` status before a production release.
+**Priority Functions**: High-risk functions (complex algorithms, security-sensitive) are prefixed with `P` (e.g., `// PHC`). All `P` functions must reach `PHC` status before production release.
 
 ## Architecture
 
-The project's architecture is detailed in `docs/diagrams/architecture.mmd`. The main components are:
+The system is composed of several key layers:
 
-*   **Cluster**: A collection of nodes.
-*   **Node**: A single member of the cluster.
-*   **Carrier**: Handles communication between nodes.
-*   **DataRouter**: Routes data to the correct node for storage or retrieval.
-*   **CAS (Content Addressable Storage)**: Stores and retrieves blobs by their hash.
-*   **LocalSealedSliceStore**: A local key-value store for sealed slices.
-*   **DistributedIndex**: A distributed index for mapping hashes to nodes and keys to hashes.
-*   **DataReBalancer**: Rebalances data across the cluster.
-*   **SyncIndexTree**: A Merkle-style tree for synchronizing data between nodes.
-*   **DeletionWAL**: A write-ahead log for propagating deletions.
+1.  **CAS (Content-Addressable Storage)**: The primary entry point for data operations. It coordinates chunking, encryption, WAL buffering, and indexing.
+2.  **Carrier**: Manages inter-node communication, cluster membership, and message broadcasting using QUIC and post-quantum crypto.
+3.  **DataRouter**: Routes data to the appropriate nodes for storage and retrieval.
+4.  **BlockStore**: Low-level storage for blocks and slices.
+5.  **WAL (Write-Ahead Log)**: Buffers data (Chunks and Vertices) until enough is collected to seal a Block.
+
+### File Structure Highlights
+- `ouroboros.go`: Library entry point.
+- `pkg/storage/cas.go`: CAS interface and documentation.
+- `pkg/model/`: Core data models (`vertex.go`, `chunk.go`, etc.).
+- `internal/carrier/`: Implementation of the communication layer.
+- `docs/diagrams/`: Mermaid diagrams of the architecture and sequences.
