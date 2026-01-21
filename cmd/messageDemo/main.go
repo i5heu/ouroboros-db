@@ -10,20 +10,14 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 
-	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/carrier"
 )
 
@@ -37,7 +31,7 @@ const (
 	logKeyAddress = "address"
 )
 
-func main() {
+func main() { // H
 	port := flag.Int("port", 4242, "Port to listen on")
 	peer := flag.String(
 		"peer",
@@ -70,7 +64,7 @@ func main() {
 	runInputLoop(ctx, logger, c, nodeID)
 }
 
-func setupSignalHandler(cancel context.CancelFunc) {
+func setupSignalHandler(cancel context.CancelFunc) { // H
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -85,7 +79,7 @@ func setupCarrier(
 	logger *slog.Logger,
 	port int,
 	peer string,
-) (*carrier.DefaultCarrier, carrier.NodeID, string, error) {
+) (*carrier.DefaultCarrier, carrier.NodeID, string, error) { // H
 	nodeIdentity, err := carrier.NewNodeIdentity()
 	if err != nil {
 		return nil, "", "", fmt.Errorf("create node identity: %w", err)
@@ -101,7 +95,15 @@ func setupCarrier(
 		logKeyNodeID, string(nodeID)[:8]+"...",
 		logKeyAddress, localAddr)
 
-	transport := newTCPTransport(logger, nodeID)
+	// Use QUIC transport
+	transport, err := carrier.NewQUICTransport(
+		logger,
+		nodeID,
+		carrier.DefaultQUICConfig(),
+	)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("create transport: %w", err)
+	}
 
 	cfg := carrier.Config{
 		LocalNode: carrier.Node{
@@ -133,7 +135,7 @@ func setupCarrier(
 	return c, nodeID, localAddr, nil
 }
 
-func makeChatHandler() carrier.MessageHandler {
+func makeChatHandler() carrier.MessageHandler { // H
 	return func(
 		_ context.Context,
 		senderID carrier.NodeID,
@@ -148,7 +150,7 @@ func stopCarrier(
 	ctx context.Context,
 	logger *slog.Logger,
 	c *carrier.DefaultCarrier,
-) {
+) { // H
 	if stopErr := c.Stop(context.Background()); stopErr != nil {
 		logger.WarnContext(ctx, "error stopping carrier", logKeyError, stopErr)
 	}
@@ -159,7 +161,7 @@ func bootstrapPeer(
 	logger *slog.Logger,
 	c *carrier.DefaultCarrier,
 	peer string,
-) {
+) { // H
 	logger.InfoContext(ctx, "connecting to peer", logKeyAddress, peer)
 	if err := c.Bootstrap(ctx); err != nil {
 		logger.WarnContext(ctx,
@@ -172,7 +174,7 @@ func bootstrapPeer(
 	}
 }
 
-func printWelcome(port int, peer, localAddr string) {
+func printWelcome(port int, peer, localAddr string) { // H
 	fmt.Println("\n=== Message Demo ===")
 	fmt.Println("Type a message and press Enter to send.")
 	fmt.Println("Press Ctrl+C to quit.")
@@ -192,7 +194,7 @@ func runInputLoop(
 	logger *slog.Logger,
 	c *carrier.DefaultCarrier,
 	nodeID carrier.NodeID,
-) {
+) { // H
 	inputCh := make(chan string)
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
@@ -226,7 +228,7 @@ func handleInput(
 	c *carrier.DefaultCarrier,
 	nodeID carrier.NodeID,
 	line string,
-) {
+) { // H
 	if line == "" {
 		fmt.Print("> ")
 		return
@@ -246,7 +248,7 @@ func handleNodesCommand(
 	ctx context.Context,
 	c *carrier.DefaultCarrier,
 	nodeID carrier.NodeID,
-) {
+) { // H
 	nodes, err := c.GetNodes(ctx)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -264,7 +266,7 @@ func handleNodesCommand(
 	fmt.Print("> ")
 }
 
-func handleHelpCommand() {
+func handleHelpCommand() { // H
 	fmt.Println("Commands:")
 	fmt.Println("  /nodes  - List known nodes")
 	fmt.Println("  /help   - Show this help")
@@ -277,7 +279,7 @@ func handleChatMessage(
 	logger *slog.Logger,
 	c *carrier.DefaultCarrier,
 	line string,
-) {
+) { // H
 	msg := carrier.Message{
 		Type:    MessageTypeChat,
 		Payload: []byte(line),
@@ -297,253 +299,4 @@ func handleChatMessage(
 			len(result.SuccessNodes), len(result.FailedNodes))
 	}
 	fmt.Print("> ")
-}
-
-// --- Simple TCP Transport Implementation ---
-
-type tcpTransport struct {
-	logger   *slog.Logger
-	localID  carrier.NodeID
-	mu       sync.Mutex
-	listener net.Listener
-}
-
-func newTCPTransport(
-	logger *slog.Logger,
-	localID carrier.NodeID,
-) *tcpTransport {
-	return &tcpTransport{
-		logger:  logger,
-		localID: localID,
-	}
-}
-
-func (t *tcpTransport) Connect(
-	ctx context.Context,
-	address string,
-) (carrier.Connection, error) {
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", address)
-	if err != nil {
-		return nil, err
-	}
-
-	tc := &tcpConnection{
-		conn:    conn,
-		localID: t.localID,
-	}
-
-	// Send our node ID
-	if err := tc.sendNodeID(t.localID); err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			return nil, fmt.Errorf(
-				"failed to send node ID: %w (close err: %v)",
-				err, closeErr)
-		}
-		return nil, fmt.Errorf("failed to send node ID: %w", err)
-	}
-
-	// Receive remote node ID
-	remoteID, err := tc.receiveNodeID()
-	if err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			return nil, fmt.Errorf(
-				"failed to receive node ID: %w (close err: %v)",
-				err, closeErr)
-		}
-		return nil, fmt.Errorf("failed to receive node ID: %w", err)
-	}
-	tc.remoteID = remoteID
-
-	return tc, nil
-}
-
-func (t *tcpTransport) Listen(
-	ctx context.Context,
-	address string,
-) (carrier.Listener, error) {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", address)
-	if err != nil {
-		return nil, err
-	}
-
-	t.mu.Lock()
-	t.listener = ln
-	t.mu.Unlock()
-
-	return &tcpListener{
-		listener: ln,
-		localID:  t.localID,
-	}, nil
-}
-
-func (t *tcpTransport) Close() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.listener != nil {
-		return t.listener.Close()
-	}
-	return nil
-}
-
-type tcpListener struct {
-	listener net.Listener
-	localID  carrier.NodeID
-}
-
-func (l *tcpListener) Accept(ctx context.Context) (carrier.Connection, error) {
-	conn, err := l.listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-
-	tc := &tcpConnection{
-		conn:    conn,
-		localID: l.localID,
-	}
-
-	// Receive remote node ID first
-	remoteID, err := tc.receiveNodeID()
-	if err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			return nil, fmt.Errorf(
-				"failed to receive node ID: %w (close err: %v)",
-				err, closeErr)
-		}
-		return nil, fmt.Errorf("failed to receive node ID: %w", err)
-	}
-	tc.remoteID = remoteID
-
-	// Send our node ID
-	if err := tc.sendNodeID(l.localID); err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			return nil, fmt.Errorf(
-				"failed to send node ID: %w (close err: %v)",
-				err, closeErr)
-		}
-		return nil, fmt.Errorf("failed to send node ID: %w", err)
-	}
-
-	return tc, nil
-}
-
-func (l *tcpListener) Addr() string {
-	return l.listener.Addr().String()
-}
-
-func (l *tcpListener) Close() error {
-	return l.listener.Close()
-}
-
-type tcpConnection struct {
-	conn     net.Conn
-	localID  carrier.NodeID
-	remoteID carrier.NodeID
-	mu       sync.Mutex
-}
-
-func (c *tcpConnection) sendNodeID(id carrier.NodeID) error {
-	idBytes := []byte(id)
-	lenBuf := make([]byte, 4)
-	//nolint:gosec // length is bounded by nodeID size
-	binary.BigEndian.PutUint32(lenBuf, uint32(len(idBytes)))
-
-	if _, err := c.conn.Write(lenBuf); err != nil {
-		return err
-	}
-	_, err := c.conn.Write(idBytes)
-	return err
-}
-
-func (c *tcpConnection) receiveNodeID() (carrier.NodeID, error) {
-	lenBuf := make([]byte, 4)
-	if _, err := io.ReadFull(c.conn, lenBuf); err != nil {
-		return "", err
-	}
-	length := binary.BigEndian.Uint32(lenBuf)
-
-	if length > 1024 { // Sanity check
-		return "", errors.New("node ID too long")
-	}
-
-	idBytes := make([]byte, length)
-	if _, err := io.ReadFull(c.conn, idBytes); err != nil {
-		return "", err
-	}
-	return carrier.NodeID(idBytes), nil
-}
-
-func (c *tcpConnection) Send(ctx context.Context, msg carrier.Message) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Message format: [1 byte type][4 bytes payload length][payload]
-	header := make([]byte, 5)
-	header[0] = byte(msg.Type)
-	//nolint:gosec // length is bounded by message size
-	binary.BigEndian.PutUint32(header[1:], uint32(len(msg.Payload)))
-
-	if _, err := c.conn.Write(header); err != nil {
-		return err
-	}
-	if len(msg.Payload) > 0 {
-		if _, err := c.conn.Write(msg.Payload); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *tcpConnection) SendEncrypted(
-	_ context.Context,
-	_ *carrier.EncryptedMessage,
-) error {
-	return errors.New("encrypted send not implemented in demo")
-}
-
-func (c *tcpConnection) Receive(_ context.Context) (carrier.Message, error) {
-	header := make([]byte, 5)
-	if _, err := io.ReadFull(c.conn, header); err != nil {
-		return carrier.Message{}, err
-	}
-
-	msgType := carrier.MessageType(header[0])
-	payloadLen := binary.BigEndian.Uint32(header[1:])
-
-	if payloadLen > 1024*1024 { // 1MB sanity check
-		return carrier.Message{}, errors.New("payload too large")
-	}
-
-	var payload []byte
-	if payloadLen > 0 {
-		payload = make([]byte, payloadLen)
-		if _, err := io.ReadFull(c.conn, payload); err != nil {
-			return carrier.Message{}, err
-		}
-	}
-
-	return carrier.Message{
-		Type:    msgType,
-		Payload: payload,
-	}, nil
-}
-
-func (c *tcpConnection) ReceiveEncrypted(
-	_ context.Context,
-) (*carrier.EncryptedMessage, error) {
-	return nil, errors.New("encrypted receive not implemented in demo")
-}
-
-func (c *tcpConnection) Close() error {
-	return c.conn.Close()
-}
-
-func (c *tcpConnection) RemoteNodeID() carrier.NodeID {
-	return c.remoteID
-}
-
-func (c *tcpConnection) RemotePublicKey() *keys.PublicKey {
-	return nil // Not implemented in demo
 }

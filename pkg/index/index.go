@@ -21,11 +21,11 @@
 //
 // The ParentChildIndex enables efficient DAG traversal:
 //
-//	                    [root]
-//	                   /      \
-//	            [child1]      [child2]
-//	           /    \              \
-//	      [gc1]    [gc2]          [gc3]
+//	              [root]
+//	             /      \
+//	      [child1]      [child2]
+//	     /    \              \
+//	[gc1]    [gc2]          [gc3]
 //
 // Traversal operations:
 //   - GetChildren(root) → [child1, child2]

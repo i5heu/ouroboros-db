@@ -50,6 +50,17 @@ const (
 	MessageTypeBlockMetadataRequest
 	// MessageTypeBlockMetadataResponse responds with block metadata.
 	MessageTypeBlockMetadataResponse
+
+	// Dashboard and logging message types
+
+	// MessageTypeLogSubscribe requests to receive logs from a node.
+	MessageTypeLogSubscribe
+	// MessageTypeLogUnsubscribe stops receiving logs from a node.
+	MessageTypeLogUnsubscribe
+	// MessageTypeLogEntry contains a forwarded log entry.
+	MessageTypeLogEntry
+	// MessageTypeDashboardAnnounce announces a node's dashboard address.
+	MessageTypeDashboardAnnounce
 )
 
 // Slog attribute keys used throughout the carrier package.
@@ -88,6 +99,10 @@ var messageTypeNames = map[MessageType]string{ // A
 	MessageTypeMissedBlocksResponse:      "MissedBlocksResponse",
 	MessageTypeBlockMetadataRequest:      "BlockMetadataRequest",
 	MessageTypeBlockMetadataResponse:     "BlockMetadataResponse",
+	MessageTypeLogSubscribe:              "LogSubscribe",
+	MessageTypeLogUnsubscribe:            "LogUnsubscribe",
+	MessageTypeLogEntry:                  "LogEntry",
+	MessageTypeDashboardAnnounce:         "DashboardAnnounce",
 }
 
 // String returns the string representation of a MessageType.

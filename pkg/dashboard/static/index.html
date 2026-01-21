@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OuroborosDB Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f3460;
+            --text-primary: #eee;
+            --text-secondary: #aaa;
+            --accent: #e94560;
+            --success: #4ecca3;
+            --warning: #ffc107;
+            --error: #e94560;
+            --info: #00adb5;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header {
+            background: var(--bg-secondary);
+            padding: 15px 20px;
+            border-bottom: 2px solid var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { font-size: 1.5em; }
+        .warning-banner {
+            background: var(--warning);
+            color: #000;
+            padding: 8px 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--bg-tertiary);
+        }
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: var(--text-secondary);
+            font-size: 1em;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: var(--text-primary); }
+        .tab.active {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+        }
+        .panel { display: none; padding: 20px 0; }
+        .panel.active { display: block; }
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: var(--accent);
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--bg-tertiary);
+        }
+        th { color: var(--text-secondary); font-weight: 500; }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.8; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn-success { background: var(--success); color: white; }
+        .log-container {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85em;
+        }
+        .log-entry { padding: 4px 0; border-bottom: 1px solid #21262d; }
+        .log-entry .time { color: #8b949e; }
+        .log-entry .node { color: var(--info); }
+        .log-entry.level-error { color: var(--error); }
+        .log-entry.level-warn { color: var(--warning); }
+        .log-entry.level-info { color: var(--success); }
+        .log-entry.level-debug { color: var(--text-secondary); }
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-online { background: var(--success); }
+        .status-offline { background: var(--error); }
+        .upload-zone {
+            border: 2px dashed var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .upload-zone:hover { border-color: var(--accent); }
+        .upload-zone.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .flow-stage {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+        }
+        .flow-stage .icon { margin-right: 10px; font-size: 1.2em; }
+        .flow-stage.complete .icon::before { content: '\u2713'; color: var(--success); }
+        .flow-stage.in-progress .icon::before { content: '\u21BB'; color: var(--warning); }
+        .flow-stage.pending .icon::before { content: '\u25CB'; color: var(--text-secondary); }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .hash { font-family: monospace; font-size: 0.85em; color: var(--info); }
+        .distribution-bar {
+            height: 20px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        .distribution-bar .fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s;
+        }
+        input, select {
+            padding: 8px 12px;
+            border: 1px solid var(--bg-tertiary);
+            border-radius: 4px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 1em;
+        }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: var(--text-secondary); }
+        .node-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .node-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .node-card h3 { font-size: 1em; margin-bottom: 10px; }
+        .stat { display: flex; justify-content: space-between; margin: 5px 0; }
+        .stat-label { color: var(--text-secondary); }
+        #connection-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+        #connection-status.connected { background: var(--success); color: white; }
+        #connection-status.disconnected { background: var(--error); color: white; }
+    </style>
+</head>
+<body>
+    <div class="warning-banner">
+        WARNING: This is an UNSECURE debug dashboard. Do not use in production!
+    </div>
+    <header>
+        <h1>OuroborosDB Dashboard</h1>
+        <span id="connection-status" class="disconnected">Disconnected</span>
+    </header>
+    
+    <div class="tabs">
+        <button class="tab active" data-panel="overview">Overview</button>
+        <button class="tab" data-panel="nodes">Nodes</button>
+        <button class="tab" data-panel="logs">Logs</button>
+        <button class="tab" data-panel="data">Data Browser</button>
+        <button class="tab" data-panel="distribution">Distribution</button>
+        <button class="tab" data-panel="upload">Upload</button>
+    </div>
+
+    <div class="container">
+        <!-- Overview Panel -->
+        <div id="overview" class="panel active">
+            <div class="card">
+                <h2>Cluster Overview</h2>
+                <div class="node-grid" id="overview-nodes"></div>
+            </div>
+            <div class="card">
+                <h2>Recent Activity</h2>
+                <div class="log-container" id="overview-logs"></div>
+            </div>
+        </div>
+
+        <!-- Nodes Panel -->
+        <div id="nodes" class="panel">
+            <div class="card">
+                <h2>Cluster Nodes</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Node ID</th>
+                            <th>Address</th>
+                            <th>Vertices</th>
+                            <th>Blocks</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nodes-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Logs Panel -->
+        <div id="logs" class="panel">
+            <div class="card">
+                <h2>Log Stream</h2>
+                <div class="form-group">
+                    <label>Filter by Node:</label>
+                    <select id="log-filter-node">
+                        <option value="">All Nodes</option>
+                    </select>
+                    <label style="margin-left: 15px;">Level:</label>
+                    <select id="log-filter-level">
+                        <option value="">All Levels</option>
+                        <option value="DEBUG">Debug</option>
+                        <option value="INFO">Info</option>
+                        <option value="WARN">Warning</option>
+                        <option value="ERROR">Error</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="clearLogs()" 
+                            style="margin-left: 15px;">Clear</button>
+                </div>
+                <div class="log-container" id="log-stream"></div>
+            </div>
+            <div class="card">
+                <h2>Subscribe to Node Logs</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                    Select nodes to receive their log output in real-time.
+                </p>
+                <div id="subscribe-nodes"></div>
+            </div>
+        </div>
+
+        <!-- Data Browser Panel -->
+        <div id="data" class="panel">
+            <div class="card">
+                <h2>Vertices</h2>
+                <div class="form-group">
+                    <input type="text" id="vertex-search" 
+                           placeholder="Search by hash..." style="width: 300px;">
+                    <button class="btn btn-primary" onclick="searchVertex()">Search</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hash</th>
+                            <th>Parent</th>
+                            <th>Created</th>
+                            <th>Chunks</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vertices-table"></tbody>
+                </table>
+                <div class="pagination" id="vertices-pagination"></div>
+            </div>
+        </div>
+
+        <!-- Distribution Panel -->
+        <div id="distribution" class="panel">
+            <div class="card">
+                <h2>Data Distribution Overview</h2>
+                <div id="distribution-overview"></div>
+            </div>
+            <div class="card">
+                <h2>Block Distribution</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Block Hash</th>
+                            <th>Status</th>
+                            <th>Slices</th>
+                            <th>Nodes</th>
+                        </tr>
+                    </thead>
+                    <tbody id="distribution-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Upload Panel -->
+        <div id="upload" class="panel">
+            <div class="card">
+                <h2>Upload Data</h2>
+                <div id="upload-zone" class="upload-zone">
+                    <p>Drop files here or click to upload</p>
+                    <p style="color: var(--text-secondary); font-size: 0.9em;">
+                        (Upload must be enabled via --UNSECURE-upload-via-dashboard)
+                    </p>
+                    <input type="file" id="file-input" style="display: none;">
+                </div>
+            </div>
+            <div class="card" id="upload-flow-card" style="display: none;">
+                <h2>Upload Flow</h2>
+                <div id="upload-flow"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let ws = null;
+        let logs = [];
+        let nodes = [];
+        let subscribedNodes = new Set();
+        let uploadEnabled = false;
+        let currentUploadId = null;
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.panel).classList.add('active');
+            });
+        });
+
+        // WebSocket connection
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/logs`);
+            
+            ws.onopen = () => {
+                document.getElementById('connection-status').textContent = 'Connected';
+                document.getElementById('connection-status').className = 'connected';
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.getElementById('connection-status').className = 'disconnected';
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'log') {
+                    addLogEntry(data);
+                } else if (data.type === 'uploadFlow') {
+                    updateUploadFlow(data);
+                }
+            };
+        }
+
+        // Add log entry
+        function addLogEntry(entry) {
+            logs.unshift(entry);
+            if (logs.length > 1000) logs.pop();
+            renderLogs();
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('log-stream');
+            const nodeFilter = document.getElementById('log-filter-node').value;
+            const levelFilter = document.getElementById('log-filter-level').value;
+            
+            const filtered = logs.filter(log => {
+                if (nodeFilter && log.sourceNodeId !== nodeFilter) return false;
+                if (levelFilter && log.level !== levelFilter) return false;
+                return true;
+            });
+            
+            container.innerHTML = filtered.slice(0, 200).map(log => {
+                const time = new Date(log.timestamp / 1000000).toLocaleTimeString();
+                const attrs = log.attributes ? 
+                    Object.entries(log.attributes).map(([k,v]) => `${k}=${v}`).join(' ') : '';
+                return `<div class="log-entry level-${log.level.toLowerCase()}">
+                    <span class="time">${time}</span>
+                    <span class="node">[${log.sourceNodeId.slice(0,8)}...]</span>
+                    <span class="level">${log.level}</span>
+                    ${log.message} ${attrs}
+                </div>`;
+            }).join('');
+
+            // Also update overview logs
+            document.getElementById('overview-logs').innerHTML = 
+                filtered.slice(0, 10).map(log => {
+                    const time = new Date(log.timestamp / 1000000).toLocaleTimeString();
+                    return `<div class="log-entry level-${log.level.toLowerCase()}">
+                        <span class="time">${time}</span>
+                        <span class="node">[${log.sourceNodeId.slice(0,8)}...]</span>
+                        ${log.message}
+                    </div>`;
+                }).join('');
+        }
+
+        function clearLogs() {
+            logs = [];
+            renderLogs();
+        }
+
+        // Fetch nodes
+        async function fetchNodes() {
+            try {
+                const resp = await fetch('/api/nodes');
+                nodes = await resp.json();
+                renderNodes();
+            } catch (e) {
+                console.error('Failed to fetch nodes:', e);
+            }
+        }
+
+        function renderNodes() {
+            // Nodes table
+            const tbody = document.getElementById('nodes-table');
+            tbody.innerHTML = nodes.map(node => `
+                <tr>
+                    <td><span class="status-dot status-online"></span></td>
+                    <td class="hash">${node.nodeId}</td>
+                    <td>${node.addresses ? node.addresses.join(', ') : '-'}</td>
+                    <td>${node.vertexCount || 0}</td>
+                    <td>${node.blockCount || 0}</td>
+                    <td>
+                        <button class="btn btn-secondary" 
+                                onclick="subscribeToNode('${node.nodeId}')">
+                            Subscribe
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Overview nodes
+            document.getElementById('overview-nodes').innerHTML = nodes.map(node => `
+                <div class="node-card">
+                    <h3><span class="status-dot status-online"></span>${node.nodeId.slice(0,12)}...</h3>
+                    <div class="stat">
+                        <span class="stat-label">Address</span>
+                        <span>${node.addresses ? node.addresses[0] : '-'}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Vertices</span>
+                        <span>${node.vertexCount || 0}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Blocks</span>
+                        <span>${node.blockCount || 0}</span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Node filter dropdown
+            const select = document.getElementById('log-filter-node');
+            select.innerHTML = '<option value="">All Nodes</option>' +
+                nodes.map(n => `<option value="${n.nodeId}">${n.nodeId.slice(0,12)}...</option>`).join('');
+
+            // Subscribe checkboxes
+            document.getElementById('subscribe-nodes').innerHTML = nodes.map(node => `
+                <label style="display: block; margin: 10px 0;">
+                    <input type="checkbox" 
+                           ${subscribedNodes.has(node.nodeId) ? 'checked' : ''}
+                           onchange="toggleSubscription('${node.nodeId}', this.checked)">
+                    ${node.nodeId.slice(0,16)}... (${node.addresses ? node.addresses[0] : 'unknown'})
+                </label>
+            `).join('');
+        }
+
+        async function subscribeToNode(nodeId) {
+            try {
+                await fetch(`/api/nodes/${nodeId}/logs/subscribe`, { method: 'POST' });
+                subscribedNodes.add(nodeId);
+                renderNodes();
+            } catch (e) {
+                console.error('Failed to subscribe:', e);
+            }
+        }
+
+        async function toggleSubscription(nodeId, subscribe) {
+            const endpoint = subscribe ? 'subscribe' : 'unsubscribe';
+            try {
+                await fetch(`/api/nodes/${nodeId}/logs/${endpoint}`, { method: 'POST' });
+                if (subscribe) {
+                    subscribedNodes.add(nodeId);
+                } else {
+                    subscribedNodes.delete(nodeId);
+                }
+            } catch (e) {
+                console.error('Failed to toggle subscription:', e);
+            }
+        }
+
+        // Fetch vertices
+        let vertexOffset = 0;
+        const vertexLimit = 20;
+
+        async function fetchVertices(offset = 0) {
+            try {
+                const resp = await fetch(`/api/vertices?offset=${offset}&limit=${vertexLimit}`);
+                const data = await resp.json();
+                renderVertices(data);
+                vertexOffset = offset;
+            } catch (e) {
+                console.error('Failed to fetch vertices:', e);
+            }
+        }
+
+        function renderVertices(data) {
+            const tbody = document.getElementById('vertices-table');
+            tbody.innerHTML = (data.vertices || []).map(v => `
+                <tr>
+                    <td class="hash">${v.hash}</td>
+                    <td class="hash">${v.parent || '-'}</td>
+                    <td>${new Date(v.created).toLocaleString()}</td>
+                    <td>${v.chunkCount}</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="viewVertex('${v.hash}')">View</button>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="5">No vertices found</td></tr>';
+
+            // Pagination
+            const pagination = document.getElementById('vertices-pagination');
+            const total = data.total || 0;
+            const pages = Math.ceil(total / vertexLimit);
+            const currentPage = Math.floor(vertexOffset / vertexLimit);
+            
+            let html = '';
+            if (currentPage > 0) {
+                html += `<button class="btn btn-secondary" onclick="fetchVertices(${(currentPage-1)*vertexLimit})">Prev</button>`;
+            }
+            html += `<span>Page ${currentPage + 1} of ${pages || 1}</span>`;
+            if (currentPage < pages - 1) {
+                html += `<button class="btn btn-secondary" onclick="fetchVertices(${(currentPage+1)*vertexLimit})">Next</button>`;
+            }
+            pagination.innerHTML = html;
+        }
+
+        function searchVertex() {
+            const hash = document.getElementById('vertex-search').value;
+            if (hash) {
+                viewVertex(hash);
+            }
+        }
+
+        async function viewVertex(hash) {
+            try {
+                const resp = await fetch(`/api/vertices/${hash}`);
+                if (resp.ok) {
+                    const vertex = await resp.json();
+                    alert(JSON.stringify(vertex, null, 2));
+                } else {
+                    alert('Vertex not found');
+                }
+            } catch (e) {
+                console.error('Failed to fetch vertex:', e);
+            }
+        }
+
+        // Fetch distribution
+        async function fetchDistribution() {
+            try {
+                const resp = await fetch('/api/distribution');
+                const data = await resp.json();
+                renderDistribution(data);
+            } catch (e) {
+                console.error('Failed to fetch distribution:', e);
+            }
+        }
+
+        function renderDistribution(data) {
+            const overview = document.getElementById('distribution-overview');
+            overview.innerHTML = `
+                <div class="node-grid">
+                    <div class="node-card">
+                        <h3>Total Nodes</h3>
+                        <p style="font-size: 2em; color: var(--accent);">${data.totalNodes || 0}</p>
+                    </div>
+                    <div class="node-card">
+                        <h3>Total Vertices</h3>
+                        <p style="font-size: 2em; color: var(--success);">${data.totalVertices || 0}</p>
+                    </div>
+                    <div class="node-card">
+                        <h3>Total Blocks</h3>
+                        <p style="font-size: 2em; color: var(--info);">${data.totalBlocks || 0}</p>
+                    </div>
+                    <div class="node-card">
+                        <h3>Total Slices</h3>
+                        <p style="font-size: 2em; color: var(--warning);">${data.totalSlices || 0}</p>
+                    </div>
+                </div>
+                <h3 style="margin-top: 20px;">Node Storage</h3>
+                ${(data.nodeDistribution || []).map(nd => `
+                    <div style="margin: 15px 0;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>${nd.nodeId.slice(0,12)}...</span>
+                            <span>${nd.sliceCount} slices</span>
+                        </div>
+                        <div class="distribution-bar">
+                            <div class="fill" style="width: ${Math.min(100, nd.sliceCount * 10)}%"></div>
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+
+        // Upload handling
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+
+        uploadZone.addEventListener('click', () => {
+            if (uploadEnabled) fileInput.click();
+        });
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            if (uploadEnabled) uploadZone.style.borderColor = 'var(--accent)';
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.style.borderColor = '';
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.style.borderColor = '';
+            if (uploadEnabled && e.dataTransfer.files.length) {
+                uploadFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) {
+                uploadFile(fileInput.files[0]);
+            }
+        });
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            document.getElementById('upload-flow-card').style.display = 'block';
+            document.getElementById('upload-flow').innerHTML = '<p>Starting upload...</p>';
+
+            try {
+                const resp = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    alert('Upload failed: ' + data.error);
+                } else {
+                    currentUploadId = data.id;
+                    pollUploadFlow(data.id);
+                }
+            } catch (e) {
+                alert('Upload failed: ' + e.message);
+            }
+        }
+
+        async function pollUploadFlow(id) {
+            try {
+                const resp = await fetch(`/api/upload/${id}/flow`);
+                const flow = await resp.json();
+                renderUploadFlow(flow);
+                if (flow.status !== 'complete' && flow.status !== 'failed') {
+                    setTimeout(() => pollUploadFlow(id), 500);
+                }
+            } catch (e) {
+                console.error('Failed to fetch upload flow:', e);
+            }
+        }
+
+        function renderUploadFlow(flow) {
+            const stages = [
+                { name: 'Encrypting', key: 'encrypting' },
+                { name: 'WAL Buffering', key: 'wal' },
+                { name: 'Block Sealing', key: 'sealing' },
+                { name: 'Distributing', key: 'distributing' },
+                { name: 'Complete', key: 'complete' }
+            ];
+
+            const currentIdx = stages.findIndex(s => s.key === flow.status);
+
+            document.getElementById('upload-flow').innerHTML = `
+                ${stages.map((stage, idx) => {
+                    let stageClass = 'pending';
+                    if (idx < currentIdx) stageClass = 'complete';
+                    else if (idx === currentIdx) stageClass = 'in-progress';
+                    
+                    return `<div class="flow-stage ${stageClass}">
+                        <span class="icon"></span>
+                        <span>${stage.name}</span>
+                    </div>`;
+                }).join('')}
+                ${flow.vertexHash ? `<p style="margin-top: 15px;">Vertex: <span class="hash">${flow.vertexHash}</span></p>` : ''}
+                ${flow.blockHash ? `<p>Block: <span class="hash">${flow.blockHash}</span></p>` : ''}
+                ${flow.sliceDistribution ? `
+                    <h3 style="margin-top: 15px;">Slice Distribution</h3>
+                    <table>
+                        <thead><tr><th>Slice</th><th>Node</th><th>Status</th></tr></thead>
+                        <tbody>
+                            ${flow.sliceDistribution.map(s => `
+                                <tr>
+                                    <td class="hash">${s.sliceHash.slice(0,12)}...</td>
+                                    <td>${s.targetNode.slice(0,12)}...</td>
+                                    <td>${s.status}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                ` : ''}
+            `;
+        }
+
+        // Check if upload is enabled
+        async function checkUploadEnabled() {
+            try {
+                const resp = await fetch('/api/upload', { method: 'OPTIONS' });
+                uploadEnabled = resp.headers.get('X-Upload-Enabled') === 'true';
+                if (!uploadEnabled) {
+                    uploadZone.classList.add('disabled');
+                }
+            } catch (e) {
+                uploadZone.classList.add('disabled');
+            }
+        }
+
+        // Initialize
+        connectWebSocket();
+        fetchNodes();
+        fetchVertices();
+        fetchDistribution();
+        checkUploadEnabled();
+
+        // Refresh periodically
+        setInterval(fetchNodes, 30000);
+        setInterval(fetchDistribution, 30000);
+
+        // Filter change handlers
+        document.getElementById('log-filter-node').addEventListener('change', renderLogs);
+        document.getElementById('log-filter-level').addEventListener('change', renderLogs);
+    </script>
+</body>
+</html>

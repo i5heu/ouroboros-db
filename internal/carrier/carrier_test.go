@@ -16,12 +16,22 @@ type mockTransport struct { // A
 	mu          sync.Mutex
 	connections map[string]*mockConnection
 	connectErr  error
+	// addrToNodeID maps addresses to node IDs for proper RemoteNodeID() returns
+	addrToNodeID map[string]NodeID
 }
 
 func newMockTransport() *mockTransport { // A
 	return &mockTransport{
-		connections: make(map[string]*mockConnection),
+		connections:  make(map[string]*mockConnection),
+		addrToNodeID: make(map[string]NodeID),
 	}
+}
+
+// registerNode maps an address to a node ID for connection validation.
+func (m *mockTransport) registerNode(address string, nodeID NodeID) { // A
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addrToNodeID[address] = nodeID
 }
 
 func (m *mockTransport) Connect(
@@ -35,8 +45,12 @@ func (m *mockTransport) Connect(
 		return nil, m.connectErr
 	}
 
+	// Look up the node ID for this address
+	nodeID := m.addrToNodeID[address]
+
 	conn := &mockConnection{
 		address:  address,
+		nodeID:   nodeID,
 		messages: make([]Message, 0),
 	}
 	m.connections[address] = conn
@@ -447,6 +461,9 @@ func TestDefaultCarrier_SendMessageToNode(t *testing.T) { // A
 
 	ctx := context.Background()
 
+	// Register node-2's address so transport returns correct RemoteNodeID
+	transport.registerNode("localhost:8081", "node-2")
+
 	// Add a remote node
 	err = carrier.AddNode(ctx, Node{
 		NodeID:    "node-2",
@@ -511,11 +528,14 @@ func TestDefaultCarrier_Broadcast(t *testing.T) { // A
 
 	ctx := context.Background()
 
-	// Add remote nodes
+	// Register and add remote nodes
 	for i := 2; i <= 4; i++ {
+		nodeID := NodeID("node-" + string(rune('0'+i)))
+		addr := "localhost:808" + string(rune('0'+i))
+		transport.registerNode(addr, nodeID)
 		err = carrier.AddNode(ctx, Node{
-			NodeID:    NodeID("node-" + string(rune('0'+i))),
-			Addresses: []string{"localhost:808" + string(rune('0'+i))},
+			NodeID:    nodeID,
+			Addresses: []string{addr},
 		})
 		if err != nil {
 			t.Fatalf("AddNode() error = %v", err)
@@ -1990,12 +2010,13 @@ func TestAnnounceNode(t *testing.T) { // A
 		t.Fatalf("Failed to create carrier: %v", err)
 	}
 
-	// Add a remote node to broadcast to
+	// Register and add a remote node to broadcast to
 	ctx := context.Background()
 	remoteNode := Node{
 		NodeID:    "remote-node",
 		Addresses: []string{"localhost:4243"},
 	}
+	transport.registerNode("localhost:4243", remoteNode.NodeID)
 	_ = c.AddNode(ctx, remoteNode)
 
 	// Announce a new node
@@ -2058,8 +2079,9 @@ func TestAnnounceSelf(t *testing.T) { // A
 		t.Fatalf("Failed to create carrier: %v", err)
 	}
 
-	// Add a remote node
+	// Register and add a remote node
 	ctx := context.Background()
+	transport.registerNode("localhost:4243", "remote-node")
 	_ = c.AddNode(
 		ctx,
 		Node{NodeID: "remote-node", Addresses: []string{"localhost:4243"}},

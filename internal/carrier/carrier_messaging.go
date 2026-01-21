@@ -88,6 +88,7 @@ func (c *DefaultCarrier) SendMessageToNode( // A
 }
 
 // sendToNode is the internal method for sending a message to a node.
+// It uses the connection pool to get a persistent connection.
 func (c *DefaultCarrier) sendToNode( // A
 	ctx context.Context,
 	node Node,
@@ -97,39 +98,20 @@ func (c *DefaultCarrier) sendToNode( // A
 		return fmt.Errorf("node %s has no addresses", node.NodeID)
 	}
 
-	var lastErr error
-	for _, addr := range node.Addresses {
-		conn, err := c.transport.Connect(ctx, addr)
-		if err != nil {
-			lastErr = err
-			c.log.DebugContext(ctx, "failed to connect to address",
-				logKeyNodeID, string(node.NodeID),
-				logKeyAddress, addr,
-				logKeyError, err.Error())
-			continue
-		}
-
-		err = conn.Send(ctx, message)
-		closeErr := conn.Close()
-
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if closeErr != nil {
-			c.log.DebugContext(ctx, "error closing connection",
-				logKeyNodeID, string(node.NodeID),
-				logKeyError, closeErr.Error())
-		}
-
-		return nil // Success
+	// Get or establish connection from pool
+	conn, err := c.pool.getOrConnect(ctx, node)
+	if err != nil {
+		return fmt.Errorf("get connection to node %s: %w", node.NodeID, err)
 	}
 
-	return fmt.Errorf(
-		"failed to send message to node %s: %w",
-		node.NodeID,
-		lastErr,
-	)
+	// Send message (connection is NOT closed - it's pooled)
+	if err := conn.Send(ctx, message); err != nil {
+		// Connection may have failed, remove from pool so next attempt reconnects
+		c.pool.remove(node.NodeID)
+		return fmt.Errorf("send to node %s: %w", node.NodeID, err)
+	}
+
+	return nil
 }
 
 // EncryptMessageFor encrypts a message for a specific recipient node.

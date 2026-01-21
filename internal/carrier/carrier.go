@@ -45,6 +45,8 @@ var timeNow = time.Now // A
 
 // DefaultCarrier is the default implementation of the Carrier interface.
 // It uses QUIC for transport and post-quantum encryption for message security.
+// Connections to remote nodes are maintained persistently and reused for all
+// messages, with QUIC streams providing multiplexed communication.
 type DefaultCarrier struct { // A
 	localNode    Node
 	nodeIdentity *NodeIdentity
@@ -59,6 +61,9 @@ type DefaultCarrier struct { // A
 
 	mu    sync.RWMutex
 	nodes map[NodeID]Node
+
+	// Connection pool for persistent connections
+	pool *connPool
 
 	// Listener state
 	listener   Listener
@@ -110,6 +115,9 @@ func NewDefaultCarrier(cfg Config) (*DefaultCarrier, error) { // A
 		nodes:              make(map[NodeID]Node),
 		handlers:           make(map[MessageType][]MessageHandler),
 	}
+
+	// Initialize connection pool
+	c.pool = newConnPool(cfg.Transport, cfg.LocalNode.NodeID, cfg.Logger)
 
 	// Add self to known nodes
 	c.nodes[cfg.LocalNode.NodeID] = cfg.LocalNode

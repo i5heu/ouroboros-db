@@ -105,7 +105,7 @@ func (m *WALStateMachine) Cleanup() {
 func (m *WALStateMachine) Check(t *rapid.T) {
 	size := m.wal.GetBufferSize()
 	hasItems := len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0
-	
+
 	if hasItems && size == 0 {
 		t.Errorf("Buffer size is 0 but have items (chunks/vertices)")
 	}
@@ -117,7 +117,7 @@ func (m *WALStateMachine) Check(t *rapid.T) {
 // Action: AppendChunk
 func (m *WALStateMachine) AppendChunk(t *rapid.T) {
 	chunk := genSealedChunk(t)
-	
+
 	err := m.wal.AppendChunk(context.Background(), chunk)
 	if err != nil {
 		t.Fatalf("AppendChunk failed: %v", err)
@@ -238,7 +238,7 @@ func TestWALProperty(t *testing.T) {
 		m := &WALStateMachine{}
 		m.Init(t)
 		defer m.Cleanup()
-		
+
 		t.Repeat(map[string]func(*rapid.T){
 			"AppendChunk": func(t *rapid.T) {
 				m.AppendChunk(t)

@@ -51,11 +51,11 @@ func (w *DefaultDistributedWAL) recalcBufferSize() {
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			key := string(item.Key())
-			
-			// We only count size for chunks and vertices as per original logic, 
-			// but we should probably count everything. 
+
+			// We only count size for chunks and vertices as per original logic,
+			// but we should probably count everything.
 			// For now, let's stick to approximate size of payloads.
-			
+
 			if strings.HasPrefix(key, prefixChunk) {
 				valSize := item.ValueSize()
 				// Approximate, we'd need to read to be exact about "content" size vs "entry" size
@@ -126,7 +126,7 @@ func (w *DefaultDistributedWAL) AppendKeyEntry(
 	// composite key: wal:key:<chunkHash>:<pubKeyHash>
 	keyStr := fmt.Sprintf("%s%s:%s", prefixKey, keyEntry.ChunkHash.String(), keyEntry.PubKeyHash.String())
 	key := []byte(keyStr)
-	
+
 	data, err := serialize(keyEntry)
 	if err != nil {
 		return fmt.Errorf("serialize key entry: %w", err)
@@ -295,12 +295,12 @@ func (w *DefaultDistributedWAL) createBlock(chunks []model.SealedChunk, vertices
 		// That seems wrong if we want to store the vertex itself.
 		// The `model.VertexRegion` implies we store the vertex data.
 		// Let's serialize the whole vertex using gob.
-		
+
 		var buf bytes.Buffer
 		enc := gob.NewEncoder(&buf)
 		_ = enc.Encode(vertex) // Ignoring error for simplicity in this helper
 		vertexBytes := buf.Bytes()
-		
+
 		length := uint32(len(vertexBytes))
 		vertexIndex[vertex.Hash] = model.VertexRegion{
 			VertexHash: vertex.Hash,

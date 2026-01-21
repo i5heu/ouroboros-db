@@ -46,7 +46,7 @@ func (t *pipeTransport) Connect(ctx context.Context, address string) (Connection
 	t.network.mu.RLock()
 	listener, ok := t.network.listeners[address]
 	serverInfo := t.network.identities[address]
-	
+
 	// Find our own address to identify ourself to the server
 	var clientAddr string
 	for transport, addr := range t.network.transports {
@@ -216,7 +216,7 @@ func (c *pipeConnection) Close() error {
 	return nil
 }
 
-func (c *pipeConnection) RemoteNodeID() NodeID { return c.remoteNodeID }
+func (c *pipeConnection) RemoteNodeID() NodeID             { return c.remoteNodeID }
 func (c *pipeConnection) RemotePublicKey() *keys.PublicKey { return c.remotePubKey }
 
 func TestCarrierIntegration(t *testing.T) {
@@ -225,7 +225,7 @@ func TestCarrierIntegration(t *testing.T) {
 		identities: make(map[string]nodeInfo),
 		transports: make(map[*pipeTransport]string),
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -240,7 +240,7 @@ func TestCarrierIntegration(t *testing.T) {
 		id, _ := NewNodeIdentity()
 		nodeID, _ := NodeIDFromPublicKey(&id.PublicKey)
 		addr := fmt.Sprintf("node-%d:4242", i)
-		
+
 		transports[i] = newPipeTransport(network)
 		transports[i].RegisterNode(addr, nodeID, &id.PublicKey)
 
@@ -283,7 +283,7 @@ func TestCarrierIntegration(t *testing.T) {
 		msg := Message{Type: MessageTypeHeartbeat, Payload: []byte("ping from 0")}
 		senderID := carriers[0].LocalNode().NodeID
 		targetID := carriers[1].LocalNode().NodeID
-		
+
 		t.Logf("Node 0 (%s) sending P2P to Node 1 (%s)...", senderID, targetID)
 		if err := carriers[0].SendMessageToNode(ctx, targetID, msg); err != nil {
 			t.Fatalf("Failed to send message: %v", err)
@@ -304,7 +304,7 @@ func TestCarrierIntegration(t *testing.T) {
 	t.Run("Broadcast", func(t *testing.T) {
 		broadcastMsg := Message{Type: MessageTypeHeartbeat, Payload: []byte("broadcast from 2")}
 		senderID := carriers[2].LocalNode().NodeID
-		
+
 		t.Logf("Node 2 (%s) broadcasting to all...", senderID)
 		result, err := carriers[2].Broadcast(ctx, broadcastMsg)
 		if err != nil {

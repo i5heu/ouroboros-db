@@ -66,6 +66,11 @@ func (c *DefaultCarrier) Stop(ctx context.Context) error { // A
 		}
 	}
 
+	// Close all pooled connections
+	if c.pool != nil {
+		c.pool.closeAll()
+	}
+
 	// Wait for all goroutines to finish
 	c.wg.Wait()
 
@@ -123,21 +128,19 @@ func (c *DefaultCarrier) acceptLoop(ctx context.Context) { // A
 }
 
 // handleConnection processes messages from an incoming connection.
+// The connection is added to the pool for potential reuse when sending.
 func (c *DefaultCarrier) handleConnection( // A
 	ctx context.Context,
 	conn Connection,
 ) {
 	defer c.wg.Done()
-	defer func() {
-		if err := conn.Close(); err != nil {
-			c.log.DebugContext(ctx, "error closing connection",
-				logKeyError, err.Error())
-		}
-	}()
 
 	remoteID := conn.RemoteNodeID()
 	c.log.DebugContext(ctx, "accepted connection",
 		logKeyNodeID, string(remoteID))
+
+	// Add to connection pool for bidirectional communication
+	c.pool.addIncoming(conn)
 
 	// Process messages until connection closes or carrier stops
 	for {
@@ -150,6 +153,8 @@ func (c *DefaultCarrier) handleConnection( // A
 		}
 
 		if !c.processNextMessage(ctx, conn, remoteID) {
+			// Connection closed or error, remove from pool
+			c.pool.remove(remoteID)
 			return
 		}
 	}

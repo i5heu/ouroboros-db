@@ -10,8 +10,8 @@ import (
 
 // DefaultDataReBalancer implements the DataReBalancer interface.
 type DefaultDataReBalancer struct {
-	inProgress  bool
-	status      rebalance.RebalanceStatus
+	inProgress bool
+	status     rebalance.RebalanceStatus
 }
 
 // NewDataReBalancer creates a new DefaultDataReBalancer instance.
