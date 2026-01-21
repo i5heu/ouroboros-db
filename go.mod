@@ -3,14 +3,15 @@ module github.com/i5heu/ouroboros-db
 go 1.24.6
 
 require (
+	github.com/dgraph-io/badger/v4 v4.9.0
 	github.com/i5heu/ouroboros-crypt v1.1.1
 	github.com/lmittmann/tint v1.1.2
+	pgregory.net/rapid v1.2.0
 )
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.0 // indirect
-	github.com/dgraph-io/badger/v4 v4.9.0 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -24,5 +25,4 @@ require (
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	google.golang.org/protobuf v1.36.7 // indirect
-	pgregory.net/rapid v1.2.0 // indirect
 )

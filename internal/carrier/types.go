@@ -33,6 +33,23 @@ const (
 	MessageTypeChunkPayloadRequest
 	// MessageTypeBlobPayloadRequest requests blob data (reserved for future use).
 	MessageTypeBlobPayloadRequest
+
+	// Block distribution message types
+
+	// MessageTypeBlockSliceDelivery delivers a block slice to a node.
+	MessageTypeBlockSliceDelivery
+	// MessageTypeBlockSliceAck acknowledges receipt of a block slice.
+	MessageTypeBlockSliceAck
+	// MessageTypeBlockAnnouncement announces a new fully-distributed block.
+	MessageTypeBlockAnnouncement
+	// MessageTypeMissedBlocksRequest requests list of blocks since a timestamp.
+	MessageTypeMissedBlocksRequest
+	// MessageTypeMissedBlocksResponse responds with list of block hashes.
+	MessageTypeMissedBlocksResponse
+	// MessageTypeBlockMetadataRequest requests metadata for a block.
+	MessageTypeBlockMetadataRequest
+	// MessageTypeBlockMetadataResponse responds with block metadata.
+	MessageTypeBlockMetadataResponse
 )
 
 // Slog attribute keys used throughout the carrier package.
@@ -64,6 +81,13 @@ var messageTypeNames = map[MessageType]string{ // A
 	MessageTypeNodeListResponse:          "NodeListResponse",
 	MessageTypeChunkPayloadRequest:       "ChunkPayloadRequest",
 	MessageTypeBlobPayloadRequest:        "BlobPayloadRequest",
+	MessageTypeBlockSliceDelivery:        "BlockSliceDelivery",
+	MessageTypeBlockSliceAck:             "BlockSliceAck",
+	MessageTypeBlockAnnouncement:         "BlockAnnouncement",
+	MessageTypeMissedBlocksRequest:       "MissedBlocksRequest",
+	MessageTypeMissedBlocksResponse:      "MissedBlocksResponse",
+	MessageTypeBlockMetadataRequest:      "BlockMetadataRequest",
+	MessageTypeBlockMetadataResponse:     "BlockMetadataResponse",
 }
 
 // String returns the string representation of a MessageType.

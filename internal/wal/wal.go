@@ -143,13 +143,22 @@ func (w *DefaultDistributedWAL) AppendKeyEntry(
 }
 
 // SealBlock creates a new block from the buffered items.
+//
+// IMPORTANT: This method does NOT delete WAL entries. The caller must call
+// ClearBlock() after confirming the block has been successfully distributed
+// to the required number of nodes.
+//
+// Returns:
+//   - The sealed Block containing all buffered items
+//   - The WAL keys that should be passed to ClearBlock() after distribution
+//   - Error if block creation fails
 func (w *DefaultDistributedWAL) SealBlock(
 	ctx context.Context,
-) (model.Block, error) {
+) (model.Block, [][]byte, error) {
 	var chunks []model.SealedChunk
 	var vertices []model.Vertex
 	keyEntries := make(map[hash.Hash][]model.KeyEntry)
-	var keysToDelete [][]byte
+	var walKeys [][]byte
 
 	err := w.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
@@ -160,7 +169,11 @@ func (w *DefaultDistributedWAL) SealBlock(
 			item := it.Item()
 			k := item.Key()
 			keyStr := string(k)
-			keysToDelete = append(keysToDelete, k) // Mark for deletion
+
+			// Make a copy of the key for later deletion via ClearBlock
+			keyCopy := make([]byte, len(k))
+			copy(keyCopy, k)
+			walKeys = append(walKeys, keyCopy)
 
 			err := item.Value(func(v []byte) error {
 				if strings.HasPrefix(keyStr, prefixChunk) {
@@ -192,33 +205,40 @@ func (w *DefaultDistributedWAL) SealBlock(
 	})
 
 	if err != nil {
-		return model.Block{}, fmt.Errorf("iterate wal: %w", err)
+		return model.Block{}, nil, fmt.Errorf("iterate wal: %w", err)
 	}
 
 	if len(chunks) == 0 && len(vertices) == 0 {
-		return model.Block{}, fmt.Errorf("wal: no data to seal")
+		return model.Block{}, nil, fmt.Errorf("wal: no data to seal")
 	}
 
 	block := w.createBlock(chunks, vertices, keyEntries)
 
-	// Delete processed items
-	// In a real system, we might want to do this AFTER confirming the block is persisted.
-	// But per interface, SealBlock returns the block to be persisted.
-	// The caller is responsible for persisting the block.
-	// Ideally, the WAL should be cleared only after the BlockStore confirms storage.
-	// However, for this implementation, we clear it here as per previous logic, 
-	// OR we could assume the WAL is cleared by a separate "Commit" call?
-	// The interface says "The Block is passed to BlockStore... WAL buffer is cleared".
-	// Since SealBlock returns the Block, if the app crashes before BlockStore saves it,
-	// we lose data if we delete here.
-	// But the interface implies atomic "Seal & Clear".
-	// To be safe against crashes, we should probably delete only after successful persist.
-	// But we don't have a callback here.
-	// The "DistributedWAL" usually implies we might keep it until replicated.
-	// Given the current scope, we will delete here.
-	
-	err = w.db.Update(func(txn *badger.Txn) error {
-		for _, k := range keysToDelete {
+	// DO NOT delete WAL entries here. The caller must call ClearBlock()
+	// after confirming the block has been distributed to sufficient nodes.
+	// This ensures crash safety - if we crash before distribution, the
+	// WAL entries are preserved and can be re-sealed on restart.
+
+	return block, walKeys, nil
+}
+
+// ClearBlock removes WAL entries for a successfully distributed block.
+//
+// This should only be called after confirming the block has been distributed
+// to the required number of nodes (typically 3+). The walKeys parameter
+// should come from the SealBlock() return value.
+//
+// Parameters:
+//   - walKeys: The keys returned by SealBlock() for this block
+//
+// Returns:
+//   - Error if the WAL entries cannot be deleted
+func (w *DefaultDistributedWAL) ClearBlock(
+	ctx context.Context,
+	walKeys [][]byte,
+) error {
+	err := w.db.Update(func(txn *badger.Txn) error {
+		for _, k := range walKeys {
 			if err := txn.Delete(k); err != nil {
 				return err
 			}
@@ -226,11 +246,12 @@ func (w *DefaultDistributedWAL) SealBlock(
 		return nil
 	})
 	if err != nil {
-		return model.Block{}, fmt.Errorf("clear wal: %w", err)
+		return fmt.Errorf("clear wal entries: %w", err)
 	}
 
-	w.bufferSize = 0
-	return block, nil
+	// Recalculate buffer size after clearing entries
+	w.recalcBufferSize()
+	return nil
 }
 
 // GetBufferSize returns the current size of buffered data.
@@ -239,9 +260,12 @@ func (w *DefaultDistributedWAL) GetBufferSize() int64 {
 }
 
 // Flush forces the creation of a block even if the buffer isn't full.
+//
+// Like SealBlock(), this does NOT delete WAL entries. The caller must call
+// ClearBlock() after confirming the block has been successfully distributed.
 func (w *DefaultDistributedWAL) Flush(
 	ctx context.Context,
-) (model.Block, error) {
+) (model.Block, [][]byte, error) {
 	return w.SealBlock(ctx)
 }
 

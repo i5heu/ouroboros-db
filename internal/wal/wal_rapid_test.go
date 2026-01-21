@@ -154,16 +154,16 @@ func (m *WALStateMachine) AppendKeyEntry(t *rapid.T) {
 func (m *WALStateMachine) SealBlock(t *rapid.T) {
 	// If empty, SealBlock might fail or return empty. Implementation returns error if empty.
 	shouldFail := len(m.expectedChunks) == 0 && len(m.expectedVertices) == 0
-	
-	block, err := m.wal.SealBlock(context.Background())
-	
+
+	block, walKeys, err := m.wal.SealBlock(context.Background())
+
 	if shouldFail {
 		if err == nil {
 			t.Fatal("Expected SealBlock to fail on empty buffer")
 		}
 		return
 	}
-	
+
 	if err != nil {
 		t.Fatalf("SealBlock failed: %v", err)
 	}
@@ -174,7 +174,7 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 	if int(block.Header.VertexCount) != len(m.expectedVertices) {
 		t.Errorf("Block VertexCount %d != expected %d", block.Header.VertexCount, len(m.expectedVertices))
 	}
-	
+
 	// Verify KeyRegistry
 	expectedKeyMap := make(map[hash.Hash][]model.KeyEntry)
 	countKeys := 0
@@ -182,7 +182,7 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 		expectedKeyMap[k.ChunkHash] = append(expectedKeyMap[k.ChunkHash], k)
 		countKeys++
 	}
-	
+
 	blockKeyCount := 0
 	for _, keys := range block.KeyRegistry {
 		blockKeyCount += len(keys)
@@ -191,9 +191,19 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 		t.Errorf("Block KeyCount %d != expected %d", blockKeyCount, countKeys)
 	}
 
-	// Verify persistence cleared
+	// Verify WAL keys were returned for later clearing
+	if len(walKeys) == 0 && (len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0 || len(m.expectedKeys) > 0) {
+		t.Errorf("SealBlock should return WAL keys when there is data")
+	}
+
+	// Simulate distribution confirmation by calling ClearBlock
+	if err := m.wal.ClearBlock(context.Background(), walKeys); err != nil {
+		t.Fatalf("ClearBlock failed: %v", err)
+	}
+
+	// Verify persistence cleared after ClearBlock
 	if m.wal.GetBufferSize() != 0 {
-		t.Errorf("WAL buffer size not reset after seal: %d", m.wal.GetBufferSize())
+		t.Errorf("WAL buffer size not reset after ClearBlock: %d", m.wal.GetBufferSize())
 	}
 
 	// Reset expectations

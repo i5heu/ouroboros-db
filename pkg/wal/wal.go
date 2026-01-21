@@ -119,19 +119,38 @@ type DistributedWAL interface {
 	//  2. Serializes all buffered Vertices into the VertexSection
 	//  3. Builds the ChunkIndex and VertexIndex
 	//  4. Computes the block hash
-	//  5. Clears the buffer
-	//  6. Returns the complete Block
+	//  5. Returns the complete Block AND the WAL keys
+	//
+	// IMPORTANT: This method does NOT clear the WAL buffer. The caller
+	// must call ClearBlock() after confirming the block has been
+	// successfully distributed to the required number of nodes.
 	//
 	// The returned Block should be passed to BlockStore for persistence
-	// and to DataRouter for distribution.
+	// and to DataRouter for distribution. The walKeys should be passed
+	// to ClearBlock() once distribution is confirmed.
 	//
 	// Returns:
 	//   - The sealed Block containing all buffered items
+	//   - The WAL keys that should be deleted after confirmed distribution
 	//   - Error if block creation fails
 	//
-	// If the buffer is empty, this returns an error or empty block
-	// (implementation-defined).
-	SealBlock(ctx context.Context) (model.Block, error)
+	// If the buffer is empty, this returns an error.
+	SealBlock(ctx context.Context) (model.Block, [][]byte, error)
+
+	// ClearBlock removes WAL entries for a successfully distributed block.
+	//
+	// This should only be called after confirming the block has been
+	// distributed to the required number of nodes (typically 3+).
+	// The walKeys parameter should come from the SealBlock() return value.
+	//
+	// After calling ClearBlock, the buffer size is recalculated.
+	//
+	// Parameters:
+	//   - walKeys: The keys returned by SealBlock() for this block
+	//
+	// Returns:
+	//   - Error if the WAL entries cannot be deleted
+	ClearBlock(ctx context.Context, walKeys [][]byte) error
 
 	// GetBufferSize returns the current size of buffered data in bytes.
 	//
@@ -157,10 +176,14 @@ type DistributedWAL interface {
 	// of buffer size. If the buffer is empty, behavior is implementation-defined
 	// (may return error or empty block).
 	//
+	// IMPORTANT: Like SealBlock(), this does NOT clear the WAL buffer.
+	// The caller must call ClearBlock() after confirmed distribution.
+	//
 	// Returns:
 	//   - The sealed Block (may be smaller than target size)
+	//   - The WAL keys that should be deleted after confirmed distribution
 	//   - Error if block creation fails
-	Flush(ctx context.Context) (model.Block, error)
+	Flush(ctx context.Context) (model.Block, [][]byte, error)
 }
 
 // DeletionWAL logs deletions for eventual garbage collection.

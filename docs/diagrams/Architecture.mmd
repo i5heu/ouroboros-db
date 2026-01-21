@@ -71,6 +71,20 @@ classDiagram
         +RetrieveBlock(hash.Hash) (Block, error)
     }
 
+    %% BlockDistributionTracker: Tracks block distribution and confirmations.
+    %% Responsible for tracking slice confirmations, pending distributions,
+    %% and providing metadata for offline node sync.
+    class BlockDistributionTracker {
+        +StartDistribution(block Block, walKeys [][]byte) (*BlockDistributionRecord, error)
+        +RecordSliceConfirmation(blockHash hash.Hash, sliceHash hash.Hash, nodeID string) (bool, error)
+        +GetDistributionState(blockHash hash.Hash) (*BlockDistributionRecord, error)
+        +GetPendingDistributions() ([]*BlockDistributionRecord, error)
+        +MarkDistributed(blockHash hash.Hash) error
+        +MarkFailed(blockHash hash.Hash, reason string) error
+        +GetDistributedBlocksSince(since int64) ([]hash.Hash, error)
+        +GetBlockMetadata(blockHash hash.Hash) (*BlockMetadata, error)
+    }
+
     %% CAS: Content Addressable Storage - the main management layer.
     %% Provides high-level API for content operations, coordinating
     %% encryption, WAL buffering, block storage, and access control.
@@ -151,6 +165,9 @@ classDiagram
     Node "1" *-- "1" BlockStore : persists blocks
     DataRouter "1" *-- "1" ClusterController : interacts with
     CAS "1" *-- "1" DataRouter : coordinates distribution via
+    DataRouter "1" o-- "1" BlockDistributionTracker : initiates distribution via
+    ClusterController "1" o-- "1" BlockDistributionTracker : queries for offline node sync
+    BlockDistributionTracker "1" *-- "*" Block : tracks distribution for
     CAS "1" *-- "1" BlockStore : stores blocks via
     CAS "1" *-- "1" EncryptionService : encrypts/decrypts via
     CAS "1" *-- "1" DistributedWAL : buffers writes via
