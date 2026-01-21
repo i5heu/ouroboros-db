@@ -181,6 +181,36 @@ func (p *connPool) addIncoming(conn Connection) { // A
 		logKeyNodeID, string(remoteID))
 }
 
+// addOutgoing adds an outgoing connection to the pool that was created
+// externally (e.g., during bootstrap). This allows reuse of the connection
+// for subsequent requests.
+func (p *connPool) addOutgoing(nodeID NodeID, conn Connection) { // A
+	if nodeID == "" || nodeID == p.localID {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Check if we already have a connection
+	if existing, ok := p.conns[nodeID]; ok {
+		if existing.conn != nil && !isConnClosed(existing.conn) {
+			// Keep existing connection, close new one
+			conn.Close()
+			return
+		}
+	}
+
+	p.conns[nodeID] = &pooledConn{
+		conn:     conn,
+		nodeID:   nodeID,
+		lastUsed: time.Now(),
+	}
+
+	p.log.Debug("outgoing connection added to pool",
+		logKeyNodeID, string(nodeID))
+}
+
 // remove removes a connection from the pool and closes it.
 func (p *connPool) remove(nodeID NodeID) { // A
 	p.mu.Lock()

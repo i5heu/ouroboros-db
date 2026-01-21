@@ -22,6 +22,28 @@ echo -e "${BLUE}  OuroborosDB Dashboard Demo${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
+# Kill any existing daemon processes that might be holding ports
+echo -e "${YELLOW}Cleaning up any existing daemon processes...${NC}"
+pkill -9 -f "ouroboros-demo" 2>/dev/null || true
+pkill -9 -f "bin/daemon.*--listen.*424[234]" 2>/dev/null || true
+
+# Also check for processes holding our specific ports and kill them
+for port in 4242 4243 4244 8420; do
+    pid=$(lsof -t -i:$port 2>/dev/null || true)
+    if [ ! -z "$pid" ]; then
+        echo -e "  Killing process $pid holding port $port"
+        kill -9 $pid 2>/dev/null || true
+    fi
+done
+
+# Clean up old data directory
+rm -rf /tmp/ouroboros-demo 2>/dev/null || true
+
+# Give OS time to release ports
+sleep 1
+echo -e "${GREEN}Cleanup complete!${NC}"
+echo ""
+
 # Build the daemon first
 echo -e "${YELLOW}Building daemon...${NC}"
 cd "$PROJECT_DIR"
@@ -42,6 +64,7 @@ cleanup() {
     echo ""
     echo -e "${YELLOW}Shutting down nodes...${NC}"
     
+    # Kill our specific PIDs first (gracefully)
     if [ ! -z "$PID1" ]; then
         kill $PID1 2>/dev/null || true
     fi
@@ -52,8 +75,27 @@ cleanup() {
         kill $PID3 2>/dev/null || true
     fi
     
-    # Wait a moment for cleanup
+    # Wait a moment for graceful shutdown
     sleep 1
+    
+    # Force kill if still running
+    if [ ! -z "$PID1" ] && kill -0 $PID1 2>/dev/null; then
+        kill -9 $PID1 2>/dev/null || true
+    fi
+    if [ ! -z "$PID2" ] && kill -0 $PID2 2>/dev/null; then
+        kill -9 $PID2 2>/dev/null || true
+    fi
+    if [ ! -z "$PID3" ] && kill -0 $PID3 2>/dev/null; then
+        kill -9 $PID3 2>/dev/null || true
+    fi
+    
+    # Also kill any other daemon processes using our ports
+    for port in 4242 4243 4244 8420; do
+        pid=$(lsof -t -i:$port 2>/dev/null || true)
+        if [ ! -z "$pid" ]; then
+            kill -9 $pid 2>/dev/null || true
+        fi
+    done
     
     echo -e "${GREEN}All nodes stopped.${NC}"
     echo ""

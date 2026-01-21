@@ -800,6 +800,121 @@ func TestGenerateTLSConfig(t *testing.T) { // A
 	}
 }
 
+// TestQUICConn_RequestResponse tests the request-response pattern where
+// client sends a request and server sends a response back on a different stream.
+func TestQUICConn_RequestResponse(t *testing.T) { // A
+	logger := testQUICLogger()
+
+	serverTransport, err := NewQUICTransport(
+		logger,
+		"server-node",
+		DefaultQUICConfig(),
+	)
+	if err != nil {
+		t.Fatalf("NewQUICTransport(server) error = %v", err)
+	}
+	defer serverTransport.Close()
+
+	clientTransport, err := NewQUICTransport(
+		logger,
+		"client-node",
+		DefaultQUICConfig(),
+	)
+	if err != nil {
+		t.Fatalf("NewQUICTransport(client) error = %v", err)
+	}
+	defer clientTransport.Close()
+
+	ctx := context.Background()
+
+	listener, err := serverTransport.Listen(ctx, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	serverAddr := listener.Addr()
+
+	var serverConn Connection
+	acceptDone := make(chan struct{})
+	go func() {
+		serverConn, _ = listener.Accept(ctx)
+		close(acceptDone)
+	}()
+
+	clientConn, err := clientTransport.Connect(ctx, serverAddr)
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer clientConn.Close()
+
+	<-acceptDone
+	defer serverConn.Close()
+
+	// Server handler: receives request, sends response
+	serverErrCh := make(chan error, 1)
+	go func() {
+		// 1. Server receives request
+		req, err := serverConn.Receive(ctx)
+		if err != nil {
+			serverErrCh <- err
+			return
+		}
+		t.Logf("Server received request: type=%v", req.Type)
+
+		// 2. Server sends response (on a new stream back to client)
+		resp := Message{
+			Type:    MessageTypeNodeListResponse,
+			Payload: []byte("response data"),
+		}
+		if err := serverConn.Send(ctx, resp); err != nil {
+			serverErrCh <- err
+			return
+		}
+		t.Logf("Server sent response")
+		serverErrCh <- nil
+	}()
+
+	// Client: send request, then receive response
+	request := Message{
+		Type:    MessageTypeNodeListRequest,
+		Payload: []byte("request data"),
+	}
+
+	// 1. Client sends request
+	if err := clientConn.Send(ctx, request); err != nil {
+		t.Fatalf("Client Send() error = %v", err)
+	}
+	t.Logf("Client sent request")
+
+	// 2. Client receives response (on a new incoming stream from server)
+	response, err := clientConn.Receive(ctx)
+	if err != nil {
+		t.Fatalf("Client Receive() error = %v", err)
+	}
+	t.Logf("Client received response: type=%v", response.Type)
+
+	// Wait for server to complete
+	select {
+	case err := <-serverErrCh:
+		if err != nil {
+			t.Fatalf("Server error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Server timed out")
+	}
+
+	// Verify response
+	if response.Type != MessageTypeNodeListResponse {
+		t.Errorf("Response type = %v, want %v",
+			response.Type, MessageTypeNodeListResponse)
+	}
+	if !bytes.Equal(response.Payload, []byte("response data")) {
+		t.Errorf("Response payload = %q, want %q",
+			response.Payload, "response data")
+	}
+}
+
 // TestTruncateNodeID tests the node ID truncation helper.
 func TestTruncateNodeID(t *testing.T) { // A
 	tests := []struct {

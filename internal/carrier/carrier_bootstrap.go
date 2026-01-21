@@ -91,6 +91,9 @@ func (c *DefaultCarrier) BootstrapFromAddresses( // A
 			c.nodes[remoteID] = bootstrapNode
 			c.mu.Unlock()
 
+			// Add connection to pool for reuse by SyncNodes
+			c.pool.addOutgoing(remoteID, conn)
+
 			c.log.InfoContext(ctx, "added bootstrap node",
 				logKeyNodeID, string(remoteID),
 				logKeyAddress, normalizedAddr)
@@ -109,12 +112,7 @@ func (c *DefaultCarrier) BootstrapFromAddresses( // A
 			}
 		}
 
-		if err := conn.Close(); err != nil {
-			c.log.DebugContext(ctx, "error closing connection",
-				logKeyAddress, normalizedAddr,
-				logKeyError, err.Error())
-		}
-
+		// Don't close - the connection is now managed by the pool
 		c.log.InfoContext(ctx, "successfully bootstrapped from address",
 			logKeyAddress, normalizedAddr)
 		return nil
@@ -124,6 +122,7 @@ func (c *DefaultCarrier) BootstrapFromAddresses( // A
 }
 
 // RequestNodeList requests the list of known nodes from a specific node.
+// It uses the connection pool to reuse existing connections.
 func (c *DefaultCarrier) RequestNodeList( // A
 	ctx context.Context,
 	nodeID NodeID,
@@ -140,18 +139,11 @@ func (c *DefaultCarrier) RequestNodeList( // A
 		return nil, fmt.Errorf("node %s has no addresses", nodeID)
 	}
 
-	// Connect and send request
-	conn, err := c.transport.Connect(ctx, node.Addresses[0])
+	// Use pooled connection (don't close - pool manages lifecycle)
+	conn, err := c.pool.getOrConnect(ctx, node)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			c.log.DebugContext(ctx, "error closing connection",
-				logKeyNodeID, string(nodeID),
-				logKeyError, closeErr.Error())
-		}
-	}()
 
 	// Send node list request
 	msg := Message{Type: MessageTypeNodeListRequest}
@@ -159,7 +151,8 @@ func (c *DefaultCarrier) RequestNodeList( // A
 		return nil, fmt.Errorf("failed to send node list request: %w", err)
 	}
 
-	// Receive response
+	// Receive response on the same connection
+	// The server will send the response on a new stream back to us
 	response, err := conn.Receive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive node list response: %w", err)
