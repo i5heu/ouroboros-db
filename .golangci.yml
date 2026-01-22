@@ -11,6 +11,12 @@ linters:
     - sloglint
     - cyclop
     - lll
+  exclusions:
+    rules:
+      # Ignore cyclop (cyclomatic complexity) in test files
+      - path: _test\.go
+        linters:
+          - cyclop
   settings:
     cyclop:
       # The maximal code complexity to report.
@@ -19,7 +25,7 @@ linters:
       package-average: 0
     lll:
       # '\t' is counted as 1 character by default, and can be changed with the tab-width option.
-      line-length: 80
+      line-length: 100
       tab-width: 2
     sloglint:
       # Enforce not mixing key-value pairs and attributes.
@@ -94,9 +100,11 @@ formatters:
       extra-rules: true
     golines:
       # Target maximum line length.
-      max-len: 80
+      max-len: 100
       # Length of a tabulation.
       tab-len: 2
       shorten-comments: true
       reformat-tags: false
       chain-split-dots: false
+
+
