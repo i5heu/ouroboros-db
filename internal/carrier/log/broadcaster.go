@@ -1,0 +1,310 @@
+// Package log provides log broadcasting functionality for the carrier.
+//
+// This package contains the LogBroadcaster which intercepts log records
+// and forwards them to subscribed remote nodes via the carrier.
+package log
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/i5heu/ouroboros-db/pkg/carrier"
+	"github.com/i5heu/ouroboros-db/pkg/cluster"
+)
+
+// Carrier defines the interface needed for log broadcasting.
+type Carrier interface { // A
+	SendMessageToNode(
+		ctx context.Context,
+		nodeID cluster.NodeID,
+		message carrier.Message,
+	) error
+}
+
+// Broadcaster intercepts log records and forwards them to subscribed nodes.
+// It implements slog.Handler to wrap an existing logger and broadcast logs
+// via the carrier to all subscribers.
+//
+// Broadcaster uses a channel-based design with a single owner goroutine
+// managing the subscribers map, avoiding the need for mutexes.
+type Broadcaster struct { // A
+	carrier     Carrier
+	localNodeID cluster.NodeID
+	inner       slog.Handler
+
+	// preAttrs stores attributes added via WithAttrs for inclusion in broadcasts
+	preAttrs []slog.Attr
+	// group stores the current group name for attribute prefixing
+	group string
+
+	// Channel-based command pattern - single goroutine owns subscribers
+	subscribeCh   chan subscribeCmd
+	unsubscribeCh chan cluster.NodeID
+	logCh         chan carrier.LogEntryPayload
+	stopCh        chan struct{}
+	doneCh        chan struct{}
+}
+
+// subscribeCmd is sent to the manager goroutine to add a subscriber.
+type subscribeCmd struct { // A
+	nodeID cluster.NodeID
+	levels map[string]bool
+}
+
+// subscriberConfig holds configuration for a single subscriber.
+type subscriberConfig struct { // A
+	nodeID cluster.NodeID
+	levels map[string]bool // Empty map means all levels
+}
+
+// Config configures a Broadcaster.
+type Config struct { // A
+	Carrier     Carrier
+	LocalNodeID cluster.NodeID
+	Inner       slog.Handler
+}
+
+// NewBroadcaster creates a new Broadcaster.
+// The broadcaster must be started with Start() before it will forward logs.
+func NewBroadcaster(cfg Config) *Broadcaster { // A
+	return &Broadcaster{
+		carrier:       cfg.Carrier,
+		localNodeID:   cfg.LocalNodeID,
+		inner:         cfg.Inner,
+		subscribeCh:   make(chan subscribeCmd, 16),
+		unsubscribeCh: make(chan cluster.NodeID, 16),
+		logCh:         make(chan carrier.LogEntryPayload, 256),
+		stopCh:        make(chan struct{}),
+		doneCh:        make(chan struct{}),
+	}
+}
+
+// Start begins the broadcast loop. Call this before using the broadcaster.
+func (lb *Broadcaster) Start() { // A
+	go lb.run()
+}
+
+// Stop gracefully shuts down the broadcaster.
+func (lb *Broadcaster) Stop() { // A
+	close(lb.stopCh)
+	<-lb.doneCh
+}
+
+// Subscribe adds a node as a subscriber to this node's logs.
+// Levels specifies which log levels to forward; empty slice means all levels.
+func (lb *Broadcaster) Subscribe(nodeID cluster.NodeID, levels []string) { // A
+	levelMap := make(map[string]bool, len(levels))
+	for _, l := range levels {
+		levelMap[l] = true
+	}
+	lb.subscribeCh <- subscribeCmd{nodeID: nodeID, levels: levelMap}
+}
+
+// Unsubscribe removes a node from the subscribers list.
+func (lb *Broadcaster) Unsubscribe(nodeID cluster.NodeID) { // A
+	lb.unsubscribeCh <- nodeID
+}
+
+// run is the main loop that manages subscribers and broadcasts logs.
+// It is the single owner of the subscribers map - no mutex needed.
+func (lb *Broadcaster) run() { // A
+	defer close(lb.doneCh)
+
+	subscribers := make(map[cluster.NodeID]*subscriberConfig)
+
+	for {
+		select {
+		case cmd := <-lb.subscribeCh:
+			subscribers[cmd.nodeID] = &subscriberConfig{
+				nodeID: cmd.nodeID,
+				levels: cmd.levels,
+			}
+
+		case nodeID := <-lb.unsubscribeCh:
+			delete(subscribers, nodeID)
+
+		case entry := <-lb.logCh:
+			lb.broadcastToSubscribers(subscribers, entry)
+
+		case <-lb.stopCh:
+			return
+		}
+	}
+}
+
+// broadcastToSubscribers sends a log entry to all matching subscribers.
+func (lb *Broadcaster) broadcastToSubscribers(
+	subscribers map[cluster.NodeID]*subscriberConfig,
+	entry carrier.LogEntryPayload,
+) { // A
+	for _, sub := range subscribers {
+		// Check if subscriber wants this level
+		if len(sub.levels) > 0 && !sub.levels[entry.Level] {
+			continue
+		}
+
+		// Send in goroutine to not block the main loop
+		nodeID := sub.nodeID
+		go lb.sendToSubscriber(nodeID, entry)
+	}
+}
+
+// sendToSubscriber sends a log entry to a single subscriber node.
+func (lb *Broadcaster) sendToSubscriber(
+	nodeID cluster.NodeID,
+	entry carrier.LogEntryPayload,
+) { // A
+	payload, err := carrier.Serialize(entry)
+	if err != nil {
+		return // Silently drop on serialization error
+	}
+
+	msg := carrier.Message{
+		Type:    carrier.MessageTypeLogEntry,
+		Payload: payload,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Fire and forget - don't block on slow subscribers
+	_ = lb.carrier.SendMessageToNode(ctx, nodeID, msg)
+}
+
+// Enabled implements slog.Handler.
+func (lb *Broadcaster) Enabled(ctx context.Context, level slog.Level) bool { // A
+	return lb.inner.Enabled(ctx, level)
+}
+
+// Handle implements slog.Handler. It forwards the record to the inner handler
+// and queues it for broadcast to subscribers.
+func (lb *Broadcaster) Handle(
+	ctx context.Context,
+	record slog.Record,
+) error { // A
+	// Always forward to inner handler first
+	err := lb.inner.Handle(ctx, record)
+
+	// Queue for broadcast (non-blocking)
+	entry := lb.recordToEntry(record)
+	select {
+	case lb.logCh <- entry:
+		// Queued successfully
+	default:
+		// Channel full, drop the broadcast (but inner handler still got it)
+	}
+
+	return err
+}
+
+// WithAttrs implements slog.Handler.
+func (lb *Broadcaster) WithAttrs(attrs []slog.Attr) slog.Handler { // A
+	// Combine existing preAttrs with new attrs
+	newAttrs := make([]slog.Attr, len(lb.preAttrs)+len(attrs))
+	copy(newAttrs, lb.preAttrs)
+	copy(newAttrs[len(lb.preAttrs):], attrs)
+
+	return &Broadcaster{
+		carrier:       lb.carrier,
+		localNodeID:   lb.localNodeID,
+		inner:         lb.inner.WithAttrs(attrs),
+		preAttrs:      newAttrs,
+		group:         lb.group,
+		subscribeCh:   lb.subscribeCh,
+		unsubscribeCh: lb.unsubscribeCh,
+		logCh:         lb.logCh,
+		stopCh:        lb.stopCh,
+		doneCh:        lb.doneCh,
+	}
+}
+
+// WithGroup implements slog.Handler.
+func (lb *Broadcaster) WithGroup(name string) slog.Handler { // A
+	newGroup := name
+	if lb.group != "" {
+		newGroup = lb.group + "." + name
+	}
+
+	return &Broadcaster{
+		carrier:       lb.carrier,
+		localNodeID:   lb.localNodeID,
+		inner:         lb.inner.WithGroup(name),
+		preAttrs:      lb.preAttrs,
+		group:         newGroup,
+		subscribeCh:   lb.subscribeCh,
+		unsubscribeCh: lb.unsubscribeCh,
+		logCh:         lb.logCh,
+		stopCh:        lb.stopCh,
+		doneCh:        lb.doneCh,
+	}
+}
+
+// recordToEntry converts an slog.Record to a LogEntryPayload.
+func (lb *Broadcaster) recordToEntry(
+	record slog.Record,
+) carrier.LogEntryPayload { // A
+	attrs := make(map[string]string)
+
+	// Include pre-configured attributes from WithAttrs
+	for _, a := range lb.preAttrs {
+		key := a.Key
+		if lb.group != "" {
+			key = lb.group + "." + key
+		}
+		attrs[key] = a.Value.String()
+	}
+
+	// Include attributes from the record itself
+	record.Attrs(func(a slog.Attr) bool {
+		key := a.Key
+		if lb.group != "" {
+			key = lb.group + "." + key
+		}
+		attrs[key] = a.Value.String()
+		return true
+	})
+
+	return carrier.LogEntryPayload{
+		SourceNodeID: lb.localNodeID,
+		Timestamp:    record.Time.UnixNano(),
+		Level:        record.Level.String(),
+		Message:      record.Message,
+		Attributes:   attrs,
+	}
+}
+
+// HandleLogSubscribe processes an incoming log subscription request.
+// This should be registered as a handler on the carrier.
+func (lb *Broadcaster) HandleLogSubscribe(
+	ctx context.Context,
+	senderID cluster.NodeID,
+	msg carrier.Message,
+) (*carrier.Message, error) { // A
+	payload, err := carrier.Deserialize[carrier.LogSubscribePayload](msg.Payload)
+	if err != nil {
+		return nil, err
+	}
+
+	lb.Subscribe(payload.SubscriberNodeID, payload.Levels)
+	return nil, nil
+}
+
+// HandleLogUnsubscribe processes an incoming log unsubscription request.
+// This should be registered as a handler on the carrier.
+func (lb *Broadcaster) HandleLogUnsubscribe(
+	ctx context.Context,
+	senderID cluster.NodeID,
+	msg carrier.Message,
+) (*carrier.Message, error) { // A
+	payload, err := carrier.Deserialize[carrier.LogUnsubscribePayload](msg.Payload)
+	if err != nil {
+		return nil, err
+	}
+
+	lb.Unsubscribe(payload.SubscriberNodeID)
+	return nil, nil
+}
+
+// Ensure Broadcaster implements slog.Handler.
+var _ slog.Handler = (*Broadcaster)(nil)

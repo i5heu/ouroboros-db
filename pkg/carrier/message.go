@@ -12,100 +12,116 @@ import (
 // Message types are organized into categories:
 //
 // # Data Operations
-//   - BlockSliceRequest/Response: Retrieve block slices
+//   - SealedSlicePayloadRequest: Retrieve sealed slices
 //   - ChunkMetaRequest: Query chunk metadata
-//   - VertexMetaRequest: Query vertex metadata
-//   - KeyEntryRequest/Response: Access control queries
-//   - BlockSyncRequest: Synchronization operations
+//   - BlobMetaRequest: Query blob metadata
+//
+// # Block Distribution
+//   - BlockSliceDelivery/Ack: Distribute and acknowledge block slices
+//   - BlockAnnouncement: Announce new distributed blocks
+//   - MissedBlocksRequest/Response: Catch up on missed blocks
+//   - BlockMetadataRequest/Response: Query block metadata
 //
 // # Cluster Management
 //   - Heartbeat: Health monitoring and status
 //   - NodeJoinRequest: Request to join cluster
 //   - NodeLeaveNotification: Announce departure
 //   - NewNodeAnnouncement: Propagate new members
+//   - NodeListRequest/Response: Query cluster membership
+//
+// # Dashboard/Logging
+//   - LogSubscribe/Unsubscribe: Remote log streaming
+//   - LogEntry: Forwarded log entries
+//   - DashboardAnnounce: Dashboard address announcement
 //
 // # Access Control
 //   - UserAuthDecision: Authentication results
-type MessageType uint8
+type MessageType uint8 // A
 
 const (
-	// MessageTypeBlockSliceRequest requests a block slice payload.
-	// Payload: BlockHash + RSSliceIndex
-	// Response: MessageTypeBlockSliceResponse with the slice data
-	MessageTypeBlockSliceRequest MessageType = iota + 1
-
-	// MessageTypeBlockSliceResponse responds with a block slice payload.
-	// Payload: Serialized BlockSlice
-	MessageTypeBlockSliceResponse
-
-	// MessageTypeChunkMetaRequest requests chunk metadata (without content).
-	// Payload: ChunkHash
-	// Response: Chunk metadata (size, block location, etc.)
+	// MessageTypeSealedSlicePayloadRequest requests a sealed slice payload.
+	MessageTypeSealedSlicePayloadRequest MessageType = iota + 1
+	// MessageTypeChunkMetaRequest requests chunk metadata.
 	MessageTypeChunkMetaRequest
-
-	// MessageTypeVertexMetaRequest requests vertex metadata.
-	// Payload: VertexHash
-	// Response: Vertex metadata (Parent, Created, ChunkHashes)
-	MessageTypeVertexMetaRequest
-
+	// MessageTypeBlobMetaRequest requests blob metadata.
+	MessageTypeBlobMetaRequest
 	// MessageTypeHeartbeat is used for health monitoring and cluster status.
-	// Payload: Node status (load, disk usage, memory, etc.)
-	// Sent periodically to maintain cluster health information.
 	MessageTypeHeartbeat
-
 	// MessageTypeNodeJoinRequest is sent when a node wants to join the cluster.
-	// Payload: NodeCert for authentication
-	// Response: Current cluster membership or rejection
 	MessageTypeNodeJoinRequest
-
 	// MessageTypeNodeLeaveNotification is sent when a node leaves the cluster.
-	// Payload: NodeID of the departing node
-	// No response expected; informational only.
 	MessageTypeNodeLeaveNotification
-
 	// MessageTypeUserAuthDecision communicates authentication decisions.
-	// Payload: User identity, decision (allow/deny), permissions
-	// Used for distributed access control decisions.
 	MessageTypeUserAuthDecision
-
 	// MessageTypeNewNodeAnnouncement announces a new node to the cluster.
-	// Payload: Full Node information (ID, Addresses, Cert)
-	// Broadcast to all nodes when a new member joins.
 	MessageTypeNewNodeAnnouncement
+	// MessageTypeNodeListRequest requests the list of known nodes.
+	MessageTypeNodeListRequest
+	// MessageTypeNodeListResponse responds with the list of known nodes.
+	MessageTypeNodeListResponse
+	// MessageTypeChunkPayloadRequest requests chunk data (reserved).
+	MessageTypeChunkPayloadRequest
+	// MessageTypeBlobPayloadRequest requests blob data (reserved).
+	MessageTypeBlobPayloadRequest
 
-	// MessageTypeKeyEntryRequest requests key entries for a chunk.
-	// Payload: ChunkHash + PubKeyHash
-	// Response: MessageTypeKeyEntryResponse with KeyEntry(s)
-	MessageTypeKeyEntryRequest
+	// Block distribution message types
 
-	// MessageTypeKeyEntryResponse responds with key entries.
-	// Payload: Serialized KeyEntry(s)
-	MessageTypeKeyEntryResponse
+	// MessageTypeBlockSliceDelivery delivers a block slice to a node.
+	MessageTypeBlockSliceDelivery
+	// MessageTypeBlockSliceAck acknowledges receipt of a block slice.
+	MessageTypeBlockSliceAck
+	// MessageTypeBlockAnnouncement announces a new fully-distributed block.
+	MessageTypeBlockAnnouncement
+	// MessageTypeMissedBlocksRequest requests list of blocks since a timestamp.
+	MessageTypeMissedBlocksRequest
+	// MessageTypeMissedBlocksResponse responds with list of block hashes.
+	MessageTypeMissedBlocksResponse
+	// MessageTypeBlockMetadataRequest requests metadata for a block.
+	MessageTypeBlockMetadataRequest
+	// MessageTypeBlockMetadataResponse responds with block metadata.
+	MessageTypeBlockMetadataResponse
 
-	// MessageTypeBlockSyncRequest requests block synchronization.
-	// Payload: BlockHash or hash range for sync
-	// Used during rebalancing and recovery operations.
-	MessageTypeBlockSyncRequest
+	// Dashboard and logging message types
+
+	// MessageTypeLogSubscribe requests to receive logs from a node.
+	MessageTypeLogSubscribe
+	// MessageTypeLogUnsubscribe stops receiving logs from a node.
+	MessageTypeLogUnsubscribe
+	// MessageTypeLogEntry contains a forwarded log entry.
+	MessageTypeLogEntry
+	// MessageTypeDashboardAnnounce announces a node's dashboard address.
+	MessageTypeDashboardAnnounce
 )
 
 // messageTypeNames maps MessageType values to their string representations.
-var messageTypeNames = map[MessageType]string{
-	MessageTypeBlockSliceRequest:     "BlockSliceRequest",
-	MessageTypeBlockSliceResponse:    "BlockSliceResponse",
-	MessageTypeChunkMetaRequest:      "ChunkMetaRequest",
-	MessageTypeVertexMetaRequest:     "VertexMetaRequest",
-	MessageTypeHeartbeat:             "Heartbeat",
-	MessageTypeNodeJoinRequest:       "NodeJoinRequest",
-	MessageTypeNodeLeaveNotification: "NodeLeaveNotification",
-	MessageTypeUserAuthDecision:      "UserAuthDecision",
-	MessageTypeNewNodeAnnouncement:   "NewNodeAnnouncement",
-	MessageTypeKeyEntryRequest:       "KeyEntryRequest",
-	MessageTypeKeyEntryResponse:      "KeyEntryResponse",
-	MessageTypeBlockSyncRequest:      "BlockSyncRequest",
+var messageTypeNames = map[MessageType]string{ // A
+	MessageTypeSealedSlicePayloadRequest: "SealedSlicePayloadRequest",
+	MessageTypeChunkMetaRequest:          "ChunkMetaRequest",
+	MessageTypeBlobMetaRequest:           "BlobMetaRequest",
+	MessageTypeHeartbeat:                 "Heartbeat",
+	MessageTypeNodeJoinRequest:           "NodeJoinRequest",
+	MessageTypeNodeLeaveNotification:     "NodeLeaveNotification",
+	MessageTypeUserAuthDecision:          "UserAuthDecision",
+	MessageTypeNewNodeAnnouncement:       "NewNodeAnnouncement",
+	MessageTypeNodeListRequest:           "NodeListRequest",
+	MessageTypeNodeListResponse:          "NodeListResponse",
+	MessageTypeChunkPayloadRequest:       "ChunkPayloadRequest",
+	MessageTypeBlobPayloadRequest:        "BlobPayloadRequest",
+	MessageTypeBlockSliceDelivery:        "BlockSliceDelivery",
+	MessageTypeBlockSliceAck:             "BlockSliceAck",
+	MessageTypeBlockAnnouncement:         "BlockAnnouncement",
+	MessageTypeMissedBlocksRequest:       "MissedBlocksRequest",
+	MessageTypeMissedBlocksResponse:      "MissedBlocksResponse",
+	MessageTypeBlockMetadataRequest:      "BlockMetadataRequest",
+	MessageTypeBlockMetadataResponse:     "BlockMetadataResponse",
+	MessageTypeLogSubscribe:              "LogSubscribe",
+	MessageTypeLogUnsubscribe:            "LogUnsubscribe",
+	MessageTypeLogEntry:                  "LogEntry",
+	MessageTypeDashboardAnnounce:         "DashboardAnnounce",
 }
 
 // String returns the string representation of a MessageType.
-func (mt MessageType) String() string {
+func (mt MessageType) String() string { // A
 	if name, ok := messageTypeNames[mt]; ok {
 		return name
 	}
