@@ -111,6 +111,11 @@ type Block struct {
 	// VertexIndex maps vertex hashes to their byte region in the VertexSection.
 	// This enables efficient partial reads of individual vertices.
 	VertexIndex map[hash.Hash]VertexRegion
+
+	// KeyEntryIndex maps (ChunkHash, PubKeyHash) pairs to the block containing
+	// the KeyEntry. This enables fallback retrieval from BlockStore when WAL
+	// entries have been cleared.
+	KeyEntryIndex map[KeyEntryLocation]struct{}
 }
 
 // ChunkRegion specifies the byte range of a SealedChunk within a Block's
@@ -156,6 +161,29 @@ type VertexRegion struct {
 	// Offset is the byte offset from the start of VertexSection.
 	Offset uint32
 
-	// Length is the number of bytes for this vertex's serialized data.
+	// Length is the number of bytes for this vertex's data.
 	Length uint32
+}
+
+// KeyEntryLocation specifies the location of a KeyEntry within a Block's
+// KeyRegistry.
+//
+// KeyEntryLocation enables efficient lookups of key entries by providing
+// the block hash where the KeyEntry is stored. This allows the WAL to
+// fall back to BlockStore when WAL entries have been cleared.
+//
+// # Usage
+//
+//	loc := keyEntryIndex[chunkHash]
+//	block := blockStore.GetBlock(loc.BlockHash)
+//	keyEntry := block.KeyRegistry[chunkHash]
+type KeyEntryLocation struct {
+	// ChunkHash identifies which chunk this key entry unlocks.
+	ChunkHash hash.Hash
+
+	// PubKeyHash identifies which public key this key entry is for.
+	PubKeyHash hash.Hash
+
+	// BlockHash is the hash of the block containing the KeyEntry.
+	BlockHash hash.Hash
 }

@@ -226,3 +226,131 @@ func Test_ClearBlock_RemovesWalKeysNotIdx(t *testing.T) {
 		t.Fatalf("expected idx entry after clear: %v", err)
 	}
 }
+
+// Integration test: AppendChunk + AppendKeyEntry -> SealBlock + ClearBlock ->
+// GetKeyEntry via index lookup (BlockStore fallback).
+func Test_WAL_SealClear_GetKeyEntry(t *testing.T) {
+	opts := badger.DefaultOptions("")
+	opts = opts.WithInMemory(true)
+	db, err := badger.Open(opts)
+	if err != nil {
+		t.Fatalf("open badger: %v", err)
+	}
+	defer db.Close()
+
+	bs := blockstore.NewBlockStore(db)
+	w := NewDistributedWAL(db, bs, nil)
+
+	// Create a sealed chunk and key entry
+	chunkHash := hash.HashBytes([]byte("test-chunk"))
+	var c model.SealedChunk
+	c.ChunkHash = chunkHash
+	c.EncryptedContent = []byte("encrypted-content")
+
+	pubKeyHash := hash.HashBytes([]byte("test-pubkey"))
+	var ke model.KeyEntry
+	ke.ChunkHash = chunkHash
+	ke.PubKeyHash = pubKeyHash
+	ke.EncapsulatedAESKey = []byte("aes-key")
+
+	if err := w.AppendChunk(context.Background(), c); err != nil {
+		t.Fatalf("append chunk: %v", err)
+	}
+	if err := w.AppendKeyEntry(context.Background(), ke); err != nil {
+		t.Fatalf("append key entry: %v", err)
+	}
+
+	// Load WAL content and create block
+	chunks, vertices, keyEntries, walKeys, err := w.loadWALContent()
+	if err != nil {
+		t.Fatalf("load wal content: %v", err)
+	}
+	block := w.createBlock(chunks, vertices, keyEntries)
+
+	// Persist block directly into Badger
+	if err := w.db.Update(func(txn *badger.Txn) error {
+		data, serr := serialize(block)
+		if serr != nil {
+			return serr
+		}
+		return txn.Set([]byte("blk:b:"+block.Hash.String()), data)
+	}); err != nil {
+		t.Fatalf("persist block: %v", err)
+	}
+
+	// Write index entries for both chunks and key entries
+	if err := w.db.Update(func(txn *badger.Txn) error {
+		// Chunk index entries
+		for _, c := range chunks {
+			if region, ok := block.ChunkIndex[c.ChunkHash]; ok {
+				entry := struct {
+					BlockHash hash.Hash
+					Region    model.ChunkRegion
+				}{
+					BlockHash: block.Hash,
+					Region:    region,
+				}
+				data, serr := serialize(entry)
+				if serr != nil {
+					continue
+				}
+				key := []byte(prefixChunkIdx + c.ChunkHash.String())
+				if err := txn.Set(key, data); err != nil {
+					return err
+				}
+			}
+		}
+		// Key entry index entries
+		for loc := range block.KeyEntryIndex {
+			entry := struct {
+				BlockHash hash.Hash
+			}{
+				BlockHash: block.Hash,
+			}
+			data, serr := serialize(entry)
+			if serr != nil {
+				continue
+			}
+			key := []byte(prefixKeyIdx + loc.ChunkHash.String() + ":" + loc.PubKeyHash.String())
+			if err := txn.Set(key, data); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("write index entries: %v", err)
+	}
+
+	// Clear WAL entries
+	if err := w.ClearBlock(context.Background(), walKeys); err != nil {
+		t.Fatalf("clear block: %v", err)
+	}
+
+	// Verify WAL entries are gone
+	walKey := []byte("wal:key:" + chunkHash.String() + ":" + pubKeyHash.String())
+	err = db.View(func(txn *badger.Txn) error {
+		_, gerr := txn.Get(walKey)
+		if gerr == nil {
+			return fmt.Errorf("wal key still present")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("wal key should be removed: %v", err)
+	}
+
+	// Now GetKeyEntry should use BlockStore fallback and succeed
+	got, err := w.GetKeyEntry(context.Background(), chunkHash, pubKeyHash)
+	if err != nil {
+		t.Fatalf("get key entry after clear: %v", err)
+	}
+	if got.ChunkHash != chunkHash {
+		t.Fatalf("chunk hash mismatch")
+	}
+	if got.PubKeyHash != pubKeyHash {
+		t.Fatalf("pubkey hash mismatch")
+	}
+	if string(got.EncapsulatedAESKey) != string(ke.EncapsulatedAESKey) {
+		t.Fatalf("aes key mismatch")
+	}
+}

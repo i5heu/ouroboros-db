@@ -28,6 +28,7 @@ const (
 	prefixVertex   = "wal:vertex:"
 	prefixKey      = "wal:key:"
 	prefixChunkIdx = "idx:chunk:"
+	prefixKeyIdx   = "idx:key:"
 )
 
 // DefaultDistributedWAL implements the DistributedWAL interface.
@@ -250,6 +251,24 @@ func (w *DefaultDistributedWAL) SealBlock(
 					if err := txn.Set(key, data); err != nil {
 						return err
 					}
+				}
+			}
+
+			// Write key entry index entries for BlockStore fallback retrieval.
+			// We map: idx:key:<chunkHash>:<pubKeyHash> -> BlockHash
+			for loc := range block.KeyEntryIndex {
+				entry := struct {
+					BlockHash hash.Hash
+				}{
+					BlockHash: block.Hash,
+				}
+				data, serr := serialize(entry)
+				if serr != nil {
+					continue
+				}
+				key := []byte(prefixKeyIdx + loc.ChunkHash.String() + ":" + loc.PubKeyHash.String())
+				if err := txn.Set(key, data); err != nil {
+					return err
 				}
 			}
 
@@ -501,7 +520,8 @@ func (w *DefaultDistributedWAL) GetVertex(
 	return vertex, nil
 }
 
-// GetKeyEntry retrieves a key entry from the WAL buffer if it exists.
+// GetKeyEntry retrieves a key entry from the WAL buffer if it exists,
+// falling back to BlockStore if not found in WAL.
 func (w *DefaultDistributedWAL) GetKeyEntry(
 	ctx context.Context,
 	chunkHash, pubKeyHash hash.Hash,
@@ -526,10 +546,64 @@ func (w *DefaultDistributedWAL) GetKeyEntry(
 		})
 	})
 	if err != nil {
-		if err == badger.ErrKeyNotFound {
-			return model.KeyEntry{}, fmt.Errorf("key entry not found in WAL")
+		if err != badger.ErrKeyNotFound {
+			return model.KeyEntry{}, fmt.Errorf("get key entry from WAL: %w", err)
 		}
-		return model.KeyEntry{}, fmt.Errorf("get key entry from WAL: %w", err)
+
+		// Key entry not in WAL, try BlockStore fallback
+		idxKey := []byte(prefixKeyIdx + chunkHash.String() + ":" + pubKeyHash.String())
+		var idxEntry struct {
+			BlockHash hash.Hash
+		}
+		idxErr := w.db.View(func(txn *badger.Txn) error {
+			item, gerr := txn.Get(idxKey)
+			if gerr != nil {
+				return gerr
+			}
+			return item.Value(func(v []byte) error {
+				return deserialize(v, &idxEntry)
+			})
+		})
+		if idxErr != nil {
+			return model.KeyEntry{}, fmt.Errorf("key entry not found")
+		}
+
+		// Fetch block from BlockStore
+		var block model.Block
+		if w.bs != nil {
+			var bsErr error
+			block, bsErr = w.bs.GetBlock(ctx, idxEntry.BlockHash)
+			if bsErr != nil {
+				return model.KeyEntry{}, fmt.Errorf("get block from store: %w", bsErr)
+			}
+		} else {
+			// Fallback: read block directly from DB
+			blkKey := []byte("blk:b:" + idxEntry.BlockHash.String())
+			blkErr := w.db.View(func(txn *badger.Txn) error {
+				it, err := txn.Get(blkKey)
+				if err != nil {
+					return err
+				}
+				return it.Value(func(v []byte) error {
+					return deserialize(v, &block)
+				})
+			})
+			if blkErr != nil {
+				return model.KeyEntry{}, fmt.Errorf("get block from DB: %w", blkErr)
+			}
+		}
+
+		// Extract key entry from block's KeyRegistry
+		entries, ok := block.KeyRegistry[chunkHash]
+		if !ok {
+			return model.KeyEntry{}, fmt.Errorf("key entry not found in block")
+		}
+		for _, e := range entries {
+			if e.PubKeyHash == pubKeyHash {
+				return e, nil
+			}
+		}
+		return model.KeyEntry{}, fmt.Errorf("key entry not found for pubkey")
 	}
 
 	return ke, nil
@@ -597,6 +671,17 @@ func (w *DefaultDistributedWAL) createBlock(
 		offset += length
 	}
 
+	// Build key entry index for fast lookup from BlockStore fallback
+	keyEntryIndex := make(map[model.KeyEntryLocation]struct{})
+	for chunkHash, entries := range keyEntries {
+		for _, ke := range entries {
+			keyEntryIndex[model.KeyEntryLocation{
+				ChunkHash:  chunkHash,
+				PubKeyHash: ke.PubKeyHash,
+			}] = struct{}{}
+		}
+	}
+
 	// Calculate block hash
 	hashInput := append(dataSection, vertexSection...)
 	blockHash := hash.HashBytes(hashInput)
@@ -619,6 +704,7 @@ func (w *DefaultDistributedWAL) createBlock(
 		ChunkIndex:    chunkIndex,
 		VertexIndex:   vertexIndex,
 		KeyRegistry:   keyEntries,
+		KeyEntryIndex: keyEntryIndex,
 	}
 }
 
