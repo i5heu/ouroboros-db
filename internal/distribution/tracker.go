@@ -144,13 +144,24 @@ func (t *DefaultBlockDistributionTracker) RecordSliceConfirmation(
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	record, err := t.getOrLoadRecord(blockHash)
+	if err != nil {
+		return false, err
+	}
+
+	return t.updateConfirmationState(record, sliceHash, nodeID)
+}
+
+func (t *DefaultBlockDistributionTracker) getOrLoadRecord(
+	blockHash hash.Hash,
+) (*model.BlockDistributionRecord, error) {
 	record, exists := t.active[blockHash]
 	if !exists {
 		// Try loading from disk
 		var err error
 		record, err = t.loadRecord(blockHash)
 		if err != nil {
-			return false, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"no active distribution for block %s: %w",
 				blockHash,
 				err,
@@ -158,7 +169,14 @@ func (t *DefaultBlockDistributionTracker) RecordSliceConfirmation(
 		}
 		t.active[blockHash] = record
 	}
+	return record, nil
+}
 
+func (t *DefaultBlockDistributionTracker) updateConfirmationState(
+	record *model.BlockDistributionRecord,
+	sliceHash hash.Hash,
+	nodeID string,
+) (bool, error) {
 	// Add confirmation if not already present
 	nodes := record.SliceConfirmations[sliceHash]
 	for _, n := range nodes {

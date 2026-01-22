@@ -86,17 +86,7 @@ func (h *LogStreamHub) run() { // A
 			}
 
 		case msg := <-h.broadcastCh:
-			data, err := json.Marshal(msg)
-			if err != nil {
-				continue
-			}
-			for client := range clients {
-				select {
-				case client.sendCh <- data:
-				default:
-					// Client too slow, skip this message for them
-				}
-			}
+			h.broadcastToClients(clients, msg)
 
 		case <-h.stopCh:
 			// Close all client connections
@@ -104,6 +94,23 @@ func (h *LogStreamHub) run() { // A
 				close(client.sendCh)
 			}
 			return
+		}
+	}
+}
+
+func (h *LogStreamHub) broadcastToClients(
+	clients map[*Client]struct{},
+	msg LogStreamMessage,
+) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	for client := range clients {
+		select {
+		case client.sendCh <- data:
+		default:
+			// Client too slow, skip this message for them
 		}
 	}
 }

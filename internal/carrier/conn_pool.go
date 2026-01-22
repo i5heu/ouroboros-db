@@ -57,27 +57,47 @@ func (p *connPool) getOrConnect(
 	}
 
 	// Fast path: check for existing connection
+	if conn, ok := p.checkExistingConnection(node.NodeID); ok {
+		return conn, nil
+	}
+
+	// Slow path: obtain pooled connection structure
+	pc, conn := p.getOrCreatePooledConn(node)
+	if conn != nil {
+		return conn, nil
+	}
+
+	// Establish connection (outside lock to avoid blocking)
+	return p.connectToNode(ctx, pc, node)
+}
+
+func (p *connPool) checkExistingConnection(nodeID NodeID) (Connection, bool) {
 	p.mu.RLock()
-	pc, exists := p.conns[node.NodeID]
+	pc, exists := p.conns[nodeID]
 	p.mu.RUnlock()
 
 	if exists && pc.conn != nil && !isConnClosed(pc.conn) {
 		pc.mu.Lock()
 		pc.lastUsed = time.Now()
 		pc.mu.Unlock()
-		return pc.conn, nil
+		return pc.conn, true
 	}
+	return nil, false
+}
 
-	// Slow path: need to establish connection
+func (p *connPool) getOrCreatePooledConn(
+	node Node,
+) (*pooledConn, Connection) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	// Double-check after acquiring write lock
-	pc, exists = p.conns[node.NodeID]
+	pc, exists := p.conns[node.NodeID]
 	if exists && pc.conn != nil && !isConnClosed(pc.conn) {
-		p.mu.Unlock()
 		pc.mu.Lock()
 		pc.lastUsed = time.Now()
 		pc.mu.Unlock()
-		return pc.conn, nil
+		return nil, pc.conn
 	}
 
 	// Create or update pooled connection entry
@@ -88,9 +108,15 @@ func (p *connPool) getOrConnect(
 		}
 		p.conns[node.NodeID] = pc
 	}
-	p.mu.Unlock()
 
-	// Establish connection (outside lock to avoid blocking)
+	return pc, nil
+}
+
+func (p *connPool) connectToNode(
+	ctx context.Context,
+	pc *pooledConn,
+	node Node,
+) (Connection, error) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
@@ -102,18 +128,32 @@ func (p *connPool) getOrConnect(
 
 	// Mark as connecting to prevent concurrent connection attempts
 	if pc.connecting {
-		// Wait for other goroutine to finish connecting
-		pc.mu.Unlock()
-		time.Sleep(100 * time.Millisecond)
-		pc.mu.Lock()
-		if pc.conn != nil && !isConnClosed(pc.conn) {
-			return pc.conn, nil
+		if conn := p.waitForConnection(pc); conn != nil {
+			return conn, nil
 		}
 	}
 	pc.connecting = true
 	defer func() { pc.connecting = false }()
 
-	// Try each address
+	return p.dialAddresses(ctx, pc, node)
+}
+
+func (p *connPool) waitForConnection(pc *pooledConn) Connection {
+	// Wait for other goroutine to finish connecting
+	pc.mu.Unlock()
+	time.Sleep(100 * time.Millisecond)
+	pc.mu.Lock()
+	if pc.conn != nil && !isConnClosed(pc.conn) {
+		return pc.conn
+	}
+	return nil
+}
+
+func (p *connPool) dialAddresses(
+	ctx context.Context,
+	pc *pooledConn,
+	node Node,
+) (Connection, error) {
 	var lastErr error
 	for _, addr := range node.Addresses {
 		conn, err := p.transport.Connect(ctx, addr)

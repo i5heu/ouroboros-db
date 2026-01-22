@@ -158,6 +158,32 @@ func (w *DefaultDistributedWAL) AppendKeyEntry(
 func (w *DefaultDistributedWAL) SealBlock(
 	ctx context.Context,
 ) (model.Block, [][]byte, error) {
+	chunks, vertices, keyEntries, walKeys, err := w.loadWALContent()
+	if err != nil {
+		return model.Block{}, nil, fmt.Errorf("iterate wal: %w", err)
+	}
+
+	if len(chunks) == 0 && len(vertices) == 0 {
+		return model.Block{}, nil, fmt.Errorf("wal: no data to seal")
+	}
+
+	block := w.createBlock(chunks, vertices, keyEntries)
+
+	// DO NOT delete WAL entries here. The caller must call ClearBlock()
+	// after confirming the block has been distributed to sufficient nodes.
+	// This ensures crash safety - if we crash before distribution, the
+	// WAL entries are preserved and can be re-sealed on restart.
+
+	return block, walKeys, nil
+}
+
+func (w *DefaultDistributedWAL) loadWALContent() (
+	[]model.SealedChunk,
+	[]model.Vertex,
+	map[hash.Hash][]model.KeyEntry,
+	[][]byte,
+	error,
+) {
 	var chunks []model.SealedChunk
 	var vertices []model.Vertex
 	keyEntries := make(map[hash.Hash][]model.KeyEntry)
@@ -207,21 +233,9 @@ func (w *DefaultDistributedWAL) SealBlock(
 		return nil
 	})
 	if err != nil {
-		return model.Block{}, nil, fmt.Errorf("iterate wal: %w", err)
+		return nil, nil, nil, nil, err
 	}
-
-	if len(chunks) == 0 && len(vertices) == 0 {
-		return model.Block{}, nil, fmt.Errorf("wal: no data to seal")
-	}
-
-	block := w.createBlock(chunks, vertices, keyEntries)
-
-	// DO NOT delete WAL entries here. The caller must call ClearBlock()
-	// after confirming the block has been distributed to sufficient nodes.
-	// This ensures crash safety - if we crash before distribution, the
-	// WAL entries are preserved and can be re-sealed on restart.
-
-	return block, walKeys, nil
+	return chunks, vertices, keyEntries, walKeys, nil
 }
 
 // ClearBlock removes WAL entries for a successfully distributed block.

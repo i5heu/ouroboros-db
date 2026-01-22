@@ -181,10 +181,22 @@ func (s *DefaultEncryptionService) UnsealChunk(
 		)
 	}
 
+	aesKey, err := s.unwrapAESKey(keyEntry, privKey)
+	if err != nil {
+		return model.Chunk{}, err
+	}
+
+	return s.decryptAndDecompress(sealed, aesKey)
+}
+
+func (s *DefaultEncryptionService) unwrapAESKey(
+	keyEntry model.KeyEntry,
+	privKey []byte,
+) ([]byte, error) {
 	// Step 1: Parse private key
 	privKeyObj, err := parsePrivateKey(privKey)
 	if err != nil {
-		return model.Chunk{}, fmt.Errorf("decryption: %w", err)
+		return nil, fmt.Errorf("decryption: %w", err)
 	}
 
 	// Step 2: Extract encapsulated key and wrapped AES key
@@ -196,11 +208,11 @@ func (s *DefaultEncryptionService) UnsealChunk(
 	// Step 3: Decapsulate to get shared secret
 	sharedSecret, err := privKeyObj.Decapsulate(encapsulatedKey)
 	if err != nil {
-		return model.Chunk{}, fmt.Errorf("decryption: decapsulating key: %w", err)
+		return nil, fmt.Errorf("decryption: decapsulating key: %w", err)
 	}
 
 	if len(sharedSecret) < aesKeySize {
-		return model.Chunk{}, fmt.Errorf("decryption: shared secret too short")
+		return nil, fmt.Errorf("decryption: shared secret too short")
 	}
 
 	// Step 4: Unwrap the AES key using XOR with shared secret
@@ -209,6 +221,13 @@ func (s *DefaultEncryptionService) UnsealChunk(
 		aesKey[i] = wrappedAESKey[i] ^ sharedSecret[i]
 	}
 
+	return aesKey, nil
+}
+
+func (s *DefaultEncryptionService) decryptAndDecompress(
+	sealed model.SealedChunk,
+	aesKey []byte,
+) (model.Chunk, error) {
 	// Step 5: Decrypt with AES-256-GCM
 	block, err := aes.NewCipher(aesKey)
 	if err != nil {
