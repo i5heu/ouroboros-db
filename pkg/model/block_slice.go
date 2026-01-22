@@ -71,4 +71,9 @@ type BlockSlice struct {
 	// Payload is the actual slice data (either data or parity bytes).
 	// All slices for a block have the same payload length.
 	Payload []byte
+
+	// OriginalSize is the size in bytes of the serialized Block that was
+	// erasure-encoded into these slices. This is required by the
+	// Reed-Solomon join operation to trim padding added during encoding.
+	OriginalSize uint64
 }

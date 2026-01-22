@@ -7,6 +7,8 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
+	"github.com/i5heu/ouroboros-db/internal/blockstore"
+	routing "github.com/i5heu/ouroboros-db/internal/dataRouting"
 	"github.com/i5heu/ouroboros-db/pkg/model"
 	"pgregory.net/rapid"
 )
@@ -87,7 +89,10 @@ func (m *WALStateMachine) openDB(t *rapid.T) {
 		t.Fatalf("Failed to open badger: %v", err)
 	}
 	m.db = db
-	m.wal = NewDistributedWAL(db)
+	// Use in-memory DefaultBlockStore and DefaultDataRouter for tests.
+	bs := blockstore.NewBlockStore()
+	dr := routing.NewDataRouter()
+	m.wal = NewDistributedWAL(db, bs, dr)
 }
 
 func (m *WALStateMachine) Cleanup() {
@@ -238,7 +243,9 @@ func (m *WALStateMachine) Restart(t *rapid.T) {
 		t.Fatalf("Failed to re-open badger: %v", err)
 	}
 	m.db = db
-	m.wal = NewDistributedWAL(db)
+	bs := blockstore.NewBlockStore()
+	dr := routing.NewDataRouter()
+	m.wal = NewDistributedWAL(db, bs, dr)
 
 	hasItems := len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0
 	if hasItems && m.wal.GetBufferSize() == 0 {

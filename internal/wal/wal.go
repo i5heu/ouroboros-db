@@ -12,7 +12,10 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
+	"github.com/i5heu/ouroboros-db/internal/erasure"
+	"github.com/i5heu/ouroboros-db/pkg/datarouter"
 	"github.com/i5heu/ouroboros-db/pkg/model"
+	"github.com/i5heu/ouroboros-db/pkg/storage"
 	"github.com/i5heu/ouroboros-db/pkg/wal"
 )
 
@@ -30,13 +33,17 @@ type DefaultDistributedWAL struct {
 	db         *badger.DB
 	bufferSize int64
 	targetSize int64
+	bs         storage.BlockStore
+	dataRouter datarouter.DataRouter
 }
 
 // NewDistributedWAL creates a new DefaultDistributedWAL instance.
-func NewDistributedWAL(db *badger.DB) *DefaultDistributedWAL {
+func NewDistributedWAL(db *badger.DB, bs storage.BlockStore, dr datarouter.DataRouter) *DefaultDistributedWAL {
 	w := &DefaultDistributedWAL{
 		db:         db,
 		targetSize: DefaultBlockSize,
+		bs:         bs,
+		dataRouter: dr,
 	}
 	w.recalcBufferSize()
 	return w
@@ -168,6 +175,34 @@ func (w *DefaultDistributedWAL) SealBlock(
 	}
 
 	block := w.createBlock(chunks, vertices, keyEntries)
+
+	// Ensure RS params default to k=5, p=2 when unset
+	if block.Header.RSDataSlices == 0 {
+		block.Header.RSDataSlices = 5
+	}
+	if block.Header.RSParitySlices == 0 {
+		block.Header.RSParitySlices = 2
+	}
+
+	// Encode block into Reed-Solomon slices
+	slices, err := erasure.EncodeBlock(block, block.Header.RSDataSlices, block.Header.RSParitySlices)
+	if err != nil {
+		return model.Block{}, nil, fmt.Errorf("encode block: %w", err)
+	}
+
+	// Persist slices via BlockStore if available
+	if w.bs != nil {
+		for _, s := range slices {
+			if err := w.bs.StoreBlockSlice(context.Background(), s); err != nil {
+				return model.Block{}, nil, fmt.Errorf("store block slice: %w", err)
+			}
+		}
+	}
+
+	// Trigger distribution (best-effort)
+	if w.dataRouter != nil {
+		_ = w.dataRouter.DistributeBlockSlices(context.Background(), block)
+	}
 
 	// DO NOT delete WAL entries here. The caller must call ClearBlock()
 	// after confirming the block has been distributed to sufficient nodes.
