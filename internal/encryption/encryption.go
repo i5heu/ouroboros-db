@@ -1,4 +1,5 @@
-// Package encryption provides encryption service implementations for OuroborosDB.
+// Package encryption provides encryption service implementations for
+// OuroborosDB.
 package encryption
 
 import (
@@ -7,12 +8,11 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/klauspost/compress/zstd"
-
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/encryption"
 	"github.com/i5heu/ouroboros-db/pkg/model"
+	"github.com/klauspost/compress/zstd"
 )
 
 const (
@@ -64,41 +64,60 @@ func (s *DefaultEncryptionService) SealChunk(
 	pubKeys [][]byte,
 ) (model.SealedChunk, []model.KeyEntry, error) {
 	if len(chunk.Content) == 0 {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: chunk content is empty")
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: chunk content is empty",
+		)
 	}
 
 	if len(pubKeys) == 0 {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: at least one public key is required")
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: at least one public key is required",
+		)
 	}
 
 	// Step 1: Compress content with zstd
 	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: creating zstd encoder: %w", err)
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: creating zstd encoder: %w",
+			err,
+		)
 	}
-	defer encoder.Close()
+	defer func() { _ = encoder.Close() }()
 	compressed := encoder.EncodeAll(chunk.Content, nil)
 
 	// Step 2: Generate random AES-256 key
 	aesKey := make([]byte, aesKeySize)
 	if _, err := rand.Read(aesKey); err != nil {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: generating AES key: %w", err)
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: generating AES key: %w",
+			err,
+		)
 	}
 
 	// Step 3: Generate random nonce
 	nonce := make([]byte, nonceSize)
 	if _, err := rand.Read(nonce); err != nil {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: generating nonce: %w", err)
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: generating nonce: %w",
+			err,
+		)
 	}
 
 	// Step 4: Encrypt with AES-256-GCM
 	block, err := aes.NewCipher(aesKey)
 	if err != nil {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: creating AES cipher: %w", err)
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: creating AES cipher: %w",
+			err,
+		)
 	}
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return model.SealedChunk{}, nil, fmt.Errorf("encryption: creating GCM: %w", err)
+		return model.SealedChunk{}, nil, fmt.Errorf(
+			"encryption: creating GCM: %w",
+			err,
+		)
 	}
 	ciphertext := aead.Seal(nil, nonce, compressed, nil)
 
@@ -107,7 +126,10 @@ func (s *DefaultEncryptionService) SealChunk(
 	for _, pubKeyBytes := range pubKeys {
 		keyEntry, err := s.GenerateKeyEntry(chunk.Hash, pubKeyBytes, aesKey)
 		if err != nil {
-			return model.SealedChunk{}, nil, fmt.Errorf("encryption: generating key entry: %w", err)
+			return model.SealedChunk{}, nil, fmt.Errorf(
+				"encryption: generating key entry: %w",
+				err,
+			)
 		}
 		keyEntries = append(keyEntries, keyEntry)
 	}
@@ -126,7 +148,8 @@ func (s *DefaultEncryptionService) SealChunk(
 	return sealed, keyEntries, nil
 }
 
-// UnsealChunk decrypts a sealed chunk using the provided key entry and private key.
+// UnsealChunk decrypts a sealed chunk using the provided key entry and private
+// key.
 //
 // The decryption process:
 //  1. Decapsulate to recover the AES key from the KeyEntry
@@ -151,7 +174,11 @@ func (s *DefaultEncryptionService) UnsealChunk(
 	}
 
 	if len(sealed.Nonce) != nonceSize {
-		return model.Chunk{}, fmt.Errorf("decryption: invalid nonce size %d, expected %d", len(sealed.Nonce), nonceSize)
+		return model.Chunk{}, fmt.Errorf(
+			"decryption: invalid nonce size %d, expected %d",
+			len(sealed.Nonce),
+			nonceSize,
+		)
 	}
 
 	// Step 1: Parse private key
@@ -191,24 +218,35 @@ func (s *DefaultEncryptionService) UnsealChunk(
 	}
 	compressed, err := aead.Open(nil, sealed.Nonce, sealed.EncryptedContent, nil)
 	if err != nil {
-		return model.Chunk{}, fmt.Errorf("decryption: AES-GCM decryption failed: %w", err)
+		return model.Chunk{}, fmt.Errorf(
+			"decryption: AES-GCM decryption failed: %w",
+			err,
+		)
 	}
 
 	// Step 6: Decompress with zstd
 	decoder, err := zstd.NewReader(nil)
 	if err != nil {
-		return model.Chunk{}, fmt.Errorf("decryption: creating zstd decoder: %w", err)
+		return model.Chunk{}, fmt.Errorf(
+			"decryption: creating zstd decoder: %w",
+			err,
+		)
 	}
 	defer decoder.Close()
 	content, err := decoder.DecodeAll(compressed, nil)
 	if err != nil {
-		return model.Chunk{}, fmt.Errorf("decryption: zstd decompression failed: %w", err)
+		return model.Chunk{}, fmt.Errorf(
+			"decryption: zstd decompression failed: %w",
+			err,
+		)
 	}
 
 	// Step 7: Verify hash matches
 	computedHash := hash.HashBytes(content)
 	if computedHash != sealed.ChunkHash {
-		return model.Chunk{}, fmt.Errorf("decryption: hash mismatch - content may be corrupted")
+		return model.Chunk{}, fmt.Errorf(
+			"decryption: hash mismatch - content may be corrupted",
+		)
 	}
 
 	return model.Chunk{
@@ -218,7 +256,8 @@ func (s *DefaultEncryptionService) UnsealChunk(
 	}, nil
 }
 
-// GenerateKeyEntry creates a key entry for granting access to encrypted content.
+// GenerateKeyEntry creates a key entry for granting access to encrypted
+// content.
 //
 // This encapsulates the AES key for the specified public key, allowing
 // the holder of the corresponding private key to decrypt the content.
@@ -236,7 +275,11 @@ func (s *DefaultEncryptionService) GenerateKeyEntry(
 	}
 
 	if len(aesKey) != aesKeySize {
-		return model.KeyEntry{}, fmt.Errorf("encryption: AES key must be %d bytes, got %d", aesKeySize, len(aesKey))
+		return model.KeyEntry{}, fmt.Errorf(
+			"encryption: AES key must be %d bytes, got %d",
+			aesKeySize,
+			len(aesKey),
+		)
 	}
 
 	// Parse the public key
@@ -248,7 +291,10 @@ func (s *DefaultEncryptionService) GenerateKeyEntry(
 	// Encapsulate to get shared secret and encapsulated key
 	sharedSecret, encapsulatedKey, err := pubKeyObj.Encapsulate()
 	if err != nil {
-		return model.KeyEntry{}, fmt.Errorf("encryption: encapsulating key: %w", err)
+		return model.KeyEntry{}, fmt.Errorf(
+			"encryption: encapsulating key: %w",
+			err,
+		)
 	}
 
 	if len(sharedSecret) < aesKeySize {
@@ -292,8 +338,14 @@ func parsePublicKey(pubKeyBytes []byte) (*keys.PublicKey, error) {
 		return keys.NewPublicKeyFromBinary(kemBytes, signBytes)
 
 	default:
-		return nil, fmt.Errorf("invalid public key size %d, expected %d (KEM-only) or %d (full)",
-			len(pubKeyBytes), mlkemPublicKeySize, mlkemPublicKeySize+mldsaPublicKeySize)
+		return nil, fmt.Errorf(
+			"invalid public key size %d, expected %d (KEM-only) or %d (full)",
+			len(
+				pubKeyBytes,
+			),
+			mlkemPublicKeySize,
+			mlkemPublicKeySize+mldsaPublicKeySize,
+		)
 	}
 }
 
@@ -313,8 +365,14 @@ func parsePrivateKey(privKeyBytes []byte) (*keys.PrivateKey, error) {
 		return keys.NewPrivateKeyFromBinary(kemBytes, signBytes)
 
 	default:
-		return nil, fmt.Errorf("invalid private key size %d, expected %d (KEM-only) or %d (full)",
-			len(privKeyBytes), mlkemPrivateKeySize, mlkemPrivateKeySize+mldsaPrivateKeySize)
+		return nil, fmt.Errorf(
+			"invalid private key size %d, expected %d (KEM-only) or %d (full)",
+			len(
+				privKeyBytes,
+			),
+			mlkemPrivateKeySize,
+			mlkemPrivateKeySize+mldsaPrivateKeySize,
+		)
 	}
 }
 

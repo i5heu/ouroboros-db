@@ -15,12 +15,17 @@ type Registry struct { // A
 // NewRegistry creates a new empty registry.
 func NewRegistry() *Registry { // A
 	return &Registry{
-		factories: make(map[carrier.MessageType]func([]byte) (carrier.Payload, error)),
+		factories: make(
+			map[carrier.MessageType]func([]byte) (carrier.Payload, error),
+		),
 	}
 }
 
 // Register adds a payload type to the registry using generic deserialization.
-func Register[T carrier.Payload](r *Registry, msgType carrier.MessageType) { // A
+func Register[T carrier.Payload](
+	r *Registry,
+	msgType carrier.MessageType,
+) { // A
 	r.factories[msgType] = func(data []byte) (carrier.Payload, error) {
 		return carrier.Deserialize[T](data)
 	}
@@ -38,7 +43,8 @@ func (r *Registry) Decode(
 	return factory(data)
 }
 
-// DefaultRegistry returns a registry with all standard payload types registered.
+// DefaultRegistry returns a registry with all standard payload types
+// registered.
 func DefaultRegistry() *Registry { // A
 	r := NewRegistry()
 
@@ -46,23 +52,59 @@ func DefaultRegistry() *Registry { // A
 	Register[carrier.LogSubscribePayload](r, carrier.MessageTypeLogSubscribe)
 	Register[carrier.LogUnsubscribePayload](r, carrier.MessageTypeLogUnsubscribe)
 	Register[carrier.LogEntryPayload](r, carrier.MessageTypeLogEntry)
-	Register[carrier.DashboardAnnouncePayload](r, carrier.MessageTypeDashboardAnnounce)
+	Register[carrier.DashboardAnnouncePayload](
+		r,
+		carrier.MessageTypeDashboardAnnounce,
+	)
 
 	// Block distribution payloads
-	Register[carrier.BlockSliceDeliveryPayload](r, carrier.MessageTypeBlockSliceDelivery)
+	Register[carrier.BlockSliceDeliveryPayload](
+		r,
+		carrier.MessageTypeBlockSliceDelivery,
+	)
 	Register[carrier.BlockSliceAckPayload](r, carrier.MessageTypeBlockSliceAck)
-	Register[carrier.BlockAnnouncementPayload](r, carrier.MessageTypeBlockAnnouncement)
-	Register[carrier.MissedBlocksRequestPayload](r, carrier.MessageTypeMissedBlocksRequest)
-	Register[carrier.MissedBlocksResponsePayload](r, carrier.MessageTypeMissedBlocksResponse)
-	Register[carrier.BlockMetadataRequestPayload](r, carrier.MessageTypeBlockMetadataRequest)
-	Register[carrier.BlockMetadataResponsePayload](r, carrier.MessageTypeBlockMetadataResponse)
+	Register[carrier.BlockAnnouncementPayload](
+		r,
+		carrier.MessageTypeBlockAnnouncement,
+	)
+	Register[carrier.MissedBlocksRequestPayload](
+		r,
+		carrier.MessageTypeMissedBlocksRequest,
+	)
+	Register[carrier.MissedBlocksResponsePayload](
+		r,
+		carrier.MessageTypeMissedBlocksResponse,
+	)
+	Register[carrier.BlockMetadataRequestPayload](
+		r,
+		carrier.MessageTypeBlockMetadataRequest,
+	)
+	Register[carrier.BlockMetadataResponsePayload](
+		r,
+		carrier.MessageTypeBlockMetadataResponse,
+	)
 
 	// Node payloads
-	Register[carrier.NodeAnnouncementPayload](r, carrier.MessageTypeNewNodeAnnouncement)
-	Register[carrier.NodeListRequestPayload](r, carrier.MessageTypeNodeListRequest)
-	Register[carrier.NodeListResponsePayload](r, carrier.MessageTypeNodeListResponse)
-	Register[carrier.NodeJoinRequestPayload](r, carrier.MessageTypeNodeJoinRequest)
-	Register[carrier.NodeLeavePayload](r, carrier.MessageTypeNodeLeaveNotification)
+	Register[carrier.NodeAnnouncementPayload](
+		r,
+		carrier.MessageTypeNewNodeAnnouncement,
+	)
+	Register[carrier.NodeListRequestPayload](
+		r,
+		carrier.MessageTypeNodeListRequest,
+	)
+	Register[carrier.NodeListResponsePayload](
+		r,
+		carrier.MessageTypeNodeListResponse,
+	)
+	Register[carrier.NodeJoinRequestPayload](
+		r,
+		carrier.MessageTypeNodeJoinRequest,
+	)
+	Register[carrier.NodeLeavePayload](
+		r,
+		carrier.MessageTypeNodeLeaveNotification,
+	)
 	Register[carrier.HeartbeatPayload](r, carrier.MessageTypeHeartbeat)
 
 	return r

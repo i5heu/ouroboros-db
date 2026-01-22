@@ -59,16 +59,25 @@ func newParentChildIndex() *parentChildIndex {
 	}
 }
 
-func (p *parentChildIndex) AddChild(ctx context.Context, parentHash, childHash hash.Hash) error {
+func (p *parentChildIndex) AddChild(
+	ctx context.Context,
+	parentHash, childHash hash.Hash,
+) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.parentToChildren[parentHash] = append(p.parentToChildren[parentHash], childHash)
+	p.parentToChildren[parentHash] = append(
+		p.parentToChildren[parentHash],
+		childHash,
+	)
 	p.childToParent[childHash] = parentHash
 	return nil
 }
 
-func (p *parentChildIndex) GetChildren(ctx context.Context, parentHash hash.Hash) ([]hash.Hash, error) {
+func (p *parentChildIndex) GetChildren(
+	ctx context.Context,
+	parentHash hash.Hash,
+) ([]hash.Hash, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -82,18 +91,27 @@ func (p *parentChildIndex) GetChildren(ctx context.Context, parentHash hash.Hash
 	return result, nil
 }
 
-func (p *parentChildIndex) GetParent(ctx context.Context, childHash hash.Hash) (hash.Hash, error) {
+func (p *parentChildIndex) GetParent(
+	ctx context.Context,
+	childHash hash.Hash,
+) (hash.Hash, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	parent, exists := p.childToParent[childHash]
 	if !exists {
-		return hash.Hash{}, fmt.Errorf("index: parent not found for child %s", childHash)
+		return hash.Hash{}, fmt.Errorf(
+			"index: parent not found for child %s",
+			childHash,
+		)
 	}
 	return parent, nil
 }
 
-func (p *parentChildIndex) RemoveChild(ctx context.Context, parentHash, childHash hash.Hash) error {
+func (p *parentChildIndex) RemoveChild(
+	ctx context.Context,
+	parentHash, childHash hash.Hash,
+) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -122,7 +140,10 @@ func newVersionIndex() *versionIndex {
 	}
 }
 
-func (v *versionIndex) GetVersionHeads(ctx context.Context, rootHash hash.Hash) ([]hash.Hash, error) {
+func (v *versionIndex) GetVersionHeads(
+	ctx context.Context,
+	rootHash hash.Hash,
+) ([]hash.Hash, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
@@ -135,7 +156,10 @@ func (v *versionIndex) GetVersionHeads(ctx context.Context, rootHash hash.Hash) 
 	return result, nil
 }
 
-func (v *versionIndex) UpdateVersionHead(ctx context.Context, rootHash, newHead hash.Hash) error {
+func (v *versionIndex) UpdateVersionHead(
+	ctx context.Context,
+	rootHash, newHead hash.Hash,
+) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
@@ -157,7 +181,11 @@ func newKeyToHashIndex() *keyToHashIndex {
 	}
 }
 
-func (k *keyToHashIndex) SetKey(ctx context.Context, key string, vertexHash hash.Hash) error {
+func (k *keyToHashIndex) SetKey(
+	ctx context.Context,
+	key string,
+	vertexHash hash.Hash,
+) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
@@ -165,7 +193,10 @@ func (k *keyToHashIndex) SetKey(ctx context.Context, key string, vertexHash hash
 	return nil
 }
 
-func (k *keyToHashIndex) GetHash(ctx context.Context, key string) (hash.Hash, error) {
+func (k *keyToHashIndex) GetHash(
+	ctx context.Context,
+	key string,
+) (hash.Hash, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
@@ -184,7 +215,10 @@ func (k *keyToHashIndex) DeleteKey(ctx context.Context, key string) error {
 	return nil
 }
 
-func (k *keyToHashIndex) ListKeys(ctx context.Context, prefix string) ([]string, error) {
+func (k *keyToHashIndex) ListKeys(
+	ctx context.Context,
+	prefix string,
+) ([]string, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 

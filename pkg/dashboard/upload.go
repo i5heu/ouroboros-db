@@ -190,7 +190,7 @@ func (t *UploadFlowTracker) Delete(id string) { // A
 // generateFlowID generates a random flow ID.
 func generateFlowID() string { // A
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
@@ -235,7 +235,7 @@ func (d *Dashboard) handleUpload(w http.ResponseWriter, r *http.Request) { // A
 		})
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Read file content
 	content, err := io.ReadAll(file)
@@ -259,7 +259,10 @@ func (d *Dashboard) handleUpload(w http.ResponseWriter, r *http.Request) { // A
 }
 
 // handleUploadRoutes handles /api/upload/{id}/... routes.
-func (d *Dashboard) handleUploadRoutes(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleUploadRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	// Extract upload ID and sub-path from URL
 	path := strings.TrimPrefix(r.URL.Path, "/api/upload/")
 	parts := strings.SplitN(path, "/", 2)
@@ -299,7 +302,10 @@ func (d *Dashboard) handleGetUploadFlow(
 // processUpload simulates the upload pipeline stages.
 // In a real implementation, this would interact with the CAS and distribution
 // system.
-func (d *Dashboard) processUpload(flowID, filename string, content []byte) { // A
+func (d *Dashboard) processUpload(
+	flowID, filename string,
+	content []byte,
+) { // A
 	// Stage 1: Encrypting
 	d.uploadTracker.UpdateStatus(flowID, "encrypting")
 	time.Sleep(100 * time.Millisecond) // Simulate work
@@ -365,7 +371,7 @@ func (d *Dashboard) processUpload(flowID, filename string, content []byte) { // 
 // generateFakeHash generates a fake hash for demo purposes.
 func generateFakeHash(prefix string) string { // A
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return prefix + "-" + hex.EncodeToString(b)
 }
 
@@ -373,5 +379,5 @@ func generateFakeHash(prefix string) string { // A
 func writeJSON(w http.ResponseWriter, status int, v interface{}) { // A
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }

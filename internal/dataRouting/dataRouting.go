@@ -25,7 +25,10 @@ func NewDataRouter() *DefaultDataRouter {
 }
 
 // StoreVertex stores a vertex and returns its hash.
-func (r *DefaultDataRouter) StoreVertex(ctx context.Context, vertex model.Vertex) (hash.Hash, error) {
+func (r *DefaultDataRouter) StoreVertex(
+	ctx context.Context,
+	vertex model.Vertex,
+) (hash.Hash, error) {
 	if vertex.Hash == (hash.Hash{}) {
 		return hash.Hash{}, fmt.Errorf("datarouter: vertex hash is required")
 	}
@@ -35,22 +38,34 @@ func (r *DefaultDataRouter) StoreVertex(ctx context.Context, vertex model.Vertex
 }
 
 // RetrieveVertex retrieves a vertex by its hash.
-func (r *DefaultDataRouter) RetrieveVertex(ctx context.Context, vertexHash hash.Hash) (model.Vertex, error) {
+func (r *DefaultDataRouter) RetrieveVertex(
+	ctx context.Context,
+	vertexHash hash.Hash,
+) (model.Vertex, error) {
 	vertex, exists := r.vertices[vertexHash]
 	if !exists {
-		return model.Vertex{}, fmt.Errorf("datarouter: vertex %s not found", vertexHash)
+		return model.Vertex{}, fmt.Errorf(
+			"datarouter: vertex %s not found",
+			vertexHash,
+		)
 	}
 	return vertex, nil
 }
 
 // DeleteVertex marks a vertex for deletion.
-func (r *DefaultDataRouter) DeleteVertex(ctx context.Context, vertexHash hash.Hash) error {
+func (r *DefaultDataRouter) DeleteVertex(
+	ctx context.Context,
+	vertexHash hash.Hash,
+) error {
 	delete(r.vertices, vertexHash)
 	return nil
 }
 
 // DistributeBlockSlices distributes block slices to appropriate nodes.
-func (r *DefaultDataRouter) DistributeBlockSlices(ctx context.Context, block model.Block) error {
+func (r *DefaultDataRouter) DistributeBlockSlices(
+	ctx context.Context,
+	block model.Block,
+) error {
 	// Implementation will distribute slices across the cluster
 	// This is a placeholder for the actual implementation
 	r.blocks[block.Hash] = block
@@ -58,10 +73,16 @@ func (r *DefaultDataRouter) DistributeBlockSlices(ctx context.Context, block mod
 }
 
 // RetrieveBlock retrieves a block, potentially reconstructing from slices.
-func (r *DefaultDataRouter) RetrieveBlock(ctx context.Context, blockHash hash.Hash) (model.Block, error) {
+func (r *DefaultDataRouter) RetrieveBlock(
+	ctx context.Context,
+	blockHash hash.Hash,
+) (model.Block, error) {
 	block, exists := r.blocks[blockHash]
 	if !exists {
-		return model.Block{}, fmt.Errorf("datarouter: block %s not found", blockHash)
+		return model.Block{}, fmt.Errorf(
+			"datarouter: block %s not found",
+			blockHash,
+		)
 	}
 	return block, nil
 }

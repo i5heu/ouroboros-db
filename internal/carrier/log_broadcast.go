@@ -157,7 +157,10 @@ func (lb *LogBroadcaster) sendToSubscriber(
 }
 
 // Enabled implements slog.Handler.
-func (lb *LogBroadcaster) Enabled(ctx context.Context, level slog.Level) bool { // A
+func (lb *LogBroadcaster) Enabled(
+	ctx context.Context,
+	level slog.Level,
+) bool { // A
 	return lb.inner.Enabled(ctx, level)
 }
 
@@ -225,7 +228,9 @@ func (lb *LogBroadcaster) WithGroup(name string) slog.Handler { // A
 }
 
 // recordToEntry converts an slog.Record to a LogEntryPayload.
-func (lb *LogBroadcaster) recordToEntry(record slog.Record) LogEntryPayload { // A
+func (lb *LogBroadcaster) recordToEntry(
+	record slog.Record,
+) LogEntryPayload { // A
 	attrs := make(map[string]string)
 
 	// Include pre-configured attributes from WithAttrs
@@ -253,22 +258,6 @@ func (lb *LogBroadcaster) recordToEntry(record slog.Record) LogEntryPayload { //
 		Level:        record.Level.String(),
 		Message:      record.Message,
 		Attributes:   attrs,
-	}
-}
-
-// levelToString converts slog.Level to a lowercase string.
-func levelToString(level slog.Level) string { // A
-	switch level {
-	case slog.LevelDebug:
-		return "debug"
-	case slog.LevelInfo:
-		return "info"
-	case slog.LevelWarn:
-		return "warn"
-	case slog.LevelError:
-		return "error"
-	default:
-		return "info"
 	}
 }
 

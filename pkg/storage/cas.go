@@ -40,7 +40,8 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/model"
 )
 
-// CAS (Content-Addressable Storage) is the main management layer for content operations.
+// CAS (Content-Addressable Storage) is the main management layer for content
+// operations.
 //
 // CAS provides the high-level API for storing, retrieving, and managing content
 // in OuroborosDB. It serves as the central access point for all vertex data
@@ -100,7 +101,11 @@ type CAS interface {
 	//
 	// The returned Vertex can be used to retrieve the content later
 	// via GetContent(vertex.Hash).
-	StoreContent(ctx context.Context, content []byte, parentHash hash.Hash) (model.Vertex, error)
+	StoreContent(
+		ctx context.Context,
+		content []byte,
+		parentHash hash.Hash,
+	) (model.Vertex, error)
 
 	// GetContent retrieves the cleartext content for a vertex.
 	//
@@ -158,5 +163,8 @@ type CAS interface {
 	// Returns:
 	//   - Slice of child Vertices (may be empty if no children)
 	//   - Error if the lookup fails
-	ListChildren(ctx context.Context, parentHash hash.Hash) ([]model.Vertex, error)
+	ListChildren(
+		ctx context.Context,
+		parentHash hash.Hash,
+	) ([]model.Vertex, error)
 }

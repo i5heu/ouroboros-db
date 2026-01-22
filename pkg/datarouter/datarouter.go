@@ -1,6 +1,8 @@
-// Package datarouter defines interfaces for routing data operations across the cluster.
+// Package datarouter defines interfaces for routing data operations across the
+// cluster.
 //
-// The DataRouter is responsible for coordinating data distribution and retrieval
+// The DataRouter is responsible for coordinating data distribution and
+// retrieval
 // in a distributed OuroborosDB cluster. It works with the DistributedIndex to
 // locate data and with the Carrier to communicate with remote nodes.
 //
@@ -100,7 +102,10 @@ type DataRouter interface {
 	// Returns:
 	//   - The vertex metadata
 	//   - Error if the vertex cannot be found or retrieved
-	RetrieveVertex(ctx context.Context, vertexHash hash.Hash) (model.Vertex, error)
+	RetrieveVertex(
+		ctx context.Context,
+		vertexHash hash.Hash,
+	) (model.Vertex, error)
 
 	// DeleteVertex marks a vertex for deletion across the cluster.
 	//

@@ -66,12 +66,16 @@ func (ni *DefaultNodeIdentity) Verify(data, signature []byte) bool {
 }
 
 // EncryptFor encrypts data for a specific recipient using their public key.
-func (ni *DefaultNodeIdentity) EncryptFor(data []byte, recipientPub *keys.PublicKey) ([]byte, error) {
+func (ni *DefaultNodeIdentity) EncryptFor(
+	data []byte,
+	recipientPub *keys.PublicKey,
+) ([]byte, error) {
 	result, err := encrypt.Encrypt(data, recipientPub)
 	if err != nil {
 		return nil, err
 	}
-	// Return combined encrypted data (simplified - actual implementation may need more structure)
+	// Return combined encrypted data (simplified - actual implementation may need
+	// more structure)
 	return result.Ciphertext, nil
 }
 
@@ -80,7 +84,9 @@ func (ni *DefaultNodeIdentity) Decrypt(encryptedData []byte) ([]byte, error) {
 	// Note: This is a simplified interface. The actual encrypted message
 	// needs to include nonce and encapsulated key. The full implementation
 	// should use the EncryptResult structure.
-	return nil, fmt.Errorf("decrypt requires EncryptResult structure - use GetCrypt() for full decryption")
+	return nil, fmt.Errorf(
+		"decrypt requires EncryptResult structure - use GetCrypt() for full decryption",
+	)
 }
 
 // SaveToFile persists the node identity to a key file.

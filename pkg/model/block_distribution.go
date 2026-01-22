@@ -11,11 +11,14 @@ import (
 type BlockDistributionState uint8
 
 const (
-	// BlockStatePending indicates the block is created but not yet being distributed.
+	// BlockStatePending indicates the block is created but not yet being
+	// distributed.
 	BlockStatePending BlockDistributionState = iota
-	// BlockStateDistributing indicates the block is actively being distributed to nodes.
+	// BlockStateDistributing indicates the block is actively being distributed to
+	// nodes.
 	BlockStateDistributing
-	// BlockStateDistributed indicates the block has been confirmed on sufficient nodes.
+	// BlockStateDistributed indicates the block has been confirmed on sufficient
+	// nodes.
 	BlockStateDistributed
 	// BlockStateFailed indicates distribution failed after maximum retries.
 	BlockStateFailed
@@ -52,7 +55,8 @@ type BlockDistributionRecord struct {
 	// UpdatedAt is when the record was last modified.
 	UpdatedAt time.Time
 
-	// SliceConfirmations maps sliceHash to the list of nodeIDs that confirmed receipt.
+	// SliceConfirmations maps sliceHash to the list of nodeIDs that confirmed
+	// receipt.
 	SliceConfirmations map[hash.Hash][]string
 
 	// TotalSlices is the total number of slices (k data + p parity).
@@ -97,7 +101,8 @@ type DistributionConfig struct {
 	// DistributionTimeout is how long to wait for confirmations before retrying.
 	DistributionTimeout time.Duration
 
-	// MaxRetries is the maximum number of retry attempts before marking as failed.
+	// MaxRetries is the maximum number of retry attempts before marking as
+	// failed.
 	MaxRetries int
 
 	// AnnounceToAll controls whether to broadcast announcements to all nodes.

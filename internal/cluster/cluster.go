@@ -1,4 +1,5 @@
-// Package cluster provides the implementation of cluster management for OuroborosDB.
+// Package cluster provides the implementation of cluster management for
+// OuroborosDB.
 package cluster
 
 import (

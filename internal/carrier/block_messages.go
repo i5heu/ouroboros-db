@@ -85,7 +85,9 @@ func SerializeBlockSliceDelivery(p *BlockSliceDeliveryPayload) ([]byte, error) {
 }
 
 // DeserializeBlockSliceDelivery decodes a BlockSliceDeliveryPayload.
-func DeserializeBlockSliceDelivery(data []byte) (*BlockSliceDeliveryPayload, error) {
+func DeserializeBlockSliceDelivery(
+	data []byte,
+) (*BlockSliceDeliveryPayload, error) {
 	var p BlockSliceDeliveryPayload
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&p); err != nil {
 		return nil, fmt.Errorf("decode block slice delivery: %w", err)
@@ -121,7 +123,9 @@ func SerializeBlockAnnouncement(p *BlockAnnouncementPayload) ([]byte, error) {
 }
 
 // DeserializeBlockAnnouncement decodes a BlockAnnouncementPayload.
-func DeserializeBlockAnnouncement(data []byte) (*BlockAnnouncementPayload, error) {
+func DeserializeBlockAnnouncement(
+	data []byte,
+) (*BlockAnnouncementPayload, error) {
 	var p BlockAnnouncementPayload
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&p); err != nil {
 		return nil, fmt.Errorf("decode block announcement: %w", err)
@@ -130,16 +134,23 @@ func DeserializeBlockAnnouncement(data []byte) (*BlockAnnouncementPayload, error
 }
 
 // SerializeMissedBlocksRequest encodes a MissedBlocksRequestPayload.
-func SerializeMissedBlocksRequest(p *MissedBlocksRequestPayload) ([]byte, error) {
+func SerializeMissedBlocksRequest(
+	p *MissedBlocksRequestPayload,
+) ([]byte, error) {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(p.SinceTimestamp))
 	return buf, nil
 }
 
 // DeserializeMissedBlocksRequest decodes a MissedBlocksRequestPayload.
-func DeserializeMissedBlocksRequest(data []byte) (*MissedBlocksRequestPayload, error) {
+func DeserializeMissedBlocksRequest(
+	data []byte,
+) (*MissedBlocksRequestPayload, error) {
 	if len(data) < 8 {
-		return nil, fmt.Errorf("missed blocks request too short: %d bytes", len(data))
+		return nil, fmt.Errorf(
+			"missed blocks request too short: %d bytes",
+			len(data),
+		)
 	}
 	return &MissedBlocksRequestPayload{
 		SinceTimestamp: int64(binary.BigEndian.Uint64(data)),
@@ -147,7 +158,9 @@ func DeserializeMissedBlocksRequest(data []byte) (*MissedBlocksRequestPayload, e
 }
 
 // SerializeMissedBlocksResponse encodes a MissedBlocksResponsePayload.
-func SerializeMissedBlocksResponse(p *MissedBlocksResponsePayload) ([]byte, error) {
+func SerializeMissedBlocksResponse(
+	p *MissedBlocksResponsePayload,
+) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(p); err != nil {
 		return nil, fmt.Errorf("encode missed blocks response: %w", err)
@@ -156,7 +169,9 @@ func SerializeMissedBlocksResponse(p *MissedBlocksResponsePayload) ([]byte, erro
 }
 
 // DeserializeMissedBlocksResponse decodes a MissedBlocksResponsePayload.
-func DeserializeMissedBlocksResponse(data []byte) (*MissedBlocksResponsePayload, error) {
+func DeserializeMissedBlocksResponse(
+	data []byte,
+) (*MissedBlocksResponsePayload, error) {
 	var p MissedBlocksResponsePayload
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&p); err != nil {
 		return nil, fmt.Errorf("decode missed blocks response: %w", err)
@@ -168,14 +183,21 @@ func DeserializeMissedBlocksResponse(data []byte) (*MissedBlocksResponsePayload,
 const hashSize = 64
 
 // SerializeBlockMetadataRequest encodes a BlockMetadataRequestPayload.
-func SerializeBlockMetadataRequest(p *BlockMetadataRequestPayload) ([]byte, error) {
+func SerializeBlockMetadataRequest(
+	p *BlockMetadataRequestPayload,
+) ([]byte, error) {
 	return p.BlockHash[:], nil
 }
 
 // DeserializeBlockMetadataRequest decodes a BlockMetadataRequestPayload.
-func DeserializeBlockMetadataRequest(data []byte) (*BlockMetadataRequestPayload, error) {
+func DeserializeBlockMetadataRequest(
+	data []byte,
+) (*BlockMetadataRequestPayload, error) {
 	if len(data) < hashSize {
-		return nil, fmt.Errorf("block metadata request too short: %d bytes", len(data))
+		return nil, fmt.Errorf(
+			"block metadata request too short: %d bytes",
+			len(data),
+		)
 	}
 	var h hash.Hash
 	copy(h[:], data[:hashSize])
@@ -183,7 +205,9 @@ func DeserializeBlockMetadataRequest(data []byte) (*BlockMetadataRequestPayload,
 }
 
 // SerializeBlockMetadataResponse encodes a BlockMetadataResponsePayload.
-func SerializeBlockMetadataResponse(p *BlockMetadataResponsePayload) ([]byte, error) {
+func SerializeBlockMetadataResponse(
+	p *BlockMetadataResponsePayload,
+) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(p); err != nil {
 		return nil, fmt.Errorf("encode block metadata response: %w", err)
@@ -192,7 +216,9 @@ func SerializeBlockMetadataResponse(p *BlockMetadataResponsePayload) ([]byte, er
 }
 
 // DeserializeBlockMetadataResponse decodes a BlockMetadataResponsePayload.
-func DeserializeBlockMetadataResponse(data []byte) (*BlockMetadataResponsePayload, error) {
+func DeserializeBlockMetadataResponse(
+	data []byte,
+) (*BlockMetadataResponsePayload, error) {
 	var p BlockMetadataResponsePayload
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&p); err != nil {
 		return nil, fmt.Errorf("decode block metadata response: %w", err)

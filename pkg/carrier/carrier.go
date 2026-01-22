@@ -1,7 +1,9 @@
-// Package carrier defines interfaces for inter-node communication in OuroborosDB.
+// Package carrier defines interfaces for inter-node communication in
+// OuroborosDB.
 //
-// The Carrier is the communication backbone of an OuroborosDB cluster. It provides
-// reliable, encrypted message passing between nodes using QUIC as the underlying
+// The Carrier is the communication backbone of an OuroborosDB cluster. It
+// provides reliable, encrypted message passing between nodes using QUIC as the
+// underlying
 // transport protocol.
 //
 // # Architecture
@@ -110,7 +112,11 @@ type Carrier interface {
 	//
 	// Returns:
 	//   - Error if sending fails (node not found, connection failed, timeout)
-	SendMessageToNode(ctx context.Context, nodeID cluster.NodeID, message Message) error
+	SendMessageToNode(
+		ctx context.Context,
+		nodeID cluster.NodeID,
+		message Message,
+	) error
 
 	// JoinCluster requests to join a cluster via the specified node.
 	//
@@ -126,7 +132,11 @@ type Carrier interface {
 	//
 	// Returns:
 	//   - Error if join fails (authentication, network, rejected)
-	JoinCluster(ctx context.Context, clusterNode cluster.Node, cert cluster.NodeCert) error
+	JoinCluster(
+		ctx context.Context,
+		clusterNode cluster.Node,
+		cert cluster.NodeCert,
+	) error
 
 	// LeaveCluster notifies the cluster that this node is leaving.
 	//

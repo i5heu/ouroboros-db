@@ -35,7 +35,9 @@ func newMockCarrier() *mockCarrier { // A
 	}
 }
 
-func (m *mockCarrier) GetNodes(ctx context.Context) ([]carrier.Node, error) { // A
+func (m *mockCarrier) GetNodes(
+	ctx context.Context,
+) ([]carrier.Node, error) { // A
 	return m.nodes, nil
 }
 
@@ -191,7 +193,7 @@ func TestHandler_GetNodes(t *testing.T) { // A
 	d.handleGetNodes(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -239,13 +241,17 @@ func TestHandler_GetVertices(t *testing.T) { // A
 		t.Fatalf("New() failed: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/vertices?offset=0&limit=10", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/vertices?offset=0&limit=10",
+		nil,
+	)
 	w := httptest.NewRecorder()
 
 	d.handleGetVertices(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -278,7 +284,7 @@ func TestHandler_GetBlocks(t *testing.T) { // A
 	d.handleGetBlocks(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -302,7 +308,7 @@ func TestHandler_GetDistribution(t *testing.T) { // A
 	d.handleGetDistribution(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)

@@ -41,7 +41,8 @@ type BlockHeader struct {
 //
 // A Block is the fundamental unit of persistent storage in OuroborosDB.
 // It aggregates multiple SealedChunks and Vertices into a single archive
-// that can be efficiently stored, replicated, and distributed across the cluster.
+// that can be efficiently stored, replicated, and distributed across the
+// cluster.
 //
 // # Block Structure
 //
@@ -112,7 +113,8 @@ type Block struct {
 	VertexIndex map[hash.Hash]VertexRegion
 }
 
-// ChunkRegion specifies the byte range of a SealedChunk within a Block's DataSection.
+// ChunkRegion specifies the byte range of a SealedChunk within a Block's
+// DataSection.
 //
 // ChunkRegion enables efficient partial reads by providing the exact byte
 // offset and length of a specific chunk within the DataSection. This allows
@@ -134,7 +136,8 @@ type ChunkRegion struct {
 	Length uint32
 }
 
-// VertexRegion specifies the byte range of a Vertex within a Block's VertexSection.
+// VertexRegion specifies the byte range of a Vertex within a Block's
+// VertexSection.
 //
 // VertexRegion enables efficient partial reads of vertex metadata without
 // loading the entire block. This is particularly useful for DAG traversal
@@ -143,7 +146,9 @@ type ChunkRegion struct {
 // # Usage
 //
 //	region := block.VertexIndex[vertexHash]
-//	vertexData := block.VertexSection[region.Offset : region.Offset+region.Length]
+//	vertexData := block.VertexSection[region.Offset :
+//
+// region.Offset+region.Length]
 type VertexRegion struct {
 	// VertexHash identifies which vertex this region locates.
 	VertexHash hash.Hash

@@ -78,7 +78,10 @@ type NodeDistribution struct { // A
 
 // handleGetNodes returns all cluster nodes.
 // GET /api/nodes
-func (d *Dashboard) handleGetNodes(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleGetNodes(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -110,7 +113,10 @@ func (d *Dashboard) handleGetNodes(w http.ResponseWriter, r *http.Request) { // 
 // handleNodeRoutes handles /api/nodes/{nodeID}/... routes.
 // POST /api/nodes/{nodeID}/logs/subscribe
 // POST /api/nodes/{nodeID}/logs/unsubscribe
-func (d *Dashboard) handleNodeRoutes(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleNodeRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	// Extract node ID and sub-path from URL
 	path := strings.TrimPrefix(r.URL.Path, "/api/nodes/")
 	parts := strings.SplitN(path, "/", 3)
@@ -261,7 +267,10 @@ func (d *Dashboard) handleLogUnsubscribe(
 
 // handleGetVertices returns a paginated list of vertices.
 // GET /api/vertices?offset=0&limit=20
-func (d *Dashboard) handleGetVertices(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleGetVertices(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -295,7 +304,10 @@ func (d *Dashboard) handleGetVertices(w http.ResponseWriter, r *http.Request) { 
 
 // handleGetVertex returns details for a specific vertex.
 // GET /api/vertices/{hash}
-func (d *Dashboard) handleGetVertex(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleGetVertex(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -319,7 +331,10 @@ func (d *Dashboard) handleGetVertex(w http.ResponseWriter, r *http.Request) { //
 
 // handleGetBlocks returns a paginated list of blocks.
 // GET /api/blocks?offset=0&limit=20
-func (d *Dashboard) handleGetBlocks(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleGetBlocks(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -354,7 +369,10 @@ func (d *Dashboard) handleGetBlocks(w http.ResponseWriter, r *http.Request) { //
 // handleBlockRoutes handles /api/blocks/{hash}/... routes.
 // GET /api/blocks/{hash}
 // GET /api/blocks/{hash}/slices
-func (d *Dashboard) handleBlockRoutes(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleBlockRoutes(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	// Extract hash and sub-path from URL
 	path := strings.TrimPrefix(r.URL.Path, "/api/blocks/")
 	parts := strings.SplitN(path, "/", 2)

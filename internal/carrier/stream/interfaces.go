@@ -1,4 +1,5 @@
-// Package stream provides transport-level abstractions for carrier communication.
+// Package stream provides transport-level abstractions for carrier
+// communication.
 //
 // This package contains the Transport, Listener, and Connection interfaces
 // along with their QUIC implementation and connection pooling logic.

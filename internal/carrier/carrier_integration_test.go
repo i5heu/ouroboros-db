@@ -36,13 +36,20 @@ func newPipeTransport(network *pipeNetwork) *pipeTransport {
 	}
 }
 
-func (t *pipeTransport) RegisterNode(address string, nodeID NodeID, pubKey *keys.PublicKey) {
+func (t *pipeTransport) RegisterNode(
+	address string,
+	nodeID NodeID,
+	pubKey *keys.PublicKey,
+) {
 	t.network.mu.Lock()
 	defer t.network.mu.Unlock()
 	t.network.identities[address] = nodeInfo{nodeID: nodeID, pubKey: pubKey}
 }
 
-func (t *pipeTransport) Connect(ctx context.Context, address string) (Connection, error) {
+func (t *pipeTransport) Connect(
+	ctx context.Context,
+	address string,
+) (Connection, error) {
 	t.network.mu.RLock()
 	listener, ok := t.network.listeners[address]
 	serverInfo := t.network.identities[address]
@@ -97,7 +104,10 @@ func (t *pipeTransport) Connect(ctx context.Context, address string) (Connection
 	}
 }
 
-func (t *pipeTransport) Listen(ctx context.Context, address string) (Listener, error) {
+func (t *pipeTransport) Listen(
+	ctx context.Context,
+	address string,
+) (Listener, error) {
 	t.network.mu.Lock()
 	defer t.network.mu.Unlock()
 
@@ -181,7 +191,10 @@ func (c *pipeConnection) Send(ctx context.Context, msg Message) error {
 	}
 }
 
-func (c *pipeConnection) SendEncrypted(ctx context.Context, enc *EncryptedMessage) error {
+func (c *pipeConnection) SendEncrypted(
+	ctx context.Context,
+	enc *EncryptedMessage,
+) error {
 	return fmt.Errorf("SendEncrypted not implemented")
 }
 
@@ -198,7 +211,9 @@ func (c *pipeConnection) Receive(ctx context.Context) (Message, error) {
 	}
 }
 
-func (c *pipeConnection) ReceiveEncrypted(ctx context.Context) (*EncryptedMessage, error) {
+func (c *pipeConnection) ReceiveEncrypted(
+	ctx context.Context,
+) (*EncryptedMessage, error) {
 	return nil, fmt.Errorf("ReceiveEncrypted not implemented")
 }
 
@@ -216,7 +231,8 @@ func (c *pipeConnection) Close() error {
 	return nil
 }
 
-func (c *pipeConnection) RemoteNodeID() NodeID             { return c.remoteNodeID }
+func (c *pipeConnection) RemoteNodeID() NodeID { return c.remoteNodeID }
+
 func (c *pipeConnection) RemotePublicKey() *keys.PublicKey { return c.remotePubKey }
 
 func TestCarrierIntegration(t *testing.T) {
@@ -229,7 +245,9 @@ func TestCarrierIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(
+		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}),
+	)
 
 	numCarriers := 3
 	carriers := make([]*DefaultCarrier, numCarriers)
@@ -256,18 +274,24 @@ func TestCarrierIntegration(t *testing.T) {
 
 		receivedChan := make(chan Message, 100)
 		receivedMessages[nodeID] = receivedChan
-		carriers[i].RegisterHandler(MessageTypeHeartbeat, func(ctx context.Context, senderID NodeID, msg Message) (*Message, error) {
-			select {
-			case receivedChan <- msg:
-			default:
-			}
-			return &Message{Type: MessageTypeHeartbeat, Payload: []byte("pong")}, nil
-		})
+		carriers[i].RegisterHandler(
+			MessageTypeHeartbeat,
+			func(ctx context.Context, senderID NodeID, msg Message) (*Message, error) {
+				select {
+				case receivedChan <- msg:
+				default:
+				}
+				return &Message{
+					Type:    MessageTypeHeartbeat,
+					Payload: []byte("pong"),
+				}, nil
+			},
+		)
 
 		if err := carriers[i].Start(ctx); err != nil {
 			t.Fatalf("Failed to start carrier %d: %v", i, err)
 		}
-		defer carriers[i].Stop(ctx)
+		defer func() { _ = carriers[i].Stop(ctx) }()
 	}
 
 	for i := 0; i < numCarriers; i++ {
@@ -275,7 +299,7 @@ func TestCarrierIntegration(t *testing.T) {
 			if i == j {
 				continue
 			}
-			carriers[i].AddNode(ctx, carriers[j].LocalNode())
+			_ = carriers[i].AddNode(ctx, carriers[j].LocalNode())
 		}
 	}
 
@@ -302,7 +326,10 @@ func TestCarrierIntegration(t *testing.T) {
 	})
 
 	t.Run("Broadcast", func(t *testing.T) {
-		broadcastMsg := Message{Type: MessageTypeHeartbeat, Payload: []byte("broadcast from 2")}
+		broadcastMsg := Message{
+			Type:    MessageTypeHeartbeat,
+			Payload: []byte("broadcast from 2"),
+		}
 		senderID := carriers[2].LocalNode().NodeID
 
 		t.Logf("Node 2 (%s) broadcasting to all...", senderID)
@@ -310,7 +337,11 @@ func TestCarrierIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Broadcast failed: %v", err)
 		}
-		t.Logf("Broadcast result: %d success, %d failed", len(result.SuccessNodes), len(result.FailedNodes))
+		t.Logf(
+			"Broadcast result: %d success, %d failed",
+			len(result.SuccessNodes),
+			len(result.FailedNodes),
+		)
 
 		for i := 0; i < numCarriers; i++ {
 			if i == 2 {
@@ -320,7 +351,11 @@ func TestCarrierIntegration(t *testing.T) {
 			select {
 			case received := <-receivedMessages[nodeID]:
 				if string(received.Payload) != "broadcast from 2" {
-					t.Errorf("Node %d received wrong broadcast payload: %s", i, string(received.Payload))
+					t.Errorf(
+						"Node %d received wrong broadcast payload: %s",
+						i,
+						string(received.Payload),
+					)
 				} else {
 					t.Logf("Node %d received broadcast correctly", i)
 				}

@@ -1,4 +1,5 @@
-// Package distribution provides interfaces and types for managing block distribution
+// Package distribution provides interfaces and types for managing block
+// distribution
 // across the OuroborosDB cluster.
 //
 // The distribution system ensures that blocks are replicated to multiple nodes
@@ -95,7 +96,8 @@ type BlockDistributionTracker interface {
 		blockHash hash.Hash,
 	) (*model.BlockDistributionRecord, error)
 
-	// GetPendingDistributions returns all blocks in Pending or Distributing state.
+	// GetPendingDistributions returns all blocks in Pending or Distributing
+	// state.
 	//
 	// This is used on startup to resume any distributions that were
 	// interrupted by a crash or restart.
@@ -103,7 +105,9 @@ type BlockDistributionTracker interface {
 	// Returns:
 	//   - Slice of distribution records for incomplete distributions
 	//   - Error if the records cannot be retrieved
-	GetPendingDistributions(ctx context.Context) ([]*model.BlockDistributionRecord, error)
+	GetPendingDistributions(
+		ctx context.Context,
+	) ([]*model.BlockDistributionRecord, error)
 
 	// MarkDistributed explicitly marks a block as successfully distributed.
 	//
@@ -128,7 +132,8 @@ type BlockDistributionTracker interface {
 	//   - Error if the state cannot be updated
 	MarkFailed(ctx context.Context, blockHash hash.Hash, reason string) error
 
-	// GetDistributedBlocksSince returns block hashes distributed after a timestamp.
+	// GetDistributedBlocksSince returns block hashes distributed after a
+	// timestamp.
 	//
 	// This is used by nodes coming online to discover blocks they missed
 	// while offline. The timestamp is in Unix milliseconds.
@@ -139,7 +144,10 @@ type BlockDistributionTracker interface {
 	// Returns:
 	//   - Slice of block hashes that were distributed after the timestamp
 	//   - Error if the query fails
-	GetDistributedBlocksSince(ctx context.Context, since int64) ([]hash.Hash, error)
+	GetDistributedBlocksSince(
+		ctx context.Context,
+		since int64,
+	) ([]hash.Hash, error)
 
 	// GetBlockMetadata returns metadata for a distributed block.
 	//
@@ -153,5 +161,8 @@ type BlockDistributionTracker interface {
 	// Returns:
 	//   - The block metadata, or nil if not found
 	//   - Error if the metadata cannot be retrieved
-	GetBlockMetadata(ctx context.Context, blockHash hash.Hash) (*model.BlockMetadata, error)
+	GetBlockMetadata(
+		ctx context.Context,
+		blockHash hash.Hash,
+	) (*model.BlockMetadata, error)
 }

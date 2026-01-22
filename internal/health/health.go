@@ -33,7 +33,10 @@ func (m *DefaultClusterMonitor) MonitorNodeHealth(ctx context.Context) error {
 }
 
 // GetNodeStatus returns the current status of a specific node.
-func (m *DefaultClusterMonitor) GetNodeStatus(ctx context.Context, nodeID cluster.NodeID) (monitor.NodeStatus, error) {
+func (m *DefaultClusterMonitor) GetNodeStatus(
+	ctx context.Context,
+	nodeID cluster.NodeID,
+) (monitor.NodeStatus, error) {
 	status, exists := m.statuses[nodeID]
 	if !exists {
 		return monitor.NodeStatus{
@@ -45,7 +48,9 @@ func (m *DefaultClusterMonitor) GetNodeStatus(ctx context.Context, nodeID cluste
 }
 
 // GetClusterHealth returns the overall health of the cluster.
-func (m *DefaultClusterMonitor) GetClusterHealth(ctx context.Context) (monitor.ClusterHealth, error) {
+func (m *DefaultClusterMonitor) GetClusterHealth(
+	ctx context.Context,
+) (monitor.ClusterHealth, error) {
 	available := 0
 	unavailable := 0
 	for _, status := range m.statuses {
@@ -66,12 +71,17 @@ func (m *DefaultClusterMonitor) GetClusterHealth(ctx context.Context) (monitor.C
 }
 
 // RegisterHealthCallback registers a callback for health status changes.
-func (m *DefaultClusterMonitor) RegisterHealthCallback(callback monitor.HealthCallback) {
+func (m *DefaultClusterMonitor) RegisterHealthCallback(
+	callback monitor.HealthCallback,
+) {
 	m.callbacks = append(m.callbacks, callback)
 }
 
 // UpdateNodeStatus updates the status of a node and notifies callbacks.
-func (m *DefaultClusterMonitor) UpdateNodeStatus(nodeID cluster.NodeID, newStatus monitor.NodeStatus) {
+func (m *DefaultClusterMonitor) UpdateNodeStatus(
+	nodeID cluster.NodeID,
+	newStatus monitor.NodeStatus,
+) {
 	oldStatus := m.statuses[nodeID]
 	m.statuses[nodeID] = newStatus
 	callbacks := make([]monitor.HealthCallback, len(m.callbacks))
@@ -86,14 +96,16 @@ func (m *DefaultClusterMonitor) UpdateNodeStatus(nodeID cluster.NodeID, newStatu
 // Ensure DefaultClusterMonitor implements the ClusterMonitor interface.
 var _ monitor.ClusterMonitor = (*DefaultClusterMonitor)(nil)
 
-// DefaultNodeAvailabilityTracker implements the NodeAvailabilityTracker interface.
+// DefaultNodeAvailabilityTracker implements the NodeAvailabilityTracker
+// interface.
 type DefaultNodeAvailabilityTracker struct {
 	available   map[cluster.NodeID]bool
 	nodes       map[cluster.NodeID]cluster.Node
 	lastChecked map[cluster.NodeID]time.Time
 }
 
-// NewNodeAvailabilityTracker creates a new DefaultNodeAvailabilityTracker instance.
+// NewNodeAvailabilityTracker creates a new DefaultNodeAvailabilityTracker
+// instance.
 func NewNodeAvailabilityTracker() *DefaultNodeAvailabilityTracker {
 	return &DefaultNodeAvailabilityTracker{
 		available:   make(map[cluster.NodeID]bool),
@@ -103,14 +115,18 @@ func NewNodeAvailabilityTracker() *DefaultNodeAvailabilityTracker {
 }
 
 // TrackAvailability starts tracking availability for all known nodes.
-func (t *DefaultNodeAvailabilityTracker) TrackAvailability(ctx context.Context) error {
+func (t *DefaultNodeAvailabilityTracker) TrackAvailability(
+	ctx context.Context,
+) error {
 	// Implementation will start a background goroutine to track availability
 	// This is a placeholder for the actual implementation
 	return nil
 }
 
 // IsNodeAvailable returns whether a node is currently available.
-func (t *DefaultNodeAvailabilityTracker) IsNodeAvailable(nodeID cluster.NodeID) bool {
+func (t *DefaultNodeAvailabilityTracker) IsNodeAvailable(
+	nodeID cluster.NodeID,
+) bool {
 	return t.available[nodeID]
 }
 
@@ -141,12 +157,16 @@ func (t *DefaultNodeAvailabilityTracker) GetUnavailableNodes() []cluster.Node {
 }
 
 // MarkNodeUnavailable manually marks a node as unavailable.
-func (t *DefaultNodeAvailabilityTracker) MarkNodeUnavailable(nodeID cluster.NodeID) {
+func (t *DefaultNodeAvailabilityTracker) MarkNodeUnavailable(
+	nodeID cluster.NodeID,
+) {
 	t.available[nodeID] = false
 }
 
 // MarkNodeAvailable manually marks a node as available.
-func (t *DefaultNodeAvailabilityTracker) MarkNodeAvailable(nodeID cluster.NodeID) {
+func (t *DefaultNodeAvailabilityTracker) MarkNodeAvailable(
+	nodeID cluster.NodeID,
+) {
 	t.available[nodeID] = true
 }
 
@@ -156,5 +176,6 @@ func (t *DefaultNodeAvailabilityTracker) AddNode(node cluster.Node) {
 	t.available[node.NodeID] = false // Start as unavailable until verified
 }
 
-// Ensure DefaultNodeAvailabilityTracker implements the NodeAvailabilityTracker interface.
+// Ensure DefaultNodeAvailabilityTracker implements the NodeAvailabilityTracker
+// interface.
 var _ monitor.NodeAvailabilityTracker = (*DefaultNodeAvailabilityTracker)(nil)

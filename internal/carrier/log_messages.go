@@ -66,7 +66,9 @@ func DeserializeLogSubscribe(data []byte) (LogSubscribePayload, error) { // A
 }
 
 // SerializeLogUnsubscribe serializes a LogUnsubscribePayload to bytes.
-func SerializeLogUnsubscribe(payload LogUnsubscribePayload) ([]byte, error) { // A
+func SerializeLogUnsubscribe(
+	payload LogUnsubscribePayload,
+) ([]byte, error) { // A
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	if err := enc.Encode(payload); err != nil {
@@ -76,7 +78,9 @@ func SerializeLogUnsubscribe(payload LogUnsubscribePayload) ([]byte, error) { //
 }
 
 // DeserializeLogUnsubscribe deserializes bytes to a LogUnsubscribePayload.
-func DeserializeLogUnsubscribe(data []byte) (LogUnsubscribePayload, error) { // A
+func DeserializeLogUnsubscribe(
+	data []byte,
+) (LogUnsubscribePayload, error) { // A
 	var payload LogUnsubscribePayload
 	dec := gob.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&payload); err != nil {

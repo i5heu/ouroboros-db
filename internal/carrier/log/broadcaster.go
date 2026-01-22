@@ -173,7 +173,10 @@ func (lb *Broadcaster) sendToSubscriber(
 }
 
 // Enabled implements slog.Handler.
-func (lb *Broadcaster) Enabled(ctx context.Context, level slog.Level) bool { // A
+func (lb *Broadcaster) Enabled(
+	ctx context.Context,
+	level slog.Level,
+) bool { // A
 	return lb.inner.Enabled(ctx, level)
 }
 
@@ -297,7 +300,9 @@ func (lb *Broadcaster) HandleLogUnsubscribe(
 	senderID cluster.NodeID,
 	msg carrier.Message,
 ) (*carrier.Message, error) { // A
-	payload, err := carrier.Deserialize[carrier.LogUnsubscribePayload](msg.Payload)
+	payload, err := carrier.Deserialize[carrier.LogUnsubscribePayload](
+		msg.Payload,
+	)
 	if err != nil {
 		return nil, err
 	}

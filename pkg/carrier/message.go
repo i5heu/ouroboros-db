@@ -193,12 +193,14 @@ type BroadcastResult struct {
 //
 // # Example
 //
-//	handler := func(ctx context.Context, sender cluster.NodeID, msg Message) (*Message, error) {
-//	    // Process the message
-//	    response := processRequest(msg.Payload)
-//	    return &Message{Type: ResponseType, Payload: response}, nil
-//	}
-//	carrier.RegisterHandler(MessageTypeRequest, handler)
+//	handler := func(ctx context.Context, sender cluster.NodeID, msg Message)
+//
+//	(*Message, error) {
+//		    // Process the message
+//		    response := processRequest(msg.Payload)
+//		    return &Message{Type: ResponseType, Payload: response}, nil
+//		}
+//		carrier.RegisterHandler(MessageTypeRequest, handler)
 type MessageHandler func(
 	ctx context.Context,
 	senderID cluster.NodeID,

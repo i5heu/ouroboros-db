@@ -46,11 +46,14 @@ import (
 //
 // DistributedWAL aggregates SealedChunks and Vertices until the buffer reaches
 // the target block size (typically 16MB), then seals them into a Block. This
-// batching dramatically improves storage efficiency and provides write durability.
+// batching dramatically improves storage efficiency and provides write
+// durability.
 //
 // # Write Flow
 //
-//	StoreContent → Encrypt → AppendChunk + AppendVertex → [buffer fills] → SealBlock
+//	StoreContent → Encrypt → AppendChunk + AppendVertex → [buffer fills]
+//
+// → SealBlock
 //
 // # Buffer Management
 //

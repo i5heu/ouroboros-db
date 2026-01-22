@@ -9,18 +9,22 @@
 //
 // The data model is organized around these key concepts:
 //
-//   - Vertex: The logical unit in the DAG, containing metadata and references to content
+// - Vertex: The logical unit in the DAG, containing metadata and references to
+// content
 //   - Chunk: Cleartext content (memory-only, never persisted directly)
 //   - SealedChunk: Encrypted content with integrity verification
-//   - Block: The archive structure containing multiple SealedChunks and Vertices
+//
+// - Block: The archive structure containing multiple SealedChunks and Vertices
 //   - BlockSlice: Reed-Solomon shards of Blocks for distribution
 //   - KeyEntry: Access control mapping users to content
 //
 // # Vertex Access via CAS
 //
-// Vertices are accessed through the CAS (Content-Addressable Storage) interface,
+// Vertices are accessed through the CAS (Content-Addressable Storage)
+// interface,
 // which serves as the central access point for all vertex data operations.
-// The CAS coordinates encryption, WAL buffering, block storage, and access control.
+// The CAS coordinates encryption, WAL buffering, block storage, and access
+// control.
 package model
 
 import (
@@ -37,7 +41,8 @@ import (
 // # Storage Characteristics
 //
 // Vertices are stored UNENCRYPTED in the VertexSection of a Block. This allows
-// the system to traverse the DAG structure and resolve parent-child relationships
+// the system to traverse the DAG structure and resolve parent-child
+// relationships
 // without requiring decryption keys. Only the actual content (stored in Chunks)
 // is encrypted.
 //
@@ -67,7 +72,8 @@ type Vertex struct {
 	// For root vertices, this is the zero hash.
 	Parent hash.Hash
 
-	// Created is the Unix timestamp (in milliseconds) when this vertex was created.
+	// Created is the Unix timestamp (in milliseconds) when this vertex was
+	// created.
 	// This timestamp is part of the hash computation to ensure uniqueness
 	// even for identical content.
 	Created int64

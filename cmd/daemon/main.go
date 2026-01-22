@@ -27,7 +27,7 @@ func main() { // A
 		Level: logLevel,
 	}))
 
-	logger.Info("starting ouroboros daemon",
+	logger.InfoContext(context.Background(), "starting ouroboros daemon",
 		"listenAddr", cfg.listenAddr,
 		"dataPath", cfg.dataPath,
 		"dashboardEnabled", cfg.dashboardEnabled,
@@ -42,13 +42,13 @@ func main() { // A
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigCh
-		logger.Info("received shutdown signal", "signal", sig.String())
+		logger.InfoContext(ctx, "received shutdown signal", "signal", sig.String())
 		cancel()
 	}()
 
 	// Run the daemon
 	if err := run(ctx, cfg, logger); err != nil {
-		logger.Error("daemon error", "error", err)
+		logger.ErrorContext(context.Background(), "daemon error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -98,7 +98,7 @@ func run(
 	logger *slog.Logger,
 ) error { // A
 	// Ensure data directory exists
-	if err := os.MkdirAll(cfg.dataPath, 0750); err != nil {
+	if err := os.MkdirAll(cfg.dataPath, 0o750); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
 
@@ -115,7 +115,7 @@ func run(
 		return fmt.Errorf("derive node ID: %w", err)
 	}
 
-	logger.Info("node identity loaded",
+	logger.InfoContext(ctx, "node identity loaded",
 		"nodeId", string(nodeID)[:16]+"...",
 		"keyPath", keyPath)
 
@@ -190,7 +190,7 @@ func run(
 	}
 	defer func() {
 		if stopErr := carr.Stop(context.Background()); stopErr != nil {
-			logger.Warn("error stopping carrier", "error", stopErr)
+			logger.WarnContext(context.Background(), "error stopping carrier", "error", stopErr)
 		}
 	}()
 
@@ -198,7 +198,7 @@ func run(
 	if cfg.bootstrapAddr != "" {
 		logger.Info("bootstrapping to cluster", "address", cfg.bootstrapAddr)
 		if err := carr.Bootstrap(ctx); err != nil {
-			logger.Warn("bootstrap failed (peer may not be running yet)",
+			logger.WarnContext(context.Background(), "bootstrap failed (peer may not be running yet)",
 				"error", err)
 		} else {
 			logger.Info("bootstrap successful")
@@ -223,7 +223,7 @@ func run(
 		if err := dash.Start(ctx); err != nil {
 			return fmt.Errorf("start dashboard: %w", err)
 		}
-		defer dash.Stop(ctx)
+		defer func() { _ = dash.Stop(ctx) }()
 
 		logger.Info("dashboard available", "address", dash.Address())
 	}
@@ -252,7 +252,12 @@ func loadOrCreateIdentity(
 		if err != nil {
 			return nil, fmt.Errorf("load identity from %s: %w", keyPath, err)
 		}
-		logger.Debug("loaded existing node identity", "path", keyPath)
+		logger.DebugContext(
+			context.Background(),
+			"loaded existing node identity",
+			"path",
+			keyPath,
+		)
 		return identity, nil
 	}
 

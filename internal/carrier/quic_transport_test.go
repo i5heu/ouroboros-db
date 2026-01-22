@@ -25,7 +25,7 @@ func TestNewQUICTransport(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport() error = %v", err)
 	}
-	defer transport.Close()
+	defer func() { _ = transport.Close() }()
 
 	if transport == nil {
 		t.Fatal("NewQUICTransport() returned nil")
@@ -49,7 +49,7 @@ func TestQUICTransport_ConnectAndHandshake(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	// Create client transport
 	clientTransport, err := NewQUICTransport(
@@ -60,7 +60,7 @@ func TestQUICTransport_ConnectAndHandshake(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -69,7 +69,7 @@ func TestQUICTransport_ConnectAndHandshake(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -87,7 +87,7 @@ func TestQUICTransport_ConnectAndHandshake(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	// Wait for accept
 	select {
@@ -99,7 +99,7 @@ func TestQUICTransport_ConnectAndHandshake(t *testing.T) { // A
 	if acceptErr != nil {
 		t.Fatalf("Accept() error = %v", acceptErr)
 	}
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	// Verify node IDs from handshake
 	if clientConn.RemoteNodeID() != "server-node" {
@@ -130,7 +130,7 @@ func TestQUICConn_SendReceive(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -140,7 +140,7 @@ func TestQUICConn_SendReceive(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -148,7 +148,7 @@ func TestQUICConn_SendReceive(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -163,10 +163,10 @@ func TestQUICConn_SendReceive(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	// Test sending from client to server
 	testMsg := Message{
@@ -217,7 +217,7 @@ func TestQUICConn_ConcurrentStreams(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -227,7 +227,7 @@ func TestQUICConn_ConcurrentStreams(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -235,7 +235,7 @@ func TestQUICConn_ConcurrentStreams(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -250,10 +250,10 @@ func TestQUICConn_ConcurrentStreams(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	// Send multiple messages concurrently
 	const numMessages = 10
@@ -326,7 +326,7 @@ func TestQUICConn_LargePayload(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -336,7 +336,7 @@ func TestQUICConn_LargePayload(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -344,7 +344,7 @@ func TestQUICConn_LargePayload(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -359,10 +359,10 @@ func TestQUICConn_LargePayload(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	// Create a 1MB payload
 	largePayload := make([]byte, 1024*1024)
@@ -411,7 +411,7 @@ func TestQUICConn_Close(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -421,7 +421,7 @@ func TestQUICConn_Close(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -429,7 +429,7 @@ func TestQUICConn_Close(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -471,7 +471,7 @@ func TestQUICConn_Close(t *testing.T) { // A
 	}
 
 	if serverConn != nil {
-		serverConn.Close()
+		_ = serverConn.Close()
 	}
 }
 
@@ -490,7 +490,7 @@ func TestQUICTransport_Close(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	// Close transport
 	if err := transport.Close(); err != nil {
@@ -523,7 +523,7 @@ func TestQUICListener_Addr(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport() error = %v", err)
 	}
-	defer transport.Close()
+	defer func() { _ = transport.Close() }()
 
 	ctx := context.Background()
 
@@ -531,7 +531,7 @@ func TestQUICListener_Addr(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	addr := listener.Addr()
 	if addr == "" {
@@ -555,7 +555,7 @@ func TestQUICConn_SendEncrypted(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -565,7 +565,7 @@ func TestQUICConn_SendEncrypted(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -573,7 +573,7 @@ func TestQUICConn_SendEncrypted(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -588,11 +588,11 @@ func TestQUICConn_SendEncrypted(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
 	if serverConn != nil {
-		defer serverConn.Close()
+		defer func() { _ = serverConn.Close() }()
 	}
 
 	// SendEncrypted should return error (QUIC provides encryption)
@@ -620,7 +620,7 @@ func TestQUICConn_RemotePublicKey(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -630,7 +630,7 @@ func TestQUICConn_RemotePublicKey(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -638,7 +638,7 @@ func TestQUICConn_RemotePublicKey(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -653,11 +653,11 @@ func TestQUICConn_RemotePublicKey(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
 	if serverConn != nil {
-		defer serverConn.Close()
+		defer func() { _ = serverConn.Close() }()
 	}
 
 	// RemotePublicKey returns nil (not implemented for QUIC transport)
@@ -678,7 +678,7 @@ func TestQUICConn_PayloadTooLarge(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -688,7 +688,7 @@ func TestQUICConn_PayloadTooLarge(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -696,7 +696,7 @@ func TestQUICConn_PayloadTooLarge(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -711,11 +711,11 @@ func TestQUICConn_PayloadTooLarge(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
 	if serverConn != nil {
-		defer serverConn.Close()
+		defer func() { _ = serverConn.Close() }()
 	}
 
 	// Create a payload larger than maxPayloadLength (16 MB)
@@ -801,7 +801,8 @@ func TestGenerateTLSConfig(t *testing.T) { // A
 }
 
 // TestQUICConn_RequestResponse tests the request-response pattern where
-// client sends a request and server sends a response back on a different stream.
+// client sends a request and server sends a response back on a different
+// stream.
 func TestQUICConn_RequestResponse(t *testing.T) { // A
 	logger := testQUICLogger()
 
@@ -813,7 +814,7 @@ func TestQUICConn_RequestResponse(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(server) error = %v", err)
 	}
-	defer serverTransport.Close()
+	defer func() { _ = serverTransport.Close() }()
 
 	clientTransport, err := NewQUICTransport(
 		logger,
@@ -823,7 +824,7 @@ func TestQUICConn_RequestResponse(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("NewQUICTransport(client) error = %v", err)
 	}
-	defer clientTransport.Close()
+	defer func() { _ = clientTransport.Close() }()
 
 	ctx := context.Background()
 
@@ -831,7 +832,7 @@ func TestQUICConn_RequestResponse(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	serverAddr := listener.Addr()
 
@@ -846,10 +847,10 @@ func TestQUICConn_RequestResponse(t *testing.T) { // A
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	<-acceptDone
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	// Server handler: receives request, sends response
 	serverErrCh := make(chan error, 1)

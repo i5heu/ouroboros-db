@@ -35,7 +35,8 @@ type pooledConn struct { // A
 func newConnPool(transport Transport, localID NodeID, log interface { // A
 	Debug(msg string, args ...any)
 	Warn(msg string, args ...any)
-}) *connPool {
+},
+) *connPool {
 	return &connPool{
 		transport: transport,
 		localID:   localID,
@@ -127,7 +128,7 @@ func (p *connPool) getOrConnect(
 
 		// Verify we connected to the right node
 		if conn.RemoteNodeID() != node.NodeID {
-			conn.Close()
+			_ = conn.Close()
 			lastErr = fmt.Errorf(
 				"node ID mismatch: expected %s, got %s",
 				node.NodeID,
@@ -147,7 +148,11 @@ func (p *connPool) getOrConnect(
 		return conn, nil
 	}
 
-	return nil, fmt.Errorf("failed to connect to node %s: %w", node.NodeID, lastErr)
+	return nil, fmt.Errorf(
+		"failed to connect to node %s: %w",
+		node.NodeID,
+		lastErr,
+	)
 }
 
 // addIncoming adds an incoming connection to the pool.
@@ -166,7 +171,7 @@ func (p *connPool) addIncoming(conn Connection) { // A
 		if existing.conn != nil && !isConnClosed(existing.conn) {
 			// Keep existing connection, close new one
 			// (prefer connections we initiated)
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 	}
@@ -196,7 +201,7 @@ func (p *connPool) addOutgoing(nodeID NodeID, conn Connection) { // A
 	if existing, ok := p.conns[nodeID]; ok {
 		if existing.conn != nil && !isConnClosed(existing.conn) {
 			// Keep existing connection, close new one
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 	}
@@ -221,7 +226,7 @@ func (p *connPool) remove(nodeID NodeID) { // A
 	p.mu.Unlock()
 
 	if exists && pc.conn != nil {
-		pc.conn.Close()
+		_ = pc.conn.Close()
 	}
 }
 
@@ -237,7 +242,7 @@ func (p *connPool) closeAll() { // A
 
 	for _, pc := range conns {
 		if pc.conn != nil {
-			pc.conn.Close()
+			_ = pc.conn.Close()
 		}
 	}
 }

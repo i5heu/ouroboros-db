@@ -34,8 +34,9 @@ func New(conf Config) (*OuroborosDB, error) { // A
 	// We can adapt slog if needed, but for now let's keep it quiet or default.
 	// badger.DefaultOptions defaults to logging to stderr.
 	// If we want to use the provided logger, we would need an adapter.
-	// For this step, let's just use defaults but maybe lower verbosity if possible?
-	// Badger doesn't have a simple level knob in Options.Logger, it takes an interface.
+	// For this step, let's just use defaults but maybe lower verbosity if
+	// possible? Badger doesn't have a simple level knob in Options.Logger, it
+	// takes an interface.
 	// Let's leave default logging for now.
 
 	db, err := badger.Open(opts)

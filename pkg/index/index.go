@@ -354,5 +354,8 @@ type KeyToHashAndNode interface {
 	//   - The vertex hash
 	//   - The primary storage node
 	//   - Error if the key doesn't exist or lookup fails
-	GetHashAndNodeForKey(ctx context.Context, key string) (hash.Hash, cluster.Node, error)
+	GetHashAndNodeForKey(
+		ctx context.Context,
+		key string,
+	) (hash.Hash, cluster.Node, error)
 }

@@ -19,7 +19,8 @@ import (
 var staticFiles embed.FS
 
 // Dashboard provides a debug web interface for OuroborosDB clusters.
-// It allows viewing cluster state, log streaming, and optionally uploading data.
+// It allows viewing cluster state, log streaming, and optionally uploading
+// data.
 //
 // WARNING: This is an UNSECURE debug tool. Do not use in production.
 type Dashboard struct { // A
@@ -232,8 +233,12 @@ func (d *Dashboard) announceDashboard(ctx context.Context) { // A
 
 	data, err := carrier.SerializeDashboardAnnounce(payload)
 	if err != nil {
-		d.config.Logger.Warn("failed to serialize dashboard announce",
-			"error", err)
+		d.config.Logger.WarnContext(
+			context.Background(),
+			"failed to serialize dashboard announce",
+			"error",
+			err,
+		)
 		return
 	}
 
@@ -244,7 +249,12 @@ func (d *Dashboard) announceDashboard(ctx context.Context) { // A
 
 	_, err = d.config.Carrier.Broadcast(ctx, msg)
 	if err != nil {
-		d.config.Logger.Warn("failed to announce dashboard", "error", err)
+		d.config.Logger.WarnContext(
+			context.Background(),
+			"failed to announce dashboard",
+			"error",
+			err,
+		)
 	}
 }
 

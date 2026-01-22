@@ -9,12 +9,14 @@ import (
 // Chunks are the fundamental unit of content storage. They exist only
 // temporarily in memory during content processing:
 //
-//   - During storage: content is split into Chunks, then encrypted into SealedChunks
+// - During storage: content is split into Chunks, then encrypted into
+// SealedChunks
 //   - During retrieval: SealedChunks are decrypted back into Chunks
 //
 // # Security Model
 //
-// Chunks contain cleartext data and should NEVER be persisted directly to storage.
+// Chunks contain cleartext data and should NEVER be persisted directly to
+// storage.
 // All persistent storage uses SealedChunks (encrypted form). Chunks exist only:
 //   - In memory during the encryption pipeline (store operation)
 //   - In memory during the decryption pipeline (retrieve operation)

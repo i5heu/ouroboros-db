@@ -1,10 +1,8 @@
 package wal
 
 import (
-	"bytes"
 	"context"
 	"os"
-	"sort"
 	"testing"
 
 	"github.com/dgraph-io/badger/v4"
@@ -94,10 +92,10 @@ func (m *WALStateMachine) openDB(t *rapid.T) {
 
 func (m *WALStateMachine) Cleanup() {
 	if m.db != nil {
-		m.db.Close()
+		_ = m.db.Close()
 	}
 	if m.dbPath != "" {
-		os.RemoveAll(m.dbPath)
+		_ = os.RemoveAll(m.dbPath)
 	}
 }
 
@@ -152,7 +150,8 @@ func (m *WALStateMachine) AppendKeyEntry(t *rapid.T) {
 
 // Action: SealBlock
 func (m *WALStateMachine) SealBlock(t *rapid.T) {
-	// If empty, SealBlock might fail or return empty. Implementation returns error if empty.
+	// If empty, SealBlock might fail or return empty. Implementation returns
+	// error if empty.
 	shouldFail := len(m.expectedChunks) == 0 && len(m.expectedVertices) == 0
 
 	block, walKeys, err := m.wal.SealBlock(context.Background())
@@ -169,10 +168,18 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 	}
 
 	if int(block.Header.ChunkCount) != len(m.expectedChunks) {
-		t.Errorf("Block ChunkCount %d != expected %d", block.Header.ChunkCount, len(m.expectedChunks))
+		t.Errorf(
+			"Block ChunkCount %d != expected %d",
+			block.Header.ChunkCount,
+			len(m.expectedChunks),
+		)
 	}
 	if int(block.Header.VertexCount) != len(m.expectedVertices) {
-		t.Errorf("Block VertexCount %d != expected %d", block.Header.VertexCount, len(m.expectedVertices))
+		t.Errorf(
+			"Block VertexCount %d != expected %d",
+			block.Header.VertexCount,
+			len(m.expectedVertices),
+		)
 	}
 
 	// Verify KeyRegistry
@@ -192,7 +199,8 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 	}
 
 	// Verify WAL keys were returned for later clearing
-	if len(walKeys) == 0 && (len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0 || len(m.expectedKeys) > 0) {
+	if len(walKeys) == 0 &&
+		(len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0 || len(m.expectedKeys) > 0) {
 		t.Errorf("SealBlock should return WAL keys when there is data")
 	}
 
@@ -203,7 +211,10 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 
 	// Verify persistence cleared after ClearBlock
 	if m.wal.GetBufferSize() != 0 {
-		t.Errorf("WAL buffer size not reset after ClearBlock: %d", m.wal.GetBufferSize())
+		t.Errorf(
+			"WAL buffer size not reset after ClearBlock: %d",
+			m.wal.GetBufferSize(),
+		)
 	}
 
 	// Reset expectations
@@ -215,7 +226,7 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 // Action: Restart (Simulate Crash/Restart)
 func (m *WALStateMachine) Restart(t *rapid.T) {
 	// Close existing
-	m.db.Close()
+	_ = m.db.Close()
 	m.wal = nil
 
 	// Re-open
@@ -261,12 +272,5 @@ func TestWALProperty(t *testing.T) {
 				m.Check(t)
 			},
 		})
-	})
-}
-
-// Helpers
-func sortChunks(chunks []model.SealedChunk) {
-	sort.Slice(chunks, func(i, j int) bool {
-		return bytes.Compare(chunks[i].ChunkHash[:], chunks[j].ChunkHash[:]) < 0
 	})
 }

@@ -43,7 +43,7 @@ func NewDistributedWAL(db *badger.DB) *DefaultDistributedWAL {
 
 func (w *DefaultDistributedWAL) recalcBufferSize() {
 	w.bufferSize = 0
-	err := w.db.View(func(txn *badger.Txn) error {
+	_ = w.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 
@@ -58,7 +58,8 @@ func (w *DefaultDistributedWAL) recalcBufferSize() {
 
 			if strings.HasPrefix(key, prefixChunk) {
 				valSize := item.ValueSize()
-				// Approximate, we'd need to read to be exact about "content" size vs "entry" size
+				// Approximate, we'd need to read to be exact about "content" size vs
+				// "entry" size
 				// but BadgerDB ValueSize is close enough for a WAL buffer limit.
 				w.bufferSize += int64(valSize)
 			} else if strings.HasPrefix(key, prefixVertex) {
@@ -68,10 +69,6 @@ func (w *DefaultDistributedWAL) recalcBufferSize() {
 		}
 		return nil
 	})
-	if err != nil {
-		// Log error? For now just start with 0 if failed, though it's bad.
-		// Since we can't return error from constructor easily without changing sig, we assume it works.
-	}
 }
 
 // AppendChunk adds a sealed chunk to the buffer.
@@ -124,7 +121,12 @@ func (w *DefaultDistributedWAL) AppendKeyEntry(
 	keyEntry model.KeyEntry,
 ) error {
 	// composite key: wal:key:<chunkHash>:<pubKeyHash>
-	keyStr := fmt.Sprintf("%s%s:%s", prefixKey, keyEntry.ChunkHash.String(), keyEntry.PubKeyHash.String())
+	keyStr := fmt.Sprintf(
+		"%s%s:%s",
+		prefixKey,
+		keyEntry.ChunkHash.String(),
+		keyEntry.PubKeyHash.String(),
+	)
 	key := []byte(keyStr)
 
 	data, err := serialize(keyEntry)
@@ -203,7 +205,6 @@ func (w *DefaultDistributedWAL) SealBlock(
 		}
 		return nil
 	})
-
 	if err != nil {
 		return model.Block{}, nil, fmt.Errorf("iterate wal: %w", err)
 	}
@@ -269,7 +270,11 @@ func (w *DefaultDistributedWAL) Flush(
 	return w.SealBlock(ctx)
 }
 
-func (w *DefaultDistributedWAL) createBlock(chunks []model.SealedChunk, vertices []model.Vertex, keyEntries map[hash.Hash][]model.KeyEntry) model.Block {
+func (w *DefaultDistributedWAL) createBlock(
+	chunks []model.SealedChunk,
+	vertices []model.Vertex,
+	keyEntries map[hash.Hash][]model.KeyEntry,
+) model.Block {
 	// Serialize chunks into DataSection
 	var dataSection []byte
 	chunkIndex := make(map[hash.Hash]model.ChunkRegion)
@@ -290,8 +295,9 @@ func (w *DefaultDistributedWAL) createBlock(chunks []model.SealedChunk, vertices
 	vertexIndex := make(map[hash.Hash]model.VertexRegion)
 	offset = 0 // Offset within VertexSection
 	for _, vertex := range vertices {
-		// Use gob for vertex serialization in the block for now, or just hash as per original
-		// The original code used `vertex.Hash[:]` which is just the hash, not the vertex data.
+		// Use gob for vertex serialization in the block for now, or just hash as
+		// per original The original code used `vertex.Hash[:]` which is just the
+		// hash, not the vertex data.
 		// That seems wrong if we want to store the vertex itself.
 		// The `model.VertexRegion` implies we store the vertex data.
 		// Let's serialize the whole vertex using gob.

@@ -211,7 +211,7 @@ func TestLogBroadcaster_LevelFiltering(t *testing.T) { // A
 	mock.clearMessages()
 
 	// Send error log
-	logger.Error("error message")
+	logger.ErrorContext(context.Background(), "error message")
 	time.Sleep(50 * time.Millisecond)
 
 	messages = mock.getSentMessages()
@@ -350,7 +350,7 @@ func TestLogBroadcaster_HandleLogSubscribe(t *testing.T) { // A
 
 	// Verify subscription by sending an error log
 	logger := slog.New(lb)
-	logger.Error("test error")
+	logger.ErrorContext(context.Background(), "test error")
 	time.Sleep(50 * time.Millisecond)
 
 	messages := mock.getSentMessages()
@@ -486,7 +486,7 @@ func TestLogBroadcaster_SubscriberReplace(t *testing.T) { // A
 		t.Error("subscriber should not receive INFO after re-subscribe")
 	}
 
-	logger.Error("third log - error")
+	logger.ErrorContext(context.Background(), "third log - error")
 	time.Sleep(50 * time.Millisecond)
 
 	if len(mock.getSentMessages()) != 1 {

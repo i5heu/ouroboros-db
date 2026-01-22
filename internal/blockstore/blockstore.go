@@ -11,8 +11,9 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/storage"
 )
 
-// DefaultBlockStore implements the BlockStore interface using in-memory storage.
-// This is a reference implementation; production should use a persistent backend.
+// DefaultBlockStore implements the BlockStore interface using in-memory
+// storage. This is a reference implementation; production should use a
+// persistent backend.
 type DefaultBlockStore struct {
 	mu     sync.RWMutex
 	blocks map[hash.Hash]model.Block
@@ -28,7 +29,10 @@ func NewBlockStore() *DefaultBlockStore {
 }
 
 // StoreBlock persists a block to storage.
-func (s *DefaultBlockStore) StoreBlock(ctx context.Context, block model.Block) error {
+func (s *DefaultBlockStore) StoreBlock(
+	ctx context.Context,
+	block model.Block,
+) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -41,19 +45,28 @@ func (s *DefaultBlockStore) StoreBlock(ctx context.Context, block model.Block) e
 }
 
 // GetBlock retrieves a block by its hash.
-func (s *DefaultBlockStore) GetBlock(ctx context.Context, blockHash hash.Hash) (model.Block, error) {
+func (s *DefaultBlockStore) GetBlock(
+	ctx context.Context,
+	blockHash hash.Hash,
+) (model.Block, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	block, exists := s.blocks[blockHash]
 	if !exists {
-		return model.Block{}, fmt.Errorf("blockstore: block %s not found", blockHash)
+		return model.Block{}, fmt.Errorf(
+			"blockstore: block %s not found",
+			blockHash,
+		)
 	}
 	return block, nil
 }
 
 // DeleteBlock removes a block from storage.
-func (s *DefaultBlockStore) DeleteBlock(ctx context.Context, blockHash hash.Hash) error {
+func (s *DefaultBlockStore) DeleteBlock(
+	ctx context.Context,
+	blockHash hash.Hash,
+) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -62,7 +75,10 @@ func (s *DefaultBlockStore) DeleteBlock(ctx context.Context, blockHash hash.Hash
 }
 
 // StoreBlockSlice persists a block slice to storage.
-func (s *DefaultBlockStore) StoreBlockSlice(ctx context.Context, slice model.BlockSlice) error {
+func (s *DefaultBlockStore) StoreBlockSlice(
+	ctx context.Context,
+	slice model.BlockSlice,
+) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -75,19 +91,28 @@ func (s *DefaultBlockStore) StoreBlockSlice(ctx context.Context, slice model.Blo
 }
 
 // GetBlockSlice retrieves a block slice by its hash.
-func (s *DefaultBlockStore) GetBlockSlice(ctx context.Context, sliceHash hash.Hash) (model.BlockSlice, error) {
+func (s *DefaultBlockStore) GetBlockSlice(
+	ctx context.Context,
+	sliceHash hash.Hash,
+) (model.BlockSlice, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	slice, exists := s.slices[sliceHash]
 	if !exists {
-		return model.BlockSlice{}, fmt.Errorf("blockstore: slice %s not found", sliceHash)
+		return model.BlockSlice{}, fmt.Errorf(
+			"blockstore: slice %s not found",
+			sliceHash,
+		)
 	}
 	return slice, nil
 }
 
 // ListBlockSlices returns all slices for a given block.
-func (s *DefaultBlockStore) ListBlockSlices(ctx context.Context, blockHash hash.Hash) ([]model.BlockSlice, error) {
+func (s *DefaultBlockStore) ListBlockSlices(
+	ctx context.Context,
+	blockHash hash.Hash,
+) ([]model.BlockSlice, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -111,12 +136,17 @@ func (s *DefaultBlockStore) GetSealedChunkByRegion(
 
 	block, exists := s.blocks[blockHash]
 	if !exists {
-		return model.SealedChunk{}, fmt.Errorf("blockstore: block %s not found", blockHash)
+		return model.SealedChunk{}, fmt.Errorf(
+			"blockstore: block %s not found",
+			blockHash,
+		)
 	}
 
 	// Extract chunk data from block's DataSection using region
 	if int(region.Offset+region.Length) > len(block.DataSection) {
-		return model.SealedChunk{}, fmt.Errorf("blockstore: region exceeds block data section")
+		return model.SealedChunk{}, fmt.Errorf(
+			"blockstore: region exceeds block data section",
+		)
 	}
 
 	// This is a simplified implementation - actual implementation would
@@ -138,12 +168,17 @@ func (s *DefaultBlockStore) GetVertexByRegion(
 
 	block, exists := s.blocks[blockHash]
 	if !exists {
-		return model.Vertex{}, fmt.Errorf("blockstore: block %s not found", blockHash)
+		return model.Vertex{}, fmt.Errorf(
+			"blockstore: block %s not found",
+			blockHash,
+		)
 	}
 
 	// Extract vertex data from block's VertexSection using region
 	if int(region.Offset+region.Length) > len(block.VertexSection) {
-		return model.Vertex{}, fmt.Errorf("blockstore: region exceeds block vertex section")
+		return model.Vertex{}, fmt.Errorf(
+			"blockstore: region exceeds block vertex section",
+		)
 	}
 
 	// This is a simplified implementation - actual implementation would

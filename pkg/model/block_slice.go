@@ -47,7 +47,8 @@ import (
 //   - Can tolerate loss of up to 3 slices
 type BlockSlice struct {
 	// Hash is the unique identifier for this slice, derived from its contents.
-	// Computed from: BlockHash, RSSliceIndex, RSDataSlices, RSParitySlices, Payload
+	// Computed from: BlockHash, RSSliceIndex, RSDataSlices, RSParitySlices,
+	// Payload
 	Hash hash.Hash
 
 	// BlockHash identifies the parent block this slice belongs to.

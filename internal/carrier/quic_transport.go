@@ -48,8 +48,12 @@ func NewQUICTransport(
 	}
 
 	quicConf := &quic.Config{
-		MaxIdleTimeout:     time.Duration(qConfig.MaxIdleTimeout) * time.Millisecond,
-		KeepAlivePeriod:    time.Duration(qConfig.KeepAlivePeriod) * time.Millisecond,
+		MaxIdleTimeout: time.Duration(
+			qConfig.MaxIdleTimeout,
+		) * time.Millisecond,
+		KeepAlivePeriod: time.Duration(
+			qConfig.KeepAlivePeriod,
+		) * time.Millisecond,
 		MaxIncomingStreams: qConfig.MaxIncomingStreams,
 	}
 
@@ -93,7 +97,7 @@ func (t *QUICTransport) Connect(
 
 	// Perform handshake on the control stream
 	if err := qc.performClientHandshake(ctx); err != nil {
-		conn.CloseWithError(1, "handshake failed")
+		_ = conn.CloseWithError(1, "handshake failed")
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
 
@@ -169,7 +173,7 @@ func (l *quicListener) Accept(ctx context.Context) (Connection, error) { // A
 
 	// Perform server-side handshake
 	if err := qc.performServerHandshake(ctx); err != nil {
-		conn.CloseWithError(1, "handshake failed")
+		_ = conn.CloseWithError(1, "handshake failed")
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
 
@@ -190,7 +194,8 @@ func (l *quicListener) Close() error { // A
 	return l.listener.Close()
 }
 
-// quicConn implements the Connection interface for a persistent QUIC connection.
+// quicConn implements the Connection interface for a persistent QUIC
+// connection.
 // It uses QUIC streams for multiplexed messaging - each Send/Receive uses a
 // new stream, allowing concurrent operations on a single connection.
 type quicConn struct { // A
@@ -218,7 +223,7 @@ func (c *quicConn) performClientHandshake(ctx context.Context) error { // A
 	if err != nil {
 		return fmt.Errorf("open control stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := stream.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		return err
@@ -245,7 +250,7 @@ func (c *quicConn) performServerHandshake(ctx context.Context) error { // A
 	if err != nil {
 		return fmt.Errorf("accept control stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := stream.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		return err
@@ -289,7 +294,7 @@ func (c *quicConn) Send(ctx context.Context, msg Message) error { // A
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := stream.SetWriteDeadline(time.Now().Add(streamTimeout)); err != nil {
 		return err
@@ -334,7 +339,7 @@ func (c *quicConn) Receive(ctx context.Context) (Message, error) { // A
 	if err != nil {
 		return Message{}, fmt.Errorf("accept stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := stream.SetReadDeadline(time.Now().Add(streamTimeout)); err != nil {
 		return Message{}, err

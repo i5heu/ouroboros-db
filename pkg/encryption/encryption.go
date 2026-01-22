@@ -1,4 +1,5 @@
-// Package encryption defines interfaces for encryption operations in OuroborosDB.
+// Package encryption defines interfaces for encryption operations in
+// OuroborosDB.
 //
 // This package provides the EncryptionService interface that handles the
 // transformation between cleartext Chunks and encrypted SealedChunks. It is
@@ -87,13 +88,18 @@ type EncryptionService interface {
 	//
 	// Example:
 	//
-	//	sealed, entries, err := enc.SealChunk(chunk, [][]byte{user1PubKey, user2PubKey})
+	// 	sealed, entries, err := enc.SealChunk(chunk, [][]byte{user1PubKey,
+	// user2PubKey})
 	//	// sealed contains encrypted data
 	//	// entries[0] grants access to user1
 	//	// entries[1] grants access to user2
-	SealChunk(chunk model.Chunk, pubKeys [][]byte) (model.SealedChunk, []model.KeyEntry, error)
+	SealChunk(
+		chunk model.Chunk,
+		pubKeys [][]byte,
+	) (model.SealedChunk, []model.KeyEntry, error)
 
-	// UnsealChunk decrypts a sealed chunk using the provided key entry and private key.
+	// UnsealChunk decrypts a sealed chunk using the provided key entry and
+	// private key.
 	//
 	// This is the main decryption entry point. It:
 	//  1. Decapsulates the AES key using the private key
@@ -119,9 +125,14 @@ type EncryptionService interface {
 	//	if err != nil {
 	//	    // Access denied or corrupted data
 	//	}
-	UnsealChunk(sealed model.SealedChunk, keyEntry model.KeyEntry, privKey []byte) (model.Chunk, error)
+	UnsealChunk(
+		sealed model.SealedChunk,
+		keyEntry model.KeyEntry,
+		privKey []byte,
+	) (model.Chunk, error)
 
-	// GenerateKeyEntry creates a key entry for granting access to encrypted content.
+	// GenerateKeyEntry creates a key entry for granting access to encrypted
+	// content.
 	//
 	// This is used to grant access to existing encrypted content without
 	// re-encrypting. Given the AES key used to encrypt a chunk, it creates
@@ -144,5 +155,8 @@ type EncryptionService interface {
 	//
 	// Note: The caller must have access to the original AES key, which
 	// typically requires decrypting a chunk first.
-	GenerateKeyEntry(chunkHash hash.Hash, pubKey []byte, aesKey []byte) (model.KeyEntry, error)
+	GenerateKeyEntry(
+		chunkHash hash.Hash,
+		pubKey, aesKey []byte,
+	) (model.KeyEntry, error)
 }

@@ -1,4 +1,5 @@
-// Package cluster defines interfaces and types for cluster management in OuroborosDB.
+// Package cluster defines interfaces and types for cluster management in
+// OuroborosDB.
 //
 // This package provides the foundational types for cluster membership and
 // node identity. It defines how nodes are identified, authenticated, and

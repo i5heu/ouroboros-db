@@ -77,7 +77,9 @@ func (s *OfflineNodeSyncService) GetLastSyncTimestamp() int64 {
 // 5. Update lastSyncTimestamp
 //
 // Returns the number of blocks synced and any error encountered.
-func (s *OfflineNodeSyncService) SyncMissedBlocks(ctx context.Context) (int, error) {
+func (s *OfflineNodeSyncService) SyncMissedBlocks(
+	ctx context.Context,
+) (int, error) {
 	s.mu.Lock()
 	since := s.lastSyncTimestamp
 	s.mu.Unlock()

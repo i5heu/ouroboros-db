@@ -25,7 +25,8 @@ type Client struct { // A
 }
 
 // LogStreamHub manages WebSocket connections for log streaming.
-// It uses a channel-based design with a single goroutine owning the clients map.
+// It uses a channel-based design with a single goroutine owning the clients
+// map.
 type LogStreamHub struct { // A
 	// Channels for the hub goroutine
 	registerCh   chan *Client
@@ -108,7 +109,10 @@ func (h *LogStreamHub) run() { // A
 }
 
 // handleWebSocket handles WebSocket connections for log streaming.
-func (d *Dashboard) handleWebSocket(w http.ResponseWriter, r *http.Request) { // A
+func (d *Dashboard) handleWebSocket(
+	w http.ResponseWriter,
+	r *http.Request,
+) { // A
 	websocket.Handler(func(conn *websocket.Conn) {
 		d.serveWebSocket(conn)
 	}).ServeHTTP(w, r)
@@ -127,7 +131,7 @@ func (d *Dashboard) serveWebSocket(conn *websocket.Conn) { // A
 	// Ensure cleanup on exit
 	defer func() {
 		d.hub.unregisterCh <- client
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	// Start writer goroutine
@@ -149,14 +153,14 @@ func (d *Dashboard) wsWriter(client *Client) { // A
 				// Channel closed, connection is being closed
 				return
 			}
-			client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := client.conn.Write(data); err != nil {
 				return
 			}
 
 		case <-ticker.C:
 			// Send ping/keepalive
-			client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := client.conn.Write([]byte(`{"type":"ping"}`)); err != nil {
 				return
 			}
@@ -166,7 +170,7 @@ func (d *Dashboard) wsWriter(client *Client) { // A
 
 // wsReader reads from the WebSocket to detect disconnection.
 func (d *Dashboard) wsReader(client *Client) { // A
-	client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 	for {
 		var msg []byte
@@ -175,6 +179,6 @@ func (d *Dashboard) wsReader(client *Client) { // A
 			return
 		}
 		// Reset read deadline on any message (including pongs)
-		client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	}
 }

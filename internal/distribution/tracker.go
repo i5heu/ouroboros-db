@@ -22,7 +22,8 @@ const (
 	prefixMetadata = "dist:meta:"
 )
 
-// DefaultBlockDistributionTracker implements BlockDistributionTracker using BadgerDB.
+// DefaultBlockDistributionTracker implements BlockDistributionTracker using
+// BadgerDB.
 type DefaultBlockDistributionTracker struct {
 	db     *badger.DB
 	config model.DistributionConfig
@@ -97,7 +98,9 @@ func (t *DefaultBlockDistributionTracker) StartDistribution(
 }
 
 // extractMetadata creates BlockMetadata from a Block.
-func (t *DefaultBlockDistributionTracker) extractMetadata(block model.Block) model.BlockMetadata {
+func (t *DefaultBlockDistributionTracker) extractMetadata(
+	block model.Block,
+) model.BlockMetadata {
 	chunkHashes := make([]hash.Hash, 0, len(block.ChunkIndex))
 	for h := range block.ChunkIndex {
 		chunkHashes = append(chunkHashes, h)
@@ -112,7 +115,11 @@ func (t *DefaultBlockDistributionTracker) extractMetadata(block model.Block) mod
 	for chunkHash, keys := range block.KeyRegistry {
 		for _, ke := range keys {
 			// Match the WAL key format: wal:key:<chunkHash>:<pubKeyHash>
-			keyStr := fmt.Sprintf("wal:key:%s:%s", chunkHash.String(), ke.PubKeyHash.String())
+			keyStr := fmt.Sprintf(
+				"wal:key:%s:%s",
+				chunkHash.String(),
+				ke.PubKeyHash.String(),
+			)
 			keyEntryKeys = append(keyEntryKeys, keyStr)
 		}
 	}
@@ -142,7 +149,11 @@ func (t *DefaultBlockDistributionTracker) RecordSliceConfirmation(
 		var err error
 		record, err = t.loadRecord(blockHash)
 		if err != nil {
-			return false, fmt.Errorf("no active distribution for block %s: %w", blockHash, err)
+			return false, fmt.Errorf(
+				"no active distribution for block %s: %w",
+				blockHash,
+				err,
+			)
 		}
 		t.active[blockHash] = record
 	}
@@ -208,7 +219,8 @@ func (t *DefaultBlockDistributionTracker) GetPendingDistributions(
 
 	result := make([]*model.BlockDistributionRecord, 0, len(t.active))
 	for _, record := range t.active {
-		if record.State == model.BlockStatePending || record.State == model.BlockStateDistributing {
+		if record.State == model.BlockStatePending ||
+			record.State == model.BlockStateDistributing {
 			result = append(result, record)
 		}
 	}
@@ -283,7 +295,11 @@ func (t *DefaultBlockDistributionTracker) GetDistributedBlocksSince(
 			item := it.Item()
 			err := item.Value(func(v []byte) error {
 				var record model.BlockDistributionRecord
-				if err := gob.NewDecoder(bytes.NewReader(v)).Decode(&record); err != nil {
+				if err := gob.NewDecoder(
+					bytes.NewReader(v),
+				).Decode(
+					&record,
+				); err != nil {
 					return nil // Skip corrupted records
 				}
 
@@ -320,7 +336,6 @@ func (t *DefaultBlockDistributionTracker) GetBlockMetadata(
 			return gob.NewDecoder(bytes.NewReader(v)).Decode(&metadata)
 		})
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("get block metadata: %w", err)
 	}
@@ -329,7 +344,9 @@ func (t *DefaultBlockDistributionTracker) GetBlockMetadata(
 
 // Persistence helpers
 
-func (t *DefaultBlockDistributionTracker) persistRecord(record *model.BlockDistributionRecord) error {
+func (t *DefaultBlockDistributionTracker) persistRecord(
+	record *model.BlockDistributionRecord,
+) error {
 	key := []byte(prefixDistribution + record.BlockHash.String())
 
 	var buf bytes.Buffer
@@ -342,7 +359,9 @@ func (t *DefaultBlockDistributionTracker) persistRecord(record *model.BlockDistr
 	})
 }
 
-func (t *DefaultBlockDistributionTracker) persistMetadata(metadata *model.BlockMetadata) error {
+func (t *DefaultBlockDistributionTracker) persistMetadata(
+	metadata *model.BlockMetadata,
+) error {
 	key := []byte(prefixMetadata + metadata.BlockHash.String())
 
 	var buf bytes.Buffer
@@ -355,7 +374,9 @@ func (t *DefaultBlockDistributionTracker) persistMetadata(metadata *model.BlockM
 	})
 }
 
-func (t *DefaultBlockDistributionTracker) loadRecord(blockHash hash.Hash) (*model.BlockDistributionRecord, error) {
+func (t *DefaultBlockDistributionTracker) loadRecord(
+	blockHash hash.Hash,
+) (*model.BlockDistributionRecord, error) {
 	key := []byte(prefixDistribution + blockHash.String())
 	var record model.BlockDistributionRecord
 
@@ -368,7 +389,6 @@ func (t *DefaultBlockDistributionTracker) loadRecord(blockHash hash.Hash) (*mode
 			return gob.NewDecoder(bytes.NewReader(v)).Decode(&record)
 		})
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -376,16 +396,20 @@ func (t *DefaultBlockDistributionTracker) loadRecord(blockHash hash.Hash) (*mode
 }
 
 func (t *DefaultBlockDistributionTracker) loadPendingDistributions() {
-	t.db.View(func(txn *badger.Txn) error {
+	_ = t.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 
 		prefix := []byte(prefixDistribution)
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
-			item.Value(func(v []byte) error {
+			_ = item.Value(func(v []byte) error {
 				var record model.BlockDistributionRecord
-				if err := gob.NewDecoder(bytes.NewReader(v)).Decode(&record); err != nil {
+				if err := gob.NewDecoder(
+					bytes.NewReader(v),
+				).Decode(
+					&record,
+				); err != nil {
 					return nil // Skip corrupted records
 				}
 
@@ -401,4 +425,6 @@ func (t *DefaultBlockDistributionTracker) loadPendingDistributions() {
 }
 
 // Ensure DefaultBlockDistributionTracker implements the interface.
-var _ distribution.BlockDistributionTracker = (*DefaultBlockDistributionTracker)(nil)
+var _ distribution.BlockDistributionTracker = (*DefaultBlockDistributionTracker)(
+	nil,
+)

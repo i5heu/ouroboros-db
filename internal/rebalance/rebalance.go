@@ -37,7 +37,9 @@ func (r *DefaultDataReBalancer) BalanceData(ctx context.Context) error {
 }
 
 // GetRebalanceStatus returns the current rebalancing status.
-func (r *DefaultDataReBalancer) GetRebalanceStatus(ctx context.Context) (rebalance.RebalanceStatus, error) {
+func (r *DefaultDataReBalancer) GetRebalanceStatus(
+	ctx context.Context,
+) (rebalance.RebalanceStatus, error) {
 	return r.status, nil
 }
 
@@ -59,7 +61,9 @@ type DefaultReplicationMonitoring struct {
 }
 
 // NewReplicationMonitoring creates a new DefaultReplicationMonitoring instance.
-func NewReplicationMonitoring(targetReplication int) *DefaultReplicationMonitoring {
+func NewReplicationMonitoring(
+	targetReplication int,
+) *DefaultReplicationMonitoring {
 	return &DefaultReplicationMonitoring{
 		underReplicated:   make([]hash.Hash, 0),
 		overReplicated:    make([]hash.Hash, 0),
@@ -68,34 +72,45 @@ func NewReplicationMonitoring(targetReplication int) *DefaultReplicationMonitori
 }
 
 // MonitorReplications checks that all data has the required replication level.
-func (m *DefaultReplicationMonitoring) MonitorReplications(ctx context.Context) error {
+func (m *DefaultReplicationMonitoring) MonitorReplications(
+	ctx context.Context,
+) error {
 	// Implementation will scan all blocks and verify replication
 	// This is a placeholder for the actual implementation
 	return nil
 }
 
-// GetUnderReplicatedBlocks returns blocks that don't meet the replication target.
-func (m *DefaultReplicationMonitoring) GetUnderReplicatedBlocks(ctx context.Context) ([]hash.Hash, error) {
+// GetUnderReplicatedBlocks returns blocks that don't meet the replication
+// target.
+func (m *DefaultReplicationMonitoring) GetUnderReplicatedBlocks(
+	ctx context.Context,
+) ([]hash.Hash, error) {
 	result := make([]hash.Hash, len(m.underReplicated))
 	copy(result, m.underReplicated)
 	return result, nil
 }
 
 // GetOverReplicatedBlocks returns blocks that exceed the replication target.
-func (m *DefaultReplicationMonitoring) GetOverReplicatedBlocks(ctx context.Context) ([]hash.Hash, error) {
+func (m *DefaultReplicationMonitoring) GetOverReplicatedBlocks(
+	ctx context.Context,
+) ([]hash.Hash, error) {
 	result := make([]hash.Hash, len(m.overReplicated))
 	copy(result, m.overReplicated)
 	return result, nil
 }
 
 // RepairReplication repairs the replication of a specific block.
-func (m *DefaultReplicationMonitoring) RepairReplication(ctx context.Context, blockHash hash.Hash) error {
+func (m *DefaultReplicationMonitoring) RepairReplication(
+	ctx context.Context,
+	blockHash hash.Hash,
+) error {
 	// Implementation will replicate or remove excess copies
 	// This is a placeholder for the actual implementation
 	return nil
 }
 
-// Ensure DefaultReplicationMonitoring implements the ReplicationMonitoring interface.
+// Ensure DefaultReplicationMonitoring implements the ReplicationMonitoring
+// interface.
 var _ rebalance.ReplicationMonitoring = (*DefaultReplicationMonitoring)(nil)
 
 // DefaultSyncIndexTree implements the SyncIndexTree interface.
@@ -116,7 +131,9 @@ func (s *DefaultSyncIndexTree) Sync(ctx context.Context) error {
 }
 
 // GetSyncStatus returns the current synchronization status.
-func (s *DefaultSyncIndexTree) GetSyncStatus(ctx context.Context) (rebalance.SyncStatus, error) {
+func (s *DefaultSyncIndexTree) GetSyncStatus(
+	ctx context.Context,
+) (rebalance.SyncStatus, error) {
 	return s.status, nil
 }
 

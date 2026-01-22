@@ -129,7 +129,7 @@ func (p *Pool) GetOrConnect(
 
 		// Verify we connected to the right node
 		if conn.RemoteNodeID() != node.NodeID {
-			conn.Close()
+			_ = conn.Close()
 			lastErr = fmt.Errorf(
 				"node ID mismatch: expected %s, got %s",
 				node.NodeID,
@@ -172,7 +172,7 @@ func (p *Pool) AddIncoming(conn Connection) { // A
 		if existing.conn != nil && !isConnClosed(existing.conn) {
 			// Keep existing connection, close new one
 			// (prefer connections we initiated)
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 	}
@@ -202,7 +202,7 @@ func (p *Pool) AddOutgoing(nodeID NodeID, conn Connection) { // A
 	if existing, ok := p.conns[nodeID]; ok {
 		if existing.conn != nil && !isConnClosed(existing.conn) {
 			// Keep existing connection, close new one
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 	}
@@ -227,7 +227,7 @@ func (p *Pool) Remove(nodeID NodeID) { // A
 	p.mu.Unlock()
 
 	if exists && pc.conn != nil {
-		pc.conn.Close()
+		_ = pc.conn.Close()
 	}
 }
 
@@ -243,7 +243,7 @@ func (p *Pool) CloseAll() { // A
 
 	for _, pc := range conns {
 		if pc.conn != nil {
-			pc.conn.Close()
+			_ = pc.conn.Close()
 		}
 	}
 }

@@ -82,7 +82,7 @@ func TestLogStreamHub_MultipleClients(t *testing.T) { // A
 		select {
 		case data := <-client.sendCh:
 			var msg LogStreamMessage
-			json.Unmarshal(data, &msg)
+			_ = json.Unmarshal(data, &msg)
 			if msg.Message != "broadcast to all" {
 				t.Errorf("Client %d: wrong message", i)
 			}

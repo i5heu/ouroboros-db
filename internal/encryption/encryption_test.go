@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/i5heu/ouroboros-crypt"
+	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/pkg/model"
 	"pgregory.net/rapid"
@@ -92,7 +92,11 @@ func TestSealUnsealChunk_RoundTrip(t *testing.T) {
 		t.Error("ChunkHash mismatch")
 	}
 	if sealed.OriginalSize != chunk.Size {
-		t.Errorf("OriginalSize mismatch: expected %d, got %d", chunk.Size, sealed.OriginalSize)
+		t.Errorf(
+			"OriginalSize mismatch: expected %d, got %d",
+			chunk.Size,
+			sealed.OriginalSize,
+		)
 	}
 
 	// Verify key entries
@@ -102,9 +106,14 @@ func TestSealUnsealChunk_RoundTrip(t *testing.T) {
 	if keyEntries[0].ChunkHash != chunk.Hash {
 		t.Error("KeyEntry ChunkHash mismatch")
 	}
-	if len(keyEntries[0].EncapsulatedAESKey) != mlkemEncapsulatedKeySize+aesKeySize {
-		t.Errorf("EncapsulatedAESKey wrong size: expected %d, got %d",
-			mlkemEncapsulatedKeySize+aesKeySize, len(keyEntries[0].EncapsulatedAESKey))
+	if len(
+		keyEntries[0].EncapsulatedAESKey,
+	) != mlkemEncapsulatedKeySize+aesKeySize {
+		t.Errorf(
+			"EncapsulatedAESKey wrong size: expected %d, got %d",
+			mlkemEncapsulatedKeySize+aesKeySize,
+			len(keyEntries[0].EncapsulatedAESKey),
+		)
 	}
 
 	// Unseal the chunk
@@ -232,7 +241,8 @@ func TestGenerateKeyEntry_GrantAccess(t *testing.T) {
 	}
 
 	// User 1 decrypts to get the content and AES key
-	// In a real scenario, the AES key would need to be extracted after decapsulation
+	// In a real scenario, the AES key would need to be extracted after
+	// decapsulation
 	// For testing, we'll generate a new key entry using a known AES key
 
 	// First, verify user 1 can decrypt
@@ -455,8 +465,14 @@ func TestSealChunk_CompressionEffective(t *testing.T) {
 	// (zstd achieves excellent compression on repetitive data)
 	// Allow some overhead for AES-GCM tag (16 bytes) and compression framing
 	if len(sealed.EncryptedContent) >= len(content)/2 {
-		t.Logf("Original size: %d, Encrypted size: %d", len(content), len(sealed.EncryptedContent))
-		t.Log("Warning: compression may not be working effectively for highly compressible data")
+		t.Logf(
+			"Original size: %d, Encrypted size: %d",
+			len(content),
+			len(sealed.EncryptedContent),
+		)
+		t.Log(
+			"Warning: compression may not be working effectively for highly compressible data",
+		)
 	}
 }
 
@@ -510,7 +526,8 @@ func TestSealUnsealChunk_Property_RoundTrip(t *testing.T) {
 	})
 }
 
-// Property-based test: different encryptions of same content produce different ciphertext
+// Property-based test: different encryptions of same content produce different
+// ciphertext
 func TestSealChunk_Property_NonDeterministic(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		svc := NewEncryptionService()

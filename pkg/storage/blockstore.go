@@ -115,7 +115,10 @@ type BlockStore interface {
 	// Returns:
 	//   - The block slice with its payload
 	//   - Error if the slice doesn't exist
-	GetBlockSlice(ctx context.Context, sliceHash hash.Hash) (model.BlockSlice, error)
+	GetBlockSlice(
+		ctx context.Context,
+		sliceHash hash.Hash,
+	) (model.BlockSlice, error)
 
 	// ListBlockSlices returns all locally stored slices for a given block.
 	//
@@ -128,7 +131,10 @@ type BlockStore interface {
 	// Returns:
 	//   - Slice of BlockSlices stored locally (may not be all slices)
 	//   - Error if the lookup fails
-	ListBlockSlices(ctx context.Context, blockHash hash.Hash) ([]model.BlockSlice, error)
+	ListBlockSlices(
+		ctx context.Context,
+		blockHash hash.Hash,
+	) ([]model.BlockSlice, error)
 
 	// GetSealedChunkByRegion retrieves a sealed chunk using region-based lookup.
 	//

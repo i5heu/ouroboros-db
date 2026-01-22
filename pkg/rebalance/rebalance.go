@@ -22,10 +22,12 @@ type DataReBalancer interface {
 
 // ReplicationMonitoring monitors the replication status of data.
 type ReplicationMonitoring interface {
-	// MonitorReplications checks that all data has the required replication level.
+	// MonitorReplications checks that all data has the required replication
+	// level.
 	MonitorReplications(ctx context.Context) error
 
-	// GetUnderReplicatedBlocks returns blocks that don't meet the replication target.
+	// GetUnderReplicatedBlocks returns blocks that don't meet the replication
+	// target.
 	GetUnderReplicatedBlocks(ctx context.Context) ([]hash.Hash, error)
 
 	// GetOverReplicatedBlocks returns blocks that exceed the replication target.
