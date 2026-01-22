@@ -38,7 +38,11 @@ type DefaultDistributedWAL struct {
 }
 
 // NewDistributedWAL creates a new DefaultDistributedWAL instance.
-func NewDistributedWAL(db *badger.DB, bs storage.BlockStore, dr datarouter.DataRouter) *DefaultDistributedWAL {
+func NewDistributedWAL(
+	db *badger.DB,
+	bs storage.BlockStore,
+	dr datarouter.DataRouter,
+) *DefaultDistributedWAL {
 	w := &DefaultDistributedWAL{
 		db:         db,
 		targetSize: DefaultBlockSize,
@@ -192,6 +196,9 @@ func (w *DefaultDistributedWAL) SealBlock(
 
 	// Persist slices via BlockStore if available
 	if w.bs != nil {
+		if err := w.bs.StoreBlock(ctx, block); err != nil {
+			return model.Block{}, nil, fmt.Errorf("store block: %w", err)
+		}
 		for _, s := range slices {
 			if err := w.bs.StoreBlockSlice(context.Background(), s); err != nil {
 				return model.Block{}, nil, fmt.Errorf("store block slice: %w", err)
@@ -318,6 +325,94 @@ func (w *DefaultDistributedWAL) Flush(
 	ctx context.Context,
 ) (model.Block, [][]byte, error) {
 	return w.SealBlock(ctx)
+}
+
+// GetChunk retrieves a sealed chunk from the WAL buffer if it exists.
+func (w *DefaultDistributedWAL) GetChunk(
+	ctx context.Context,
+	chunkHash hash.Hash,
+) (model.SealedChunk, error) {
+	key := []byte(prefixChunk + chunkHash.String())
+	var chunk model.SealedChunk
+
+	err := w.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			return deserialize(val, &chunk)
+		})
+	})
+	if err != nil {
+		if err == badger.ErrKeyNotFound {
+			return model.SealedChunk{}, fmt.Errorf("chunk not found in WAL")
+		}
+		return model.SealedChunk{}, fmt.Errorf("get chunk from WAL: %w", err)
+	}
+
+	return chunk, nil
+}
+
+// GetVertex retrieves a vertex from the WAL buffer if it exists.
+func (w *DefaultDistributedWAL) GetVertex(
+	ctx context.Context,
+	vertexHash hash.Hash,
+) (model.Vertex, error) {
+	key := []byte(prefixVertex + vertexHash.String())
+	var vertex model.Vertex
+
+	err := w.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			return deserialize(val, &vertex)
+		})
+	})
+	if err != nil {
+		if err == badger.ErrKeyNotFound {
+			return model.Vertex{}, fmt.Errorf("vertex not found in WAL")
+		}
+		return model.Vertex{}, fmt.Errorf("get vertex from WAL: %w", err)
+	}
+
+	return vertex, nil
+}
+
+// GetKeyEntry retrieves a key entry from the WAL buffer if it exists.
+func (w *DefaultDistributedWAL) GetKeyEntry(
+	ctx context.Context,
+	chunkHash, pubKeyHash hash.Hash,
+) (model.KeyEntry, error) {
+	// composite key: wal:key:<chunkHash>:<pubKeyHash>
+	keyStr := fmt.Sprintf(
+		"%s%s:%s",
+		prefixKey,
+		chunkHash.String(),
+		pubKeyHash.String(),
+	)
+	key := []byte(keyStr)
+	var ke model.KeyEntry
+
+	err := w.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			return deserialize(val, &ke)
+		})
+	})
+	if err != nil {
+		if err == badger.ErrKeyNotFound {
+			return model.KeyEntry{}, fmt.Errorf("key entry not found in WAL")
+		}
+		return model.KeyEntry{}, fmt.Errorf("get key entry from WAL: %w", err)
+	}
+
+	return ke, nil
 }
 
 func (w *DefaultDistributedWAL) createBlock(

@@ -90,7 +90,7 @@ func (m *WALStateMachine) openDB(t *rapid.T) {
 	}
 	m.db = db
 	// Use in-memory DefaultBlockStore and DefaultDataRouter for tests.
-	bs := blockstore.NewBlockStore()
+	bs := blockstore.NewBlockStore(db)
 	dr := routing.NewDataRouter()
 	m.wal = NewDistributedWAL(db, bs, dr)
 }
@@ -243,7 +243,7 @@ func (m *WALStateMachine) Restart(t *rapid.T) {
 		t.Fatalf("Failed to re-open badger: %v", err)
 	}
 	m.db = db
-	bs := blockstore.NewBlockStore()
+	bs := blockstore.NewBlockStore(db)
 	dr := routing.NewDataRouter()
 	m.wal = NewDistributedWAL(db, bs, dr)
 

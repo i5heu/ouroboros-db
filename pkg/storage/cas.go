@@ -167,4 +167,11 @@ type CAS interface {
 		ctx context.Context,
 		parentHash hash.Hash,
 	) ([]model.Vertex, error)
+
+	// Flush forces any buffered data in the WAL to be sealed into a Block.
+	//
+	// This ensures that all previously stored content is persisted to the
+	// BlockStore and distributed, even if the buffer hasn't reached the
+	// target block size.
+	Flush(ctx context.Context) error
 }

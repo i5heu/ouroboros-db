@@ -187,6 +187,41 @@ type DistributedWAL interface {
 	//   - The WAL keys that should be deleted after confirmed distribution
 	//   - Error if block creation fails
 	Flush(ctx context.Context) (model.Block, [][]byte, error)
+
+	// GetChunk retrieves a sealed chunk from the WAL buffer if it exists.
+	//
+	// This allows reading data that has been written but not yet sealed into a block.
+	//
+	// Parameters:
+	//   - chunkHash: The hash of the chunk to retrieve
+	//
+	// Returns:
+	//   - The sealed chunk
+	//   - Error if the chunk is not found or retrieval fails
+	GetChunk(ctx context.Context, chunkHash hash.Hash) (model.SealedChunk, error)
+
+	// GetVertex retrieves a vertex from the WAL buffer if it exists.
+	//
+	// This allows reading vertices that have been written but not yet sealed into a block.
+	//
+	// Parameters:
+	//   - vertexHash: The hash of the vertex to retrieve
+	//
+	// Returns:
+	//   - The vertex
+	//   - Error if the vertex is not found or retrieval fails
+	GetVertex(ctx context.Context, vertexHash hash.Hash) (model.Vertex, error)
+
+	// GetKeyEntry retrieves a key entry from the WAL buffer if it exists.
+	//
+	// Parameters:
+	//   - chunkHash: The hash of the chunk the key belongs to
+	//   - pubKeyHash: The hash of the public key the entry is encrypted for
+	//
+	// Returns:
+	//   - The key entry
+	//   - Error if not found
+	GetKeyEntry(ctx context.Context, chunkHash, pubKeyHash hash.Hash) (model.KeyEntry, error)
 }
 
 // DeletionWAL logs deletions for eventual garbage collection.

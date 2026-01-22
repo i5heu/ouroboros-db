@@ -4,190 +4,287 @@ package blockstore
 import (
 	"context"
 	"fmt"
-	"sync"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
+	"github.com/i5heu/ouroboros-db/pkg/carrier"
 	"github.com/i5heu/ouroboros-db/pkg/model"
 	"github.com/i5heu/ouroboros-db/pkg/storage"
 )
 
-// DefaultBlockStore implements the BlockStore interface using in-memory
-// storage. This is a reference implementation; production should use a
-// persistent backend.
-type DefaultBlockStore struct {
-	mu     sync.RWMutex
-	blocks map[hash.Hash]model.Block
-	slices map[hash.Hash]model.BlockSlice
+const (
+	// Prefix definitions for BadgerDB keys
+	prefixBlock      = "blk:b:"
+	prefixSlice      = "blk:s:"
+	prefixBlockSlice = "blk:bs:" // Index: blockHash -> sliceHash
+)
+
+// BadgerBlockStore implements the BlockStore interface using BadgerDB.
+type BadgerBlockStore struct {
+	db *badger.DB
 }
 
-// NewBlockStore creates a new DefaultBlockStore instance.
-func NewBlockStore() *DefaultBlockStore {
-	return &DefaultBlockStore{
-		blocks: make(map[hash.Hash]model.Block),
-		slices: make(map[hash.Hash]model.BlockSlice),
+// NewBlockStore creates a new BadgerBlockStore instance.
+func NewBlockStore(db *badger.DB) *BadgerBlockStore {
+	return &BadgerBlockStore{
+		db: db,
 	}
 }
 
 // StoreBlock persists a block to storage.
-func (s *DefaultBlockStore) StoreBlock(
+func (s *BadgerBlockStore) StoreBlock(
 	ctx context.Context,
 	block model.Block,
 ) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if block.Hash == (hash.Hash{}) {
 		return fmt.Errorf("blockstore: block hash is required")
 	}
 
-	s.blocks[block.Hash] = block
-	return nil
+	data, err := carrier.Serialize(block)
+	if err != nil {
+		return fmt.Errorf("serialize block: %w", err)
+	}
+
+	return s.db.Update(func(txn *badger.Txn) error {
+		key := []byte(prefixBlock + block.Hash.String())
+		// Set TTL or other options if needed, but blocks are permanent for now
+		return txn.Set(key, data)
+	})
 }
 
 // GetBlock retrieves a block by its hash.
-func (s *DefaultBlockStore) GetBlock(
+func (s *BadgerBlockStore) GetBlock(
 	ctx context.Context,
 	blockHash hash.Hash,
 ) (model.Block, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var block model.Block
 
-	block, exists := s.blocks[blockHash]
-	if !exists {
-		return model.Block{}, fmt.Errorf(
-			"blockstore: block %s not found",
-			blockHash,
-		)
-	}
-	return block, nil
+	err := s.db.View(func(txn *badger.Txn) error {
+		key := []byte(prefixBlock + blockHash.String())
+		item, err := txn.Get(key)
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return fmt.Errorf("blockstore: block %s not found", blockHash)
+			}
+			return err
+		}
+
+		return item.Value(func(val []byte) error {
+			var err error
+			block, err = carrier.Deserialize[model.Block](val)
+			return err
+		})
+	})
+
+	return block, err
 }
 
 // DeleteBlock removes a block from storage.
-func (s *DefaultBlockStore) DeleteBlock(
+func (s *BadgerBlockStore) DeleteBlock(
 	ctx context.Context,
 	blockHash hash.Hash,
 ) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.blocks, blockHash)
-	return nil
+	return s.db.Update(func(txn *badger.Txn) error {
+		key := []byte(prefixBlock + blockHash.String())
+		return txn.Delete(key)
+	})
 }
 
 // StoreBlockSlice persists a block slice to storage.
-func (s *DefaultBlockStore) StoreBlockSlice(
+func (s *BadgerBlockStore) StoreBlockSlice(
 	ctx context.Context,
 	slice model.BlockSlice,
 ) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if slice.Hash == (hash.Hash{}) {
 		return fmt.Errorf("blockstore: slice hash is required")
 	}
 
-	s.slices[slice.Hash] = slice
-	return nil
+	data, err := carrier.Serialize(slice)
+	if err != nil {
+		return fmt.Errorf("serialize slice: %w", err)
+	}
+
+	// Serialize hash for index
+	hashData, err := carrier.Serialize(slice.Hash)
+	if err != nil {
+		return fmt.Errorf("serialize slice hash: %w", err)
+	}
+
+	return s.db.Update(func(txn *badger.Txn) error {
+		// Store the slice
+		sliceKey := []byte(prefixSlice + slice.Hash.String())
+		if err := txn.Set(sliceKey, data); err != nil {
+			return err
+		}
+
+		// Update index: blockHash -> sliceHash
+		indexKey := []byte(prefixBlockSlice + slice.BlockHash.String() + ":" + slice.Hash.String())
+		// We store the serialized hash as value
+		return txn.Set(indexKey, hashData)
+	})
 }
 
 // GetBlockSlice retrieves a block slice by its hash.
-func (s *DefaultBlockStore) GetBlockSlice(
+func (s *BadgerBlockStore) GetBlockSlice(
 	ctx context.Context,
 	sliceHash hash.Hash,
 ) (model.BlockSlice, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var slice model.BlockSlice
 
-	slice, exists := s.slices[sliceHash]
-	if !exists {
-		return model.BlockSlice{}, fmt.Errorf(
-			"blockstore: slice %s not found",
-			sliceHash,
-		)
-	}
-	return slice, nil
+	err := s.db.View(func(txn *badger.Txn) error {
+		key := []byte(prefixSlice + sliceHash.String())
+		item, err := txn.Get(key)
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return fmt.Errorf("blockstore: slice %s not found", sliceHash)
+			}
+			return err
+		}
+
+		return item.Value(func(val []byte) error {
+			var err error
+			slice, err = carrier.Deserialize[model.BlockSlice](val)
+			return err
+		})
+	})
+
+	return slice, err
 }
 
 // ListBlockSlices returns all slices for a given block.
-func (s *DefaultBlockStore) ListBlockSlices(
+func (s *BadgerBlockStore) ListBlockSlices(
 	ctx context.Context,
 	blockHash hash.Hash,
 ) ([]model.BlockSlice, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var slices []model.BlockSlice
-	for _, slice := range s.slices {
-		if slice.BlockHash == blockHash {
-			slices = append(slices, slice)
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = true // We need values (serialized hash)
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		prefix := []byte(prefixBlockSlice + blockHash.String() + ":")
+
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+
+			// Get slice hash from value
+			err := item.Value(func(val []byte) error {
+				sliceHash, err := carrier.Deserialize[hash.Hash](val)
+				if err != nil {
+					return err
+				}
+
+				// Now fetch the actual slice
+				// Note: Nested transaction usage or separate retrieval?
+				// We are in a View, so we can access other keys using same txn?
+				// Yes, txn is valid.
+
+				sliceKey := []byte(prefixSlice + sliceHash.String())
+				sliceItem, err := txn.Get(sliceKey)
+				if err != nil {
+					// Slice missing but in index?
+					return err
+				}
+
+				return sliceItem.Value(func(sliceVal []byte) error {
+					slice, err := carrier.Deserialize[model.BlockSlice](sliceVal)
+					if err != nil {
+						return err
+					}
+					slices = append(slices, slice)
+					return nil
+				})
+			})
+			if err != nil {
+				return err
+			}
 		}
-	}
-	return slices, nil
+		return nil
+	})
+
+	return slices, err
 }
 
 // GetSealedChunkByRegion retrieves a sealed chunk using region-based lookup.
-func (s *DefaultBlockStore) GetSealedChunkByRegion(
+func (s *BadgerBlockStore) GetSealedChunkByRegion(
 	ctx context.Context,
 	blockHash hash.Hash,
 	region model.ChunkRegion,
 ) (model.SealedChunk, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	block, exists := s.blocks[blockHash]
-	if !exists {
-		return model.SealedChunk{}, fmt.Errorf(
-			"blockstore: block %s not found",
-			blockHash,
-		)
+	// Optimization: This loads the entire block.
+	// Future optimization: Store DataSection separately or use efficient value access
+	// if Badger supports partial value reads (not natively supported in simple API).
+	block, err := s.GetBlock(ctx, blockHash)
+	if err != nil {
+		return model.SealedChunk{}, err
 	}
 
-	// Extract chunk data from block's DataSection using region
 	if int(region.Offset+region.Length) > len(block.DataSection) {
 		return model.SealedChunk{}, fmt.Errorf(
 			"blockstore: region exceeds block data section",
 		)
 	}
 
-	// This is a simplified implementation - actual implementation would
-	// deserialize the SealedChunk from the bytes
-	return model.SealedChunk{
-		ChunkHash: region.ChunkHash,
-		EncryptedContent: block.DataSection[region.Offset : region.Offset+
-			region.Length],
-	}, nil
+	// We have the block, we can construct the SealedChunk.
+	// Note: We only return the encrypted content and hash.
+	// The SealedChunk struct has more fields (Nonce, SealedHash, OriginalSize)
+	// which are serialized inside the DataSection bytes.
+	//
+	// Wait! The DataSection contains "Serialized SealedChunks".
+	// If the DataSection is just a concatenation of bytes, we need to know format.
+	//
+	// Looking at pkg/model/block.go:
+	// "Serializes buffered SealedChunks into DataSection"
+	//
+	// If it's just raw bytes of the *content*, then we can't reconstruct SealedChunk easily
+	// without the metadata (Nonce, etc.).
+	//
+	// However, usually "Serialized SealedChunk" means the SealedChunk struct serialized.
+	// If so, region points to the serialized bytes of a SealedChunk.
+	// So we should deserialize it.
+
+	chunkBytes := block.DataSection[region.Offset : region.Offset+region.Length]
+	sealedChunk, err := carrier.Deserialize[model.SealedChunk](chunkBytes)
+	if err != nil {
+		return model.SealedChunk{}, fmt.Errorf("deserialize sealed chunk: %w", err)
+	}
+
+	// Verify hash matches?
+	if sealedChunk.ChunkHash != region.ChunkHash {
+		// This might happen if region index is wrong
+		return model.SealedChunk{}, fmt.Errorf("chunk hash mismatch in storage")
+	}
+
+	return sealedChunk, nil
 }
 
 // GetVertexByRegion retrieves a vertex using region-based lookup.
-func (s *DefaultBlockStore) GetVertexByRegion(
+func (s *BadgerBlockStore) GetVertexByRegion(
 	ctx context.Context,
 	blockHash hash.Hash,
 	region model.VertexRegion,
 ) (model.Vertex, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	block, exists := s.blocks[blockHash]
-	if !exists {
-		return model.Vertex{}, fmt.Errorf(
-			"blockstore: block %s not found",
-			blockHash,
-		)
+	block, err := s.GetBlock(ctx, blockHash)
+	if err != nil {
+		return model.Vertex{}, err
 	}
 
-	// Extract vertex data from block's VertexSection using region
 	if int(region.Offset+region.Length) > len(block.VertexSection) {
 		return model.Vertex{}, fmt.Errorf(
 			"blockstore: region exceeds block vertex section",
 		)
 	}
 
-	// This is a simplified implementation - actual implementation would
-	// deserialize the Vertex from the bytes
-	return model.Vertex{
-		Hash: region.VertexHash,
-	}, nil
+	vertexBytes := block.VertexSection[region.Offset : region.Offset+region.Length]
+	vertex, err := carrier.Deserialize[model.Vertex](vertexBytes)
+	if err != nil {
+		return model.Vertex{}, fmt.Errorf("deserialize vertex: %w", err)
+	}
+
+	return vertex, nil
 }
 
-// Ensure DefaultBlockStore implements the BlockStore interface.
-var _ storage.BlockStore = (*DefaultBlockStore)(nil)
+// Ensure BadgerBlockStore implements the BlockStore interface.
+var _ storage.BlockStore = (*BadgerBlockStore)(nil)
