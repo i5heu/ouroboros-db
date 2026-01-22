@@ -350,22 +350,8 @@ func (w *DefaultDistributedWAL) ClearBlock(
 ) error { // A
 	err := w.db.Update(func(txn *badger.Txn) error {
 		for _, k := range walKeys {
-			// Delete the WAL entry itself
 			if err := txn.Delete(k); err != nil {
 				return err
-			}
-
-			// If this WAL key was a chunk, also remove its fast index
-			// entry: idx:chunk:<chunkHash>
-			kstr := string(k)
-			if strings.HasPrefix(kstr, prefixChunk) {
-				chunkHashStr := strings.TrimPrefix(kstr, prefixChunk)
-				idxKey := []byte(prefixChunkIdx + chunkHashStr)
-				// Ignore delete error if key does not exist; return other
-				// errors to the caller.
-				if derr := txn.Delete(idxKey); derr != nil && derr != badger.ErrKeyNotFound {
-					return derr
-				}
 			}
 		}
 		return nil
@@ -430,6 +416,23 @@ func (w *DefaultDistributedWAL) GetChunk(
 			})
 			if idxErr == nil {
 				// We have block location; fetch block and extract chunk
+				// Prefer BlockStore region read if available (more robust)
+				if w.bs != nil {
+					if sc, serr := w.bs.GetSealedChunkByRegion(context.Background(), idxEntry.BlockHash, idxEntry.Region); serr == nil {
+						// Recreate WAL entry for faster future reads. Best-effort.
+						_ = w.db.Update(func(txn *badger.Txn) error {
+							wkey := []byte(prefixChunk + chunkHash.String())
+							sdata, serr := serialize(sc)
+							if serr != nil {
+								return serr
+							}
+							_ = txn.Set(wkey, sdata)
+							return nil
+						})
+						return sc, nil
+					}
+				}
+				// Fallback: try reading block directly from DB
 				blkKey := []byte("blk:b:" + idxEntry.BlockHash.String())
 				var blk model.Block
 				if berr := w.db.View(func(txn *badger.Txn) error {
@@ -454,7 +457,6 @@ func (w *DefaultDistributedWAL) GetChunk(
 								if serr != nil {
 									return serr
 								}
-								// ignore set error
 								_ = txn.Set(wkey, sdata)
 								return nil
 							})
