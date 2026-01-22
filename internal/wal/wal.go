@@ -7,6 +7,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -23,9 +24,10 @@ import (
 const DefaultBlockSize = 16 * 1024 * 1024
 
 const (
-	prefixChunk  = "wal:chunk:"
-	prefixVertex = "wal:vertex:"
-	prefixKey    = "wal:key:"
+	prefixChunk    = "wal:chunk:"
+	prefixVertex   = "wal:vertex:"
+	prefixKey      = "wal:key:"
+	prefixChunkIdx = "idx:chunk:"
 )
 
 // DefaultDistributedWAL implements the DistributedWAL interface.
@@ -196,13 +198,64 @@ func (w *DefaultDistributedWAL) SealBlock(
 
 	// Persist slices via BlockStore if available
 	if w.bs != nil {
-		if err := w.bs.StoreBlock(ctx, block); err != nil {
-			return model.Block{}, nil, fmt.Errorf("store block: %w", err)
-		}
-		for _, s := range slices {
-			if err := w.bs.StoreBlockSlice(context.Background(), s); err != nil {
-				return model.Block{}, nil, fmt.Errorf("store block slice: %w", err)
+		// Persist block and slices and indexes in a single DB transaction to
+		// avoid races where the block is stored but index entries are missing.
+		if err := w.db.Update(func(txn *badger.Txn) error {
+			// Store block
+			bdata, serr := serialize(block)
+			if serr != nil {
+				return serr
 			}
+			if err := txn.Set([]byte("blk:b:"+block.Hash.String()), bdata); err != nil {
+				return err
+			}
+
+			// Store slices and index entries for slices
+			for _, s := range slices {
+				sdata, serr := serialize(s)
+				if serr != nil {
+					return serr
+				}
+				if err := txn.Set([]byte("blk:s:"+s.Hash.String()), sdata); err != nil {
+					return err
+				}
+				// index: block -> slice
+				idxKey := []byte("blk:bs:" + s.BlockHash.String() + ":" + s.Hash.String())
+				hdata, serr := serialize(s.Hash)
+				if serr != nil {
+					return serr
+				}
+				if err := txn.Set(idxKey, hdata); err != nil {
+					return err
+				}
+			}
+
+			// Write fast chunk index entries for quick lookup on reads.
+			// We map: idx:chunk:<chunkHash> -> {BlockHash, ChunkRegion}
+			for _, c := range chunks {
+				if region, ok := block.ChunkIndex[c.ChunkHash]; ok {
+					entry := struct {
+						BlockHash hash.Hash
+						Region    model.ChunkRegion
+					}{
+						BlockHash: block.Hash,
+						Region:    region,
+					}
+					data, serr := serialize(entry)
+					if serr != nil {
+						// skip index entry on serialization error
+						continue
+					}
+					key := []byte(prefixChunkIdx + c.ChunkHash.String())
+					if err := txn.Set(key, data); err != nil {
+						return err
+					}
+				}
+			}
+
+			return nil
+		}); err != nil {
+			return model.Block{}, nil, fmt.Errorf("store block and indexes: %w", err)
 		}
 	}
 
@@ -294,11 +347,25 @@ func (w *DefaultDistributedWAL) loadWALContent() (
 func (w *DefaultDistributedWAL) ClearBlock(
 	ctx context.Context,
 	walKeys [][]byte,
-) error {
+) error { // A
 	err := w.db.Update(func(txn *badger.Txn) error {
 		for _, k := range walKeys {
+			// Delete the WAL entry itself
 			if err := txn.Delete(k); err != nil {
 				return err
+			}
+
+			// If this WAL key was a chunk, also remove its fast index
+			// entry: idx:chunk:<chunkHash>
+			kstr := string(k)
+			if strings.HasPrefix(kstr, prefixChunk) {
+				chunkHashStr := strings.TrimPrefix(kstr, prefixChunk)
+				idxKey := []byte(prefixChunkIdx + chunkHashStr)
+				// Ignore delete error if key does not exist; return other
+				// errors to the caller.
+				if derr := txn.Delete(idxKey); derr != nil && derr != badger.ErrKeyNotFound {
+					return derr
+				}
 			}
 		}
 		return nil
@@ -346,6 +413,57 @@ func (w *DefaultDistributedWAL) GetChunk(
 	})
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
+			// If an index exists, use it for quick lookup.
+			idxKey := []byte(prefixChunkIdx + chunkHash.String())
+			var idxEntry struct {
+				BlockHash hash.Hash
+				Region    model.ChunkRegion
+			}
+			idxErr := w.db.View(func(txn *badger.Txn) error {
+				item, gerr := txn.Get(idxKey)
+				if gerr != nil {
+					return gerr
+				}
+				return item.Value(func(v []byte) error {
+					return deserialize(v, &idxEntry)
+				})
+			})
+			if idxErr == nil {
+				// We have block location; fetch block and extract chunk
+				blkKey := []byte("blk:b:" + idxEntry.BlockHash.String())
+				var blk model.Block
+				if berr := w.db.View(func(txn *badger.Txn) error {
+					it, err := txn.Get(blkKey)
+					if err != nil {
+						return err
+					}
+					return it.Value(func(v []byte) error {
+						return deserialize(v, &blk)
+					})
+				}); berr == nil {
+					off := int(idxEntry.Region.Offset)
+					ln := int(idxEntry.Region.Length)
+					if off+ln <= len(blk.DataSection) && off >= 0 && ln > 0 {
+						data := blk.DataSection[off : off+ln]
+						var sc model.SealedChunk
+						if derr := deserialize(data, &sc); derr == nil {
+							// Recreate WAL entry for faster future reads. Best-effort.
+							_ = w.db.Update(func(txn *badger.Txn) error {
+								wkey := []byte(prefixChunk + chunkHash.String())
+								sdata, serr := serialize(sc)
+								if serr != nil {
+									return serr
+								}
+								// ignore set error
+								_ = txn.Set(wkey, sdata)
+								return nil
+							})
+							return sc, nil
+						}
+					}
+				}
+			}
+			// Fallback: no index or failed to use it, return not found
 			return model.SealedChunk{}, fmt.Errorf("chunk not found in WAL")
 		}
 		return model.SealedChunk{}, fmt.Errorf("get chunk from WAL: %w", err)
@@ -425,19 +543,24 @@ func (w *DefaultDistributedWAL) createBlock(
 	chunkIndex := make(map[hash.Hash]model.ChunkRegion)
 	offset := uint32(0)
 	for _, chunk := range chunks {
-		if len(chunk.EncryptedContent) > math.MaxUint32 {
-			// This should practically definitely not happen given chunk sizes,
-			// but we handle it just in case
+		// Serialize the entire SealedChunk so we can reconstruct it
+		// during reads from persisted blocks.
+		serialized, serr := serialize(chunk)
+		if serr != nil {
+			// skip corrupt/uns-serializable chunk
 			continue
 		}
-		//nolint:gosec // range check above ensures safety
-		length := uint32(len(chunk.EncryptedContent))
+		if len(serialized) > math.MaxUint32 {
+			// too large to store
+			continue
+		}
+		length := uint32(len(serialized))
 		chunkIndex[chunk.ChunkHash] = model.ChunkRegion{
 			ChunkHash: chunk.ChunkHash,
 			Offset:    offset,
 			Length:    length,
 		}
-		dataSection = append(dataSection, chunk.EncryptedContent...)
+		dataSection = append(dataSection, serialized...)
 		offset += length
 	}
 
@@ -502,6 +625,14 @@ func serialize(v interface{}) ([]byte, error) {
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(v)
 	return buf.Bytes(), err
+}
+
+// debugf prints diagnostic messages when OUROBOROS_DEBUG is set.
+func debugf(format string, a ...interface{}) {
+	if os.Getenv("OUROBOROS_DEBUG") == "" {
+		return
+	}
+	fmt.Printf("WAL DEBUG: "+format+"\n", a...)
 }
 
 func deserialize(data []byte, v interface{}) error {

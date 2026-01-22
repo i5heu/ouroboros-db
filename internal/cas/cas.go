@@ -69,7 +69,7 @@ func (c *DefaultCAS) StoreContent(
 
 	// 2. Encrypt and persist chunks
 	chunkHashes := make([]hash.Hash, 0, len(chunks))
-	
+
 	// Prepare public keys for encryption (encrypt for self)
 	pubKeys := [][]byte{c.pubKey}
 
@@ -108,7 +108,7 @@ func (c *DefaultCAS) StoreContent(
 	// Re-calculate hash based on actual vertex fields to be correct
 	// The simple hash of content isn't the vertex hash.
 	// But `model.Vertex` doesn't have a `ComputeHash` method visible here?
-	// Let's check `pkg/model/vertex.go`. 
+	// Let's check `pkg/model/vertex.go`.
 	// For now, I'll assume I should hash the content or the structure.
 	// Using content hash as Vertex Hash is common in CAS for the *root* if it represents the file.
 	// But strictly the Vertex Hash should identify the Vertex metadata.
@@ -116,7 +116,7 @@ func (c *DefaultCAS) StoreContent(
 	// OR better, serialize the vertex without the Hash field and hash that.
 	// I'll stick to a simple hash for this implementation step.
 	// Actually, `pkg/storage/cas.go` says "The returned Vertex can be used to retrieve the content later via GetContent(vertex.Hash)".
-	
+
 	// Let's do a proper hash of the vertex structure if possible, or just random/content hash.
 	// Since I don't have a helper, I'll use content hash for now as it's deterministic.
 	vertex.Hash = hash.HashBytes(append(chunkHashes[0][:], parentHash[:]...)) // Just a mix to make it unique-ish
@@ -159,7 +159,7 @@ func (c *DefaultCAS) GetContent(ctx context.Context, vertexHash hash.Hash) ([]by
 
 	// 2. Retrieve and decrypt chunks
 	var content []byte
-	
+
 	// Hash my public key to find the KeyEntry
 	myPubKeyHash := hash.HashBytes(c.pubKey)
 

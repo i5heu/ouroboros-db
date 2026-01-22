@@ -83,11 +83,11 @@ func (db *OuroborosDB) Close() error {
 
 // DBStats contains statistics about the database.
 type DBStats struct {
-	Vertices     int64
-	Chunks       int64
-	Blocks       int64
-	BlockSlices  int64
-	Keys         int64
+	Vertices    int64
+	Chunks      int64
+	Blocks      int64
+	BlockSlices int64
+	Keys        int64
 }
 
 // GetStats returns statistics about the database.
