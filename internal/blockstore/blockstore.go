@@ -152,8 +152,9 @@ func (s *DefaultBlockStore) GetSealedChunkByRegion(
 	// This is a simplified implementation - actual implementation would
 	// deserialize the SealedChunk from the bytes
 	return model.SealedChunk{
-		ChunkHash:        region.ChunkHash,
-		EncryptedContent: block.DataSection[region.Offset : region.Offset+region.Length],
+		ChunkHash: region.ChunkHash,
+		EncryptedContent: block.DataSection[region.Offset : region.Offset+
+			region.Length],
 	}, nil
 }
 

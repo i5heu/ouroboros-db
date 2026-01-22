@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -280,6 +281,12 @@ func (w *DefaultDistributedWAL) createBlock(
 	chunkIndex := make(map[hash.Hash]model.ChunkRegion)
 	offset := uint32(0)
 	for _, chunk := range chunks {
+		if len(chunk.EncryptedContent) > math.MaxUint32 {
+			// This should practically definitely not happen given chunk sizes,
+			// but we handle it just in case
+			continue
+		}
+		//nolint:gosec // range check above ensures safety
 		length := uint32(len(chunk.EncryptedContent))
 		chunkIndex[chunk.ChunkHash] = model.ChunkRegion{
 			ChunkHash: chunk.ChunkHash,
@@ -307,6 +314,10 @@ func (w *DefaultDistributedWAL) createBlock(
 		_ = enc.Encode(vertex) // Ignoring error for simplicity in this helper
 		vertexBytes := buf.Bytes()
 
+		if len(vertexBytes) > math.MaxUint32 {
+			continue
+		}
+		//nolint:gosec // strict check above ensures safety
 		length := uint32(len(vertexBytes))
 		vertexIndex[vertex.Hash] = model.VertexRegion{
 			VertexHash: vertex.Hash,
@@ -321,14 +332,18 @@ func (w *DefaultDistributedWAL) createBlock(
 	hashInput := append(dataSection, vertexSection...)
 	blockHash := hash.HashBytes(hashInput)
 
+	chunkCount := uint32(len(chunks))                          //nolint:gosec
+	vertexCount := uint32(len(vertices))                       //nolint:gosec
+	totalSize := uint32(len(dataSection) + len(vertexSection)) //nolint:gosec
+
 	return model.Block{
 		Hash: blockHash,
 		Header: model.BlockHeader{
 			Version:     1,
 			Created:     time.Now().UnixMilli(),
-			ChunkCount:  uint32(len(chunks)),
-			VertexCount: uint32(len(vertices)),
-			TotalSize:   uint32(len(dataSection) + len(vertexSection)),
+			ChunkCount:  chunkCount,
+			VertexCount: vertexCount,
+			TotalSize:   totalSize,
 		},
 		DataSection:   dataSection,
 		VertexSection: vertexSection,

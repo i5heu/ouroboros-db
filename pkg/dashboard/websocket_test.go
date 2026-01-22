@@ -157,7 +157,8 @@ func TestLogStreamHub_SlowClient(t *testing.T) { // A
 done:
 
 	if fastCount < 10 {
-		t.Errorf("Fast client should have received many messages, got %d", fastCount)
+		t.Errorf("Fast client should have received many messages, got %d",
+			fastCount)
 	}
 	// Slow client won't receive all due to dropped messages, which is fine
 }

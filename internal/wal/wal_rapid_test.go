@@ -199,8 +199,10 @@ func (m *WALStateMachine) SealBlock(t *rapid.T) {
 	}
 
 	// Verify WAL keys were returned for later clearing
-	if len(walKeys) == 0 &&
-		(len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0 || len(m.expectedKeys) > 0) {
+	// Verify WAL keys were returned for later clearing
+	hasData := len(m.expectedChunks) > 0 || len(m.expectedVertices) > 0 ||
+		len(m.expectedKeys) > 0
+	if len(walKeys) == 0 && hasData {
 		t.Errorf("SealBlock should return WAL keys when there is data")
 	}
 

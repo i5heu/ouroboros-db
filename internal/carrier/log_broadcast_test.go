@@ -125,7 +125,8 @@ func TestLogBroadcaster_SingleSubscriber(t *testing.T) { // A
 
 	// Send a log
 	logger := slog.New(lb)
-	logger.Info("test message", "key", "value")
+	//nolint:sloglint // testing log functionality requires raw keys
+	logger.InfoContext(context.Background(), "test message", "key", "value")
 
 	// Wait for async send
 	time.Sleep(50 * time.Millisecond)
@@ -158,7 +159,7 @@ func TestLogBroadcaster_MultipleSubscribers(t *testing.T) { // A
 
 	// Send a log
 	logger := slog.New(lb)
-	logger.Info("broadcast to all")
+	logger.InfoContext(context.Background(), "broadcast to all")
 
 	// Wait for async sends
 	time.Sleep(100 * time.Millisecond)
@@ -174,7 +175,11 @@ func TestLogBroadcaster_MultipleSubscribers(t *testing.T) { // A
 		received[msg.nodeID] = true
 	}
 
-	for _, nodeID := range []NodeID{"subscriber-1", "subscriber-2", "subscriber-3"} {
+	for _, nodeID := range []NodeID{
+		"subscriber-1",
+		"subscriber-2",
+		"subscriber-3",
+	} {
 		if !received[nodeID] {
 			t.Errorf("subscriber %s did not receive message", nodeID)
 		}
@@ -196,7 +201,7 @@ func TestLogBroadcaster_LevelFiltering(t *testing.T) { // A
 	logger := slog.New(lb)
 
 	// Send info log
-	logger.Info("info message")
+	logger.InfoContext(context.Background(), "info message")
 	time.Sleep(50 * time.Millisecond)
 
 	messages := mock.getSentMessages()
@@ -234,7 +239,7 @@ func TestLogBroadcaster_Unsubscribe(t *testing.T) { // A
 	logger := slog.New(lb)
 
 	// Both should receive
-	logger.Info("first message")
+	logger.InfoContext(context.Background(), "first message")
 	time.Sleep(50 * time.Millisecond)
 
 	messages := mock.getSentMessages()
@@ -249,7 +254,7 @@ func TestLogBroadcaster_Unsubscribe(t *testing.T) { // A
 	time.Sleep(20 * time.Millisecond)
 
 	// Only subscriber-2 should receive
-	logger.Info("second message")
+	logger.InfoContext(context.Background(), "second message")
 	time.Sleep(50 * time.Millisecond)
 
 	messages = mock.getSentMessages()
@@ -285,7 +290,8 @@ func TestLogBroadcaster_ConcurrentSubscriptions(t *testing.T) { // A
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			logger.Info("concurrent log", "iteration", n)
+			//nolint:sloglint // testing log functionality
+			logger.InfoContext(context.Background(), "concurrent log", "iteration", n)
 		}(i)
 	}
 
@@ -308,7 +314,8 @@ func TestLogBroadcaster_HighVolume(t *testing.T) { // A
 
 	// Send many logs quickly
 	for i := 0; i < 1000; i++ {
-		logger.Info("high volume log", "index", i)
+		//nolint:sloglint // testing log functionality
+		logger.InfoContext(context.Background(), "high volume log", "index", i)
 	}
 
 	time.Sleep(500 * time.Millisecond)
@@ -395,7 +402,7 @@ func TestLogBroadcaster_HandleLogUnsubscribe(t *testing.T) { // A
 
 	// Verify unsubscription by sending a log - should get nothing
 	logger := slog.New(lb)
-	logger.Info("after unsubscribe")
+	logger.InfoContext(context.Background(), "after unsubscribe")
 	time.Sleep(50 * time.Millisecond)
 
 	messages := mock.getSentMessages()
@@ -414,8 +421,9 @@ func TestLogBroadcaster_WithAttrs(t *testing.T) { // A
 	time.Sleep(20 * time.Millisecond)
 
 	// Create logger with attributes
-	logger := slog.New(lb).With("component", "test")
-	logger.Info("message with attrs")
+	//nolint:sloglint // testing log functionality with attributes
+	logger := slog.New(lb).With(slog.String("component", "test"))
+	logger.InfoContext(context.Background(), "message with attrs")
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -446,7 +454,8 @@ func TestLogBroadcaster_WithGroup(t *testing.T) { // A
 
 	// Create logger with group
 	logger := slog.New(lb).WithGroup("mygroup")
-	logger.Info("message with group", "key", "value")
+	//nolint:sloglint // testing log functionality with groups
+	logger.InfoContext(context.Background(), "message with group", "key", "value")
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -467,7 +476,7 @@ func TestLogBroadcaster_SubscriberReplace(t *testing.T) { // A
 	time.Sleep(20 * time.Millisecond)
 
 	logger := slog.New(lb)
-	logger.Info("first log")
+	logger.InfoContext(context.Background(), "first log")
 	time.Sleep(50 * time.Millisecond)
 
 	if len(mock.getSentMessages()) != 1 {
@@ -479,7 +488,7 @@ func TestLogBroadcaster_SubscriberReplace(t *testing.T) { // A
 	lb.Subscribe(NodeID("subscriber"), []string{"ERROR"})
 	time.Sleep(20 * time.Millisecond)
 
-	logger.Info("second log - info")
+	logger.InfoContext(context.Background(), "second log - info")
 	time.Sleep(50 * time.Millisecond)
 
 	if len(mock.getSentMessages()) != 0 {
@@ -501,7 +510,7 @@ func TestLogBroadcaster_NoSubscribers(t *testing.T) { // A
 	defer lb.Stop()
 
 	logger := slog.New(lb)
-	logger.Info("no one listening")
+	logger.InfoContext(context.Background(), "no one listening")
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -538,7 +547,8 @@ func TestLogBroadcaster_DropsWhenChannelFull(t *testing.T) { // A
 
 	// Flood the channel
 	for i := 0; i < 100; i++ {
-		logger.Info("flood message", "i", i)
+		//nolint:sloglint // testing log functionality
+		logger.InfoContext(context.Background(), "flood message", "i", i)
 	}
 
 	time.Sleep(200 * time.Millisecond)

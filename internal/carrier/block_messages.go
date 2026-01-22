@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"math"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/pkg/model"
@@ -137,6 +138,9 @@ func DeserializeBlockAnnouncement(
 func SerializeMissedBlocksRequest(
 	p *MissedBlocksRequestPayload,
 ) ([]byte, error) {
+	if p.SinceTimestamp < 0 {
+		return nil, fmt.Errorf("negative timestamp: %d", p.SinceTimestamp)
+	}
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(p.SinceTimestamp))
 	return buf, nil
@@ -152,8 +156,12 @@ func DeserializeMissedBlocksRequest(
 			len(data),
 		)
 	}
+	ts := binary.BigEndian.Uint64(data)
+	if ts > uint64(math.MaxInt64) {
+		return nil, fmt.Errorf("timestamp too large: %d", ts)
+	}
 	return &MissedBlocksRequestPayload{
-		SinceTimestamp: int64(binary.BigEndian.Uint64(data)),
+		SinceTimestamp: int64(ts),
 	}, nil
 }
 

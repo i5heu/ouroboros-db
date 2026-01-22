@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"sync"
 	"time"
@@ -79,8 +80,9 @@ func (t *QUICTransport) Connect(
 	t.mu.Unlock()
 
 	clientTLS := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"ouroboros-quic"},
+		InsecureSkipVerify: true, //nolint:gosec // Self-signed certificates used
+		// for p2p
+		NextProtos: []string{"ouroboros-quic"},
 	}
 
 	conn, err := quic.DialAddr(ctx, address, clientTLS, t.quicConf)
@@ -101,9 +103,9 @@ func (t *QUICTransport) Connect(
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
 
-	t.logger.Debug("quic connection established",
+	t.logger.DebugContext(ctx, "quic connection established",
 		logKeyAddress, address,
-		"remoteNodeId", truncateNodeID(qc.remoteID))
+		logKeyRemoteNodeID, truncateNodeID(qc.remoteID))
 
 	return qc, nil
 }
@@ -177,9 +179,9 @@ func (l *quicListener) Accept(ctx context.Context) (Connection, error) { // A
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
 
-	l.logger.Debug("quic connection accepted",
+	l.logger.DebugContext(ctx, "quic connection accepted",
 		logKeyAddress, conn.RemoteAddr().String(),
-		"remoteNodeId", truncateNodeID(qc.remoteID))
+		logKeyRemoteNodeID, truncateNodeID(qc.remoteID))
 
 	return qc, nil
 }
@@ -303,6 +305,10 @@ func (c *quicConn) Send(ctx context.Context, msg Message) error { // A
 	// Header: [1 byte type][4 bytes payload length]
 	header := make([]byte, 5)
 	header[0] = byte(msg.Type)
+	if len(msg.Payload) > math.MaxUint32 {
+		return fmt.Errorf("payload length overflows uint32")
+	}
+	//nolint:gosec // strict check above ensures safety
 	binary.BigEndian.PutUint32(header[1:], uint32(len(msg.Payload)))
 
 	if _, err := stream.Write(header); err != nil {
@@ -417,6 +423,10 @@ func writeNodeID(w io.Writer, id NodeID) error { // A
 	}
 
 	lenBuf := make([]byte, 4)
+	if len(idBytes) > math.MaxUint32 {
+		return errors.New("node ID length overflows uint32")
+	}
+	//nolint:gosec // strict check above ensures safety
 	binary.BigEndian.PutUint32(lenBuf, uint32(len(idBytes)))
 
 	if _, err := w.Write(lenBuf); err != nil {
@@ -457,9 +467,10 @@ func generateTLSConfig() (*tls.Config, error) { // A
 		Subject: pkix.Name{
 			Organization: []string{"OuroborosDB"},
 		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage: x509.KeyUsageKeyEncipherment |
+			x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
@@ -492,6 +503,7 @@ func generateTLSConfig() (*tls.Config, error) { // A
 	return &tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
 		NextProtos:   []string{"ouroboros-quic"},
+		MinVersion:   tls.VersionTLS13,
 	}, nil
 }
 

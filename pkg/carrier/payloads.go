@@ -25,7 +25,9 @@ type LogSubscribePayload struct { // A
 }
 
 // Type returns the MessageType for LogSubscribePayload.
-func (p LogSubscribePayload) Type() MessageType { return MessageTypeLogSubscribe } // A
+func (p LogSubscribePayload) Type() MessageType {
+	return MessageTypeLogSubscribe
+} // A
 
 // LogUnsubscribePayload is sent when a node wants to stop receiving logs.
 type LogUnsubscribePayload struct { // A
@@ -34,7 +36,9 @@ type LogUnsubscribePayload struct { // A
 }
 
 // Type returns the MessageType for LogUnsubscribePayload.
-func (p LogUnsubscribePayload) Type() MessageType { return MessageTypeLogUnsubscribe } // A
+func (p LogUnsubscribePayload) Type() MessageType {
+	return MessageTypeLogUnsubscribe
+} // A
 
 // LogEntryPayload contains a single log entry forwarded from one node to
 // another.
@@ -97,7 +101,9 @@ type BlockSliceAckPayload struct { // A
 }
 
 // Type returns the MessageType for BlockSliceAckPayload.
-func (p BlockSliceAckPayload) Type() MessageType { return MessageTypeBlockSliceAck } // A
+func (p BlockSliceAckPayload) Type() MessageType {
+	return MessageTypeBlockSliceAck
+} // A
 
 // BlockAnnouncementPayload announces a newly distributed block to the cluster.
 type BlockAnnouncementPayload struct { // A
@@ -242,4 +248,6 @@ type HeartbeatPayload struct { // A
 }
 
 // Type returns the MessageType for HeartbeatPayload.
-func (p HeartbeatPayload) Type() MessageType { return MessageTypeHeartbeat } // A
+func (p HeartbeatPayload) Type() MessageType {
+	return MessageTypeHeartbeat
+} // A

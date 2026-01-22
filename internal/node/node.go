@@ -85,7 +85,8 @@ func (ni *DefaultNodeIdentity) Decrypt(encryptedData []byte) ([]byte, error) {
 	// needs to include nonce and encapsulated key. The full implementation
 	// should use the EncryptResult structure.
 	return nil, fmt.Errorf(
-		"decrypt requires EncryptResult structure - use GetCrypt() for full decryption",
+		"decrypt requires EncryptResult structure - use GetCrypt() for " +
+			"full decryption",
 	)
 }
 

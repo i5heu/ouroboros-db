@@ -21,7 +21,8 @@ type pipeNetwork struct {
 	mu         sync.RWMutex
 	listeners  map[string]*pipeListener
 	identities map[string]nodeInfo
-	transports map[*pipeTransport]string // maps transport instance to its bound address
+	transports map[*pipeTransport]string // maps transport instance to its bound
+	// address
 }
 
 // pipeTransport is a Transport implementation that uses Go channels
@@ -233,7 +234,9 @@ func (c *pipeConnection) Close() error {
 
 func (c *pipeConnection) RemoteNodeID() NodeID { return c.remoteNodeID }
 
-func (c *pipeConnection) RemotePublicKey() *keys.PublicKey { return c.remotePubKey }
+func (c *pipeConnection) RemotePublicKey() *keys.PublicKey {
+	return c.remotePubKey
+}
 
 func TestCarrierIntegration(t *testing.T) {
 	network := &pipeNetwork{
@@ -276,7 +279,11 @@ func TestCarrierIntegration(t *testing.T) {
 		receivedMessages[nodeID] = receivedChan
 		carriers[i].RegisterHandler(
 			MessageTypeHeartbeat,
-			func(ctx context.Context, senderID NodeID, msg Message) (*Message, error) {
+			func(
+				ctx context.Context,
+				senderID NodeID,
+				msg Message,
+			) (*Message, error) {
 				select {
 				case receivedChan <- msg:
 				default:

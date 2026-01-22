@@ -15,6 +15,12 @@ import (
 	"github.com/i5heu/ouroboros-db/internal/carrier"
 )
 
+const (
+	logKeyError         = "error"
+	logKeyAddress       = "address"
+	logKeyUploadEnabled = "uploadEnabled"
+)
+
 //go:embed static/*
 var staticFiles embed.FS
 
@@ -72,7 +78,12 @@ func (d *Dashboard) setupRoutes() { // A
 	// Static files (HTML, CSS, JS)
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		d.config.Logger.Error("failed to create static fs", "error", err)
+		d.config.Logger.ErrorContext(
+			context.Background(),
+			"failed to create static fs",
+			logKeyError,
+			err,
+		)
 	} else {
 		d.mux.Handle("/", http.FileServer(http.FS(staticFS)))
 	}
@@ -119,13 +130,18 @@ func (d *Dashboard) Start(ctx context.Context) error { // A
 
 	// Start HTTP server
 	go func() {
-		d.config.Logger.Info("dashboard started",
-			"address", d.Address(),
-			"uploadEnabled", d.config.AllowUpload)
+		d.config.Logger.InfoContext(context.Background(), "dashboard started",
+			logKeyAddress, d.Address(),
+			logKeyUploadEnabled, d.config.AllowUpload)
 
 		if err := d.server.Serve(listener); err != nil &&
 			!errors.Is(err, http.ErrServerClosed) {
-			d.config.Logger.Error("dashboard server error", "error", err)
+			d.config.Logger.ErrorContext(
+				context.Background(),
+				"dashboard server error",
+				logKeyError,
+				err,
+			)
 		}
 		close(d.doneCh)
 	}()
@@ -180,7 +196,11 @@ func (d *Dashboard) Address() string { // A
 // Port returns the port the dashboard is listening on.
 // Returns 0 if not started.
 func (d *Dashboard) Port() uint16 { // A
-	return uint16(d.actualPort.Load())
+	val := d.actualPort.Load()
+	if val > 65535 {
+		return 0
+	}
+	return uint16(val)
 }
 
 // findAvailablePort tries to find an available port, starting with the
@@ -198,12 +218,16 @@ func (d *Dashboard) findAvailablePort() (uint16, net.Listener, error) { // A
 	}
 
 	// Preferred port unavailable, let OS assign one
+	//nolint:gosec // Dashboard is openly insecure - binds to all interfaces
 	listener, err = net.Listen("tcp", ":0")
 	if err != nil {
 		return 0, nil, fmt.Errorf("listen on any port: %w", err)
 	}
 
 	addr := listener.Addr().(*net.TCPAddr)
+	if addr.Port < 0 || addr.Port > 65535 {
+		return 0, nil, fmt.Errorf("invalid port: %d", addr.Port)
+	}
 	return uint16(addr.Port), listener, nil
 }
 
@@ -236,7 +260,7 @@ func (d *Dashboard) announceDashboard(ctx context.Context) { // A
 		d.config.Logger.WarnContext(
 			context.Background(),
 			"failed to serialize dashboard announce",
-			"error",
+			logKeyError,
 			err,
 		)
 		return
@@ -252,7 +276,7 @@ func (d *Dashboard) announceDashboard(ctx context.Context) { // A
 		d.config.Logger.WarnContext(
 			context.Background(),
 			"failed to announce dashboard",
-			"error",
+			logKeyError,
 			err,
 		)
 	}

@@ -14,6 +14,18 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/dashboard"
 )
 
+const (
+	logKeyListenAddr       = "listenAddr"
+	logKeyDataPath         = "dataPath"
+	logKeyDashboardEnabled = "dashboardEnabled"
+	logKeyUploadEnabled    = "uploadEnabled"
+	logKeySignal           = "signal"
+	logKeyError            = "error"
+	logKeyNodeID           = "nodeId"
+	logKeyKeyPath          = "keyPath"
+	logKeyAddress          = "address"
+)
+
 func main() { // A
 	// Parse command line flags
 	cfg := parseFlags()
@@ -28,10 +40,10 @@ func main() { // A
 	}))
 
 	logger.InfoContext(context.Background(), "starting ouroboros daemon",
-		"listenAddr", cfg.listenAddr,
-		"dataPath", cfg.dataPath,
-		"dashboardEnabled", cfg.dashboardEnabled,
-		"uploadEnabled", cfg.uploadEnabled)
+		logKeyListenAddr, cfg.listenAddr,
+		logKeyDataPath, cfg.dataPath,
+		logKeyDashboardEnabled, cfg.dashboardEnabled,
+		logKeyUploadEnabled, cfg.uploadEnabled)
 
 	// Create context that cancels on interrupt
 	ctx, cancel := context.WithCancel(context.Background())
@@ -42,13 +54,18 @@ func main() { // A
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigCh
-		logger.InfoContext(ctx, "received shutdown signal", "signal", sig.String())
+		logger.InfoContext(
+			ctx,
+			"received shutdown signal",
+			logKeySignal,
+			sig.String(),
+		)
 		cancel()
 	}()
 
 	// Run the daemon
 	if err := run(ctx, cfg, logger); err != nil {
-		logger.ErrorContext(context.Background(), "daemon error", "error", err)
+		logger.ErrorContext(context.Background(), "daemon error", logKeyError, err)
 		os.Exit(1)
 	}
 }
@@ -92,6 +109,8 @@ func parseFlags() daemonConfig { // A
 }
 
 // run is the main daemon logic, separated for testability.
+//
+//nolint:cyclop // Main orchestration function is inherently complex
 func run(
 	ctx context.Context,
 	cfg daemonConfig,
@@ -116,8 +135,8 @@ func run(
 	}
 
 	logger.InfoContext(ctx, "node identity loaded",
-		"nodeId", string(nodeID)[:16]+"...",
-		"keyPath", keyPath)
+		logKeyNodeID, string(nodeID)[:16]+"...",
+		logKeyKeyPath, keyPath)
 
 	// Create QUIC transport
 	transport, err := carrier.NewQUICTransport(
@@ -190,24 +209,42 @@ func run(
 	}
 	defer func() {
 		if stopErr := carr.Stop(context.Background()); stopErr != nil {
-			logger.WarnContext(context.Background(), "error stopping carrier", "error", stopErr)
+			logger.WarnContext(
+				context.Background(),
+				"error stopping carrier",
+				logKeyError,
+				stopErr,
+			)
 		}
 	}()
 
 	// Bootstrap to cluster if address provided
 	if cfg.bootstrapAddr != "" {
-		logger.Info("bootstrapping to cluster", "address", cfg.bootstrapAddr)
+		logger.InfoContext(
+			ctx,
+			"bootstrapping to cluster",
+			logKeyAddress,
+			cfg.bootstrapAddr,
+		)
 		if err := carr.Bootstrap(ctx); err != nil {
-			logger.WarnContext(context.Background(), "bootstrap failed (peer may not be running yet)",
-				"error", err)
+			logger.WarnContext(
+				context.Background(),
+				"bootstrap failed (peer may not be running yet)",
+				logKeyError,
+				err,
+			)
 		} else {
-			logger.Info("bootstrap successful")
+			logger.InfoContext(ctx, "bootstrap successful")
 		}
 	}
 
 	// Start dashboard if enabled
 	var dash *dashboard.Dashboard
 	if cfg.dashboardEnabled {
+		if cfg.dashboardPort > 65535 {
+			return fmt.Errorf("dashboard port invalid: %d", cfg.dashboardPort)
+		}
+
 		dash, err = dashboard.New(dashboard.Config{
 			Enabled:        true,
 			AllowUpload:    cfg.uploadEnabled,
@@ -225,17 +262,22 @@ func run(
 		}
 		defer func() { _ = dash.Stop(ctx) }()
 
-		logger.Info("dashboard available", "address", dash.Address())
+		logger.InfoContext(
+			ctx,
+			"dashboard available",
+			logKeyAddress,
+			dash.Address(),
+		)
 	}
 
-	logger.Info("daemon started",
-		"nodeId", string(nodeID)[:16]+"...",
-		"listenAddr", cfg.listenAddr)
+	logger.InfoContext(ctx, "daemon started",
+		logKeyNodeID, string(nodeID)[:16]+"...",
+		logKeyListenAddr, cfg.listenAddr)
 
 	// Wait for shutdown
 	<-ctx.Done()
 
-	logger.Info("daemon shutting down")
+	logger.InfoContext(ctx, "daemon shutting down")
 	return nil
 }
 
@@ -255,7 +297,7 @@ func loadOrCreateIdentity(
 		logger.DebugContext(
 			context.Background(),
 			"loaded existing node identity",
-			"path",
+			logKeyKeyPath,
 			keyPath,
 		)
 		return identity, nil
@@ -272,6 +314,11 @@ func loadOrCreateIdentity(
 		return nil, fmt.Errorf("save identity to %s: %w", keyPath, err)
 	}
 
-	logger.Info("created new node identity", "path", keyPath)
+	logger.InfoContext(
+		context.Background(),
+		"created new node identity",
+		logKeyKeyPath,
+		keyPath,
+	)
 	return identity, nil
 }

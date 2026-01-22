@@ -471,7 +471,8 @@ func TestSealChunk_CompressionEffective(t *testing.T) {
 			len(sealed.EncryptedContent),
 		)
 		t.Log(
-			"Warning: compression may not be working effectively for highly compressible data",
+			"Warning: compression may not be working effectively for highly " +
+				"compressible data",
 		)
 	}
 }

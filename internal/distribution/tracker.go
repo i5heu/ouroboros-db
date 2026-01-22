@@ -71,12 +71,13 @@ func (t *DefaultBlockDistributionTracker) StartDistribution(
 
 	now := time.Now()
 	record := &model.BlockDistributionRecord{
-		BlockHash:            block.Hash,
-		State:                model.BlockStatePending,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-		SliceConfirmations:   make(map[hash.Hash][]string),
-		TotalSlices:          block.Header.RSDataSlices + block.Header.RSParitySlices,
+		BlockHash:          block.Hash,
+		State:              model.BlockStatePending,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		SliceConfirmations: make(map[hash.Hash][]string),
+		TotalSlices: block.Header.RSDataSlices +
+			block.Header.RSParitySlices,
 		UniqueNodesConfirmed: 0,
 		RetryCount:           0,
 		WALKeys:              walKeys,
@@ -425,6 +426,8 @@ func (t *DefaultBlockDistributionTracker) loadPendingDistributions() {
 }
 
 // Ensure DefaultBlockDistributionTracker implements the interface.
+//
+//nolint:lll
 var _ distribution.BlockDistributionTracker = (*DefaultBlockDistributionTracker)(
 	nil,
 )

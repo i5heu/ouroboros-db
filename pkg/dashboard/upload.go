@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -345,6 +346,9 @@ func (d *Dashboard) processUpload(
 			targetNode = string(nodes[i].NodeID)
 		}
 
+		if i > math.MaxUint8 {
+			continue
+		}
 		d.uploadTracker.AddSliceDistribution(flowID, SliceDistribution{
 			SliceHash:  sliceHash,
 			SliceIndex: uint8(i),

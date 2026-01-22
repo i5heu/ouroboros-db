@@ -189,7 +189,9 @@ func (s *DefaultEncryptionService) UnsealChunk(
 
 	// Step 2: Extract encapsulated key and wrapped AES key
 	encapsulatedKey := keyEntry.EncapsulatedAESKey[:mlkemEncapsulatedKeySize]
-	wrappedAESKey := keyEntry.EncapsulatedAESKey[mlkemEncapsulatedKeySize : mlkemEncapsulatedKeySize+aesKeySize]
+	start := mlkemEncapsulatedKeySize
+	end := mlkemEncapsulatedKeySize + aesKeySize
+	wrappedAESKey := keyEntry.EncapsulatedAESKey[start:end]
 
 	// Step 3: Decapsulate to get shared secret
 	sharedSecret, err := privKeyObj.Decapsulate(encapsulatedKey)

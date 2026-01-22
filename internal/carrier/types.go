@@ -76,6 +76,7 @@ const (
 	logKeyNodesRecv    = "nodesReceived"
 	logKeyNodesAdded   = "nodesAdded"
 	logKeyNodeCount    = "nodeCount"
+	logKeyRemoteNodeID = "remoteNodeId"
 )
 
 // messageTypeNames maps MessageType values to their string representations.
