@@ -67,6 +67,12 @@ export const selectors = {
   distribution: {
     overview: '#distribution-overview',
     table: '#distribution-table',
+    // Counter cards
+    totalNodesCard: '.node-card:has-text("Total Nodes")',
+    totalVerticesCard: '.node-card:has-text("Total Vertices")',
+    totalBlocksCard: '.node-card:has-text("Total Blocks")',
+    totalSlicesCard: '.node-card:has-text("Total Slices")',
+    counterValue: 'p', // The <p> inside each card contains the number
   },
 
   // Upload Panel
