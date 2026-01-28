@@ -17,6 +17,8 @@ import (
 	"github.com/i5heu/ouroboros-db/internal/cas"
 	"github.com/i5heu/ouroboros-db/internal/encryption"
 	"github.com/i5heu/ouroboros-db/internal/wal"
+	"github.com/i5heu/ouroboros-db/pkg/carrier"
+	"github.com/i5heu/ouroboros-db/pkg/model"
 	"github.com/i5heu/ouroboros-db/pkg/storage"
 )
 
@@ -109,6 +111,23 @@ func (db *OuroborosDB) GetStats() (DBStats, error) {
 				stats.Keys++
 			case len(key) >= 6 && key[:6] == "blk:b:":
 				stats.Blocks++
+				// Deserialize block to count its contents
+				err := it.Item().Value(func(val []byte) error {
+					block, err := carrier.Deserialize[model.Block](val)
+					if err != nil {
+						db.log.Warn("malformed block skipped", "blockKey", key, "error", err)
+						return nil // Skip malformed blocks
+					}
+					stats.Vertices += int64(block.Header.VertexCount)
+					stats.Chunks += int64(block.Header.ChunkCount)
+					for _, keyEntries := range block.KeyRegistry {
+						stats.Keys += int64(len(keyEntries))
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
 			case len(key) >= 6 && key[:6] == "blk:s:":
 				stats.BlockSlices++
 			}
