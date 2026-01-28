@@ -27,6 +27,7 @@ type pooledConn struct { // A
 	nodeID     NodeID
 	addresses  []string
 	lastUsed   time.Time
+	incoming   bool
 	mu         sync.Mutex
 	connecting bool
 }
@@ -76,7 +77,7 @@ func (p *connPool) checkExistingConnection(nodeID NodeID) (Connection, bool) {
 	pc, exists := p.conns[nodeID]
 	p.mu.RUnlock()
 
-	if exists && pc.conn != nil && !isConnClosed(pc.conn) {
+	if exists && pc.conn != nil && !isConnClosed(pc.conn) && !pc.incoming {
 		pc.mu.Lock()
 		pc.lastUsed = time.Now()
 		pc.mu.Unlock()
@@ -93,7 +94,7 @@ func (p *connPool) getOrCreatePooledConn(
 
 	// Double-check after acquiring write lock
 	pc, exists := p.conns[node.NodeID]
-	if exists && pc.conn != nil && !isConnClosed(pc.conn) {
+	if exists && pc.conn != nil && !isConnClosed(pc.conn) && !pc.incoming {
 		pc.mu.Lock()
 		pc.lastUsed = time.Now()
 		pc.mu.Unlock()
@@ -121,9 +122,15 @@ func (p *connPool) connectToNode(
 	defer pc.mu.Unlock()
 
 	// Another goroutine may have connected while we waited
-	if pc.conn != nil && !isConnClosed(pc.conn) {
+	if pc.conn != nil && !isConnClosed(pc.conn) && !pc.incoming {
 		pc.lastUsed = time.Now()
 		return pc.conn, nil
+	}
+
+	if pc.conn != nil && !isConnClosed(pc.conn) && pc.incoming {
+		_ = pc.conn.Close()
+		pc.conn = nil
+		pc.incoming = false
 	}
 
 	// Mark as connecting to prevent concurrent connection attempts
@@ -166,6 +173,10 @@ func (p *connPool) dialAddresses(
 			continue
 		}
 
+		if pc.conn != nil && !isConnClosed(pc.conn) {
+			_ = pc.conn.Close()
+		}
+
 		// Verify we connected to the right node
 		if conn.RemoteNodeID() != node.NodeID {
 			_ = conn.Close()
@@ -180,6 +191,7 @@ func (p *connPool) dialAddresses(
 		pc.conn = conn
 		pc.addresses = node.Addresses
 		pc.lastUsed = time.Now()
+		pc.incoming = false
 
 		p.log.Debug("connection established",
 			logKeyNodeID, string(node.NodeID),
@@ -209,9 +221,10 @@ func (p *connPool) addIncoming(conn Connection) { // A
 	// Check if we already have a connection
 	if existing, ok := p.conns[remoteID]; ok {
 		if existing.conn != nil && !isConnClosed(existing.conn) {
-			// Keep existing connection, close new one
-			// (prefer connections we initiated)
-			_ = conn.Close()
+			if !existing.incoming {
+				_ = conn.Close()
+				return
+			}
 			return
 		}
 	}
@@ -220,6 +233,7 @@ func (p *connPool) addIncoming(conn Connection) { // A
 		conn:     conn,
 		nodeID:   remoteID,
 		lastUsed: time.Now(),
+		incoming: true,
 	}
 
 	p.log.Debug("incoming connection added to pool",
@@ -266,6 +280,19 @@ func (p *connPool) remove(nodeID NodeID) { // A
 	p.mu.Unlock()
 
 	if exists && pc.conn != nil {
+		_ = pc.conn.Close()
+	}
+}
+
+func (p *connPool) removeIfMatch(nodeID NodeID, conn Connection) { // A
+	p.mu.Lock()
+	pc, exists := p.conns[nodeID]
+	if exists && pc.conn == conn {
+		delete(p.conns, nodeID)
+	}
+	p.mu.Unlock()
+
+	if exists && pc.conn == conn && pc.conn != nil {
 		_ = pc.conn.Close()
 	}
 }

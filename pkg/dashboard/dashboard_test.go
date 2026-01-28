@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,15 @@ import (
 type mockCarrier struct { // A
 	nodes    []carrier.Node
 	handlers map[carrier.MessageType][]carrier.MessageHandler
+
+	mu           sync.Mutex
+	sentMessages []sentMessage
+}
+
+type sentMessage struct { // A
+	nodeID   carrier.NodeID
+	message  carrier.Message
+	sentTime time.Time
 }
 
 func newMockCarrier() *mockCarrier { // A
@@ -53,6 +63,13 @@ func (m *mockCarrier) SendMessageToNode(
 	nodeID carrier.NodeID,
 	message carrier.Message,
 ) error { // A
+	m.mu.Lock()
+	m.sentMessages = append(m.sentMessages, sentMessage{
+		nodeID:   nodeID,
+		message:  message,
+		sentTime: time.Now(),
+	})
+	m.mu.Unlock()
 	return nil
 }
 
@@ -88,6 +105,21 @@ func (m *mockCarrier) BootstrapFromAddresses(
 	addresses []string,
 ) error { // A
 	return nil
+}
+
+func (m *mockCarrier) getSentMessages() []sentMessage { // A
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	out := make([]sentMessage, len(m.sentMessages))
+	copy(out, m.sentMessages)
+	return out
+}
+
+func (m *mockCarrier) clearMessages() { // A
+	m.mu.Lock()
+	m.sentMessages = nil
+	m.mu.Unlock()
 }
 
 func TestDashboard_New(t *testing.T) { // A

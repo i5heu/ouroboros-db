@@ -153,8 +153,10 @@ func (c *DefaultCarrier) handleConnection( // A
 		}
 
 		if !c.processNextMessage(ctx, conn, remoteID) {
-			// Connection closed or error, remove from pool
-			c.pool.remove(remoteID)
+			// Connection closed or error.
+			// Only remove if this exact connection is pooled.
+			c.pool.removeIfMatch(remoteID, conn)
+			_ = conn.Close()
 			return
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,6 +26,57 @@ type UploadFlow struct { // A
 	BlockHash         string              `json:"blockHash,omitempty"`
 	SliceDistribution []SliceDistribution `json:"sliceDistribution,omitempty"`
 	Error             string              `json:"error,omitempty"`
+}
+
+type uploadFlowState struct { // A
+	ID        string
+	StartedAt int64
+
+	status      atomic.Value // string
+	completedAt atomic.Int64
+	vertexHash  atomic.Value // string
+	blockHash   atomic.Value // string
+	errorMsg    atomic.Value // string
+
+	slicesMu          sync.RWMutex
+	stages            []UploadFlowStage
+	sliceDistribution []SliceDistribution
+}
+
+func (s *uploadFlowState) snapshot() UploadFlow { // A
+	snap := UploadFlow{
+		ID:        s.ID,
+		StartedAt: s.StartedAt,
+	}
+
+	if v := s.status.Load(); v != nil {
+		snap.Status = v.(string)
+	}
+	snap.CompletedAt = s.completedAt.Load()
+
+	if v := s.vertexHash.Load(); v != nil {
+		snap.VertexHash = v.(string)
+	}
+	if v := s.blockHash.Load(); v != nil {
+		snap.BlockHash = v.(string)
+	}
+	if v := s.errorMsg.Load(); v != nil {
+		snap.Error = v.(string)
+	}
+
+	s.slicesMu.RLock()
+	if len(s.stages) > 0 {
+		snap.Stages = append([]UploadFlowStage(nil), s.stages...)
+	}
+	if len(s.sliceDistribution) > 0 {
+		snap.SliceDistribution = append(
+			[]SliceDistribution(nil),
+			s.sliceDistribution...,
+		)
+	}
+	s.slicesMu.RUnlock()
+
+	return snap
 }
 
 // UploadFlowStage represents a single stage in the upload pipeline.
@@ -47,7 +99,7 @@ type SliceDistribution struct { // A
 // UploadFlowTracker manages upload flow state.
 // Uses sync.Map for concurrent access since each upload is independent.
 type UploadFlowTracker struct { // A
-	flows sync.Map // map[string]*UploadFlow
+	flows sync.Map // map[string]*uploadFlowState
 }
 
 // NewUploadFlowTracker creates a new UploadFlowTracker.
@@ -60,11 +112,10 @@ func (t *UploadFlowTracker) Create() *UploadFlow { // A
 	id := generateFlowID()
 	now := time.Now().UnixMilli()
 
-	flow := &UploadFlow{
+	state := &uploadFlowState{
 		ID:        id,
-		Status:    "started",
 		StartedAt: now,
-		Stages: []UploadFlowStage{
+		stages: []UploadFlowStage{
 			{Name: "encrypting", Status: "pending"},
 			{Name: "wal", Status: "pending"},
 			{Name: "sealing", Status: "pending"},
@@ -72,9 +123,12 @@ func (t *UploadFlowTracker) Create() *UploadFlow { // A
 			{Name: "complete", Status: "pending"},
 		},
 	}
+	state.status.Store("started")
 
-	t.flows.Store(id, flow)
-	return flow
+	t.flows.Store(id, state)
+
+	flow := state.snapshot()
+	return &flow
 }
 
 // Get retrieves an upload flow by ID.
@@ -83,7 +137,9 @@ func (t *UploadFlowTracker) Get(id string) (*UploadFlow, bool) { // A
 	if !ok {
 		return nil, false
 	}
-	return v.(*UploadFlow), true
+	state := v.(*uploadFlowState)
+	flow := state.snapshot()
+	return &flow, true
 }
 
 // UpdateStatus updates the status of an upload flow.
@@ -92,31 +148,36 @@ func (t *UploadFlowTracker) UpdateStatus(id, status string) { // A
 	if !ok {
 		return
 	}
-	flow := v.(*UploadFlow)
-	flow.Status = status
+	now := time.Now().UnixMilli()
+	state := v.(*uploadFlowState)
+
+	state.status.Store(status)
 
 	// Update stage statuses
-	now := time.Now().UnixMilli()
+	state.slicesMu.Lock()
+	defer state.slicesMu.Unlock()
+
 	stageFound := false
-	for i := range flow.Stages {
-		if flow.Stages[i].Name == status {
-			flow.Stages[i].Status = "in_progress"
-			flow.Stages[i].StartedAt = now
+	for i := range state.stages {
+		if state.stages[i].Name == status {
+			state.stages[i].Status = "in_progress"
+			state.stages[i].StartedAt = now
 			stageFound = true
 		} else if !stageFound {
-			flow.Stages[i].Status = "complete"
-			if flow.Stages[i].CompletedAt == 0 {
-				flow.Stages[i].CompletedAt = now
+			state.stages[i].Status = "complete"
+			if state.stages[i].CompletedAt == 0 {
+				state.stages[i].CompletedAt = now
 			}
 		}
 	}
 
 	if status == "complete" {
-		flow.CompletedAt = now
-		for i := range flow.Stages {
-			flow.Stages[i].Status = "complete"
-			if flow.Stages[i].CompletedAt == 0 {
-				flow.Stages[i].CompletedAt = now
+		state.completedAt.Store(now)
+
+		for i := range state.stages {
+			state.stages[i].Status = "complete"
+			if state.stages[i].CompletedAt == 0 {
+				state.stages[i].CompletedAt = now
 			}
 		}
 	}
@@ -128,8 +189,8 @@ func (t *UploadFlowTracker) SetVertexHash(id, hash string) { // A
 	if !ok {
 		return
 	}
-	flow := v.(*UploadFlow)
-	flow.VertexHash = hash
+	state := v.(*uploadFlowState)
+	state.vertexHash.Store(hash)
 }
 
 // SetBlockHash sets the block hash for an upload flow.
@@ -138,8 +199,8 @@ func (t *UploadFlowTracker) SetBlockHash(id, hash string) { // A
 	if !ok {
 		return
 	}
-	flow := v.(*UploadFlow)
-	flow.BlockHash = hash
+	state := v.(*uploadFlowState)
+	state.blockHash.Store(hash)
 }
 
 // AddSliceDistribution adds a slice distribution entry.
@@ -151,8 +212,10 @@ func (t *UploadFlowTracker) AddSliceDistribution(
 	if !ok {
 		return
 	}
-	flow := v.(*UploadFlow)
-	flow.SliceDistribution = append(flow.SliceDistribution, dist)
+	state := v.(*uploadFlowState)
+	state.slicesMu.Lock()
+	state.sliceDistribution = append(state.sliceDistribution, dist)
+	state.slicesMu.Unlock()
 }
 
 // UpdateSliceStatus updates the status of a slice distribution.
@@ -163,13 +226,15 @@ func (t *UploadFlowTracker) UpdateSliceStatus(
 	if !ok {
 		return
 	}
-	flow := v.(*UploadFlow)
-	for i := range flow.SliceDistribution {
-		if flow.SliceDistribution[i].SliceHash == sliceHash {
-			flow.SliceDistribution[i].Status = status
+	state := v.(*uploadFlowState)
+	state.slicesMu.Lock()
+	for i := range state.sliceDistribution {
+		if state.sliceDistribution[i].SliceHash == sliceHash {
+			state.sliceDistribution[i].Status = status
 			break
 		}
 	}
+	state.slicesMu.Unlock()
 }
 
 // SetError sets an error on the upload flow.
@@ -178,9 +243,9 @@ func (t *UploadFlowTracker) SetError(id, errMsg string) { // A
 	if !ok {
 		return
 	}
-	flow := v.(*UploadFlow)
-	flow.Status = "failed"
-	flow.Error = errMsg
+	state := v.(*uploadFlowState)
+	state.status.Store("failed")
+	state.errorMsg.Store(errMsg)
 }
 
 // Delete removes an upload flow.
@@ -297,7 +362,7 @@ func (d *Dashboard) handleGetUploadFlow(
 		return
 	}
 
-	writeJSON(w, http.StatusOK, flow)
+	writeJSON(w, http.StatusOK, *flow)
 }
 
 // processUpload simulates the upload pipeline stages.
@@ -358,12 +423,19 @@ func (d *Dashboard) processUpload(
 	}
 
 	// Simulate slice confirmations
-	flow, _ := d.uploadTracker.Get(flowID)
-	for i := range flow.SliceDistribution {
+	flow, ok := d.uploadTracker.Get(flowID)
+	if !ok {
+		return
+	}
+	snapshot := append(
+		[]SliceDistribution(nil),
+		flow.SliceDistribution...,
+	)
+	for _, dist := range snapshot {
 		time.Sleep(50 * time.Millisecond)
 		d.uploadTracker.UpdateSliceStatus(
 			flowID,
-			flow.SliceDistribution[i].SliceHash,
+			dist.SliceHash,
 			"confirmed",
 		)
 	}

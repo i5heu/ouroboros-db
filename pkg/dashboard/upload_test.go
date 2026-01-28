@@ -17,16 +17,20 @@ func TestUploadFlowTracker_Create(t *testing.T) { // A
 		t.Error("Flow ID should not be empty")
 	}
 
-	if flow.Status != "started" {
-		t.Errorf("Expected status 'started', got '%s'", flow.Status)
+	got, ok := tracker.Get(flow.ID)
+	if !ok {
+		t.Fatal("Get returned false for created flow")
+	}
+	if got.Status != "started" {
+		t.Errorf("Expected status 'started', got '%s'", got.Status)
 	}
 
 	if flow.StartedAt == 0 {
 		t.Error("StartedAt should be set")
 	}
 
-	if len(flow.Stages) != 5 {
-		t.Errorf("Expected 5 stages, got %d", len(flow.Stages))
+	if len(got.Stages) != 5 {
+		t.Errorf("Expected 5 stages, got %d", len(got.Stages))
 	}
 }
 
