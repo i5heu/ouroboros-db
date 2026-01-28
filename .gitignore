@@ -1,6 +1,7 @@
 main
 *.log
 data/
+data2/
 .cache/
 .gocache/
 .gomodcache/
