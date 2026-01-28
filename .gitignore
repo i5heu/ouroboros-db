@@ -7,3 +7,10 @@ data2/
 .gomodcache/
 .golangci-cache/
 showContentsOutput.txt
+
+# E2E test artifacts
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/.playwright/
+e2e/dist/

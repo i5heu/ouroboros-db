@@ -1,0 +1,13 @@
+This is a test file for OuroborosDB E2E testing.
+
+It contains some sample content that will be uploaded through the dashboard
+to verify the upload flow works correctly.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+consequat.
+
+File size: ~500 bytes
+Purpose: E2E upload testing
+Created: For Playwright tests
