@@ -7,12 +7,17 @@ import (
 	"time"
 )
 
+// ConnCallback is called when a new outgoing connection is established.
+// The callback can be used to start a receive loop for the connection.
+type ConnCallback func(nodeID NodeID, conn Connection) // A
+
 // connPool manages persistent connections to remote nodes.
 // It provides connection reuse and automatic reconnection.
 type connPool struct { // A
-	transport Transport
-	localID   NodeID
-	log       interface {
+	transport     Transport
+	localID       NodeID
+	onNewOutgoing ConnCallback
+	log           interface {
 		Debug(msg string, args ...any)
 		Warn(msg string, args ...any)
 	}
@@ -39,11 +44,20 @@ func newConnPool(transport Transport, localID NodeID, log interface { // A
 },
 ) *connPool {
 	return &connPool{
-		transport: transport,
-		localID:   localID,
-		log:       log,
-		conns:     make(map[NodeID]*pooledConn),
+		transport:     transport,
+		localID:       localID,
+		log:           log,
+		onNewOutgoing: nil,
+		conns:         make(map[NodeID]*pooledConn),
 	}
+}
+
+// SetOnNewOutgoing sets the callback for new outgoing connections.
+// This allows the carrier to start receive loops for outgoing connections.
+func (p *connPool) SetOnNewOutgoing(cb ConnCallback) { // A
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onNewOutgoing = cb
 }
 
 // SetLogger updates the logger used by the connection pool.
@@ -87,7 +101,10 @@ func (p *connPool) checkExistingConnection(nodeID NodeID) (Connection, bool) {
 	pc, exists := p.conns[nodeID]
 	p.mu.RUnlock()
 
-	if exists && pc.conn != nil && !isConnClosed(pc.conn) && !pc.incoming {
+	// Use any valid connection, including incoming ones.
+	// QUIC connections are bidirectional, so incoming connections
+	// can be used for sending messages as well.
+	if exists && pc.conn != nil && !isConnClosed(pc.conn) {
 		pc.mu.Lock()
 		pc.lastUsed = time.Now()
 		pc.mu.Unlock()
@@ -102,9 +119,10 @@ func (p *connPool) getOrCreatePooledConn(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Double-check after acquiring write lock
+	// Double-check after acquiring write lock.
+	// Use any valid connection, including incoming ones.
 	pc, exists := p.conns[node.NodeID]
-	if exists && pc.conn != nil && !isConnClosed(pc.conn) && !pc.incoming {
+	if exists && pc.conn != nil && !isConnClosed(pc.conn) {
 		pc.mu.Lock()
 		pc.lastUsed = time.Now()
 		pc.mu.Unlock()
@@ -131,16 +149,11 @@ func (p *connPool) connectToNode(
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
-	// Another goroutine may have connected while we waited
-	if pc.conn != nil && !isConnClosed(pc.conn) && !pc.incoming {
+	// Another goroutine may have connected while we waited.
+	// Use any valid connection, including incoming ones.
+	if pc.conn != nil && !isConnClosed(pc.conn) {
 		pc.lastUsed = time.Now()
 		return pc.conn, nil
-	}
-
-	if pc.conn != nil && !isConnClosed(pc.conn) && pc.incoming {
-		_ = pc.conn.Close()
-		pc.conn = nil
-		pc.incoming = false
 	}
 
 	// Mark as connecting to prevent concurrent connection attempts
@@ -207,6 +220,14 @@ func (p *connPool) dialAddresses(
 			logKeyNodeID, string(node.NodeID),
 			logKeyAddress, addr)
 
+		// Notify callback about new outgoing connection (for receive loop)
+		p.mu.RLock()
+		cb := p.onNewOutgoing
+		p.mu.RUnlock()
+		if cb != nil {
+			cb(node.NodeID, conn)
+		}
+
 		return conn, nil
 	}
 
@@ -253,6 +274,10 @@ func (p *connPool) addIncoming(conn Connection) { // A
 // addOutgoing adds an outgoing connection to the pool that was created
 // externally (e.g., during bootstrap). This allows reuse of the connection
 // for subsequent requests.
+// Note: This does NOT trigger the onNewOutgoing callback because bootstrap
+// connections may need synchronous request-response before starting a
+// receive loop. Use StartReceiveLoops() after bootstrap to enable
+// bidirectional communication.
 func (p *connPool) addOutgoing(nodeID NodeID, conn Connection) { // A
 	if nodeID == "" || nodeID == p.localID {
 		return
@@ -278,6 +303,34 @@ func (p *connPool) addOutgoing(nodeID NodeID, conn Connection) { // A
 
 	p.log.Debug("outgoing connection added to pool",
 		logKeyNodeID, string(nodeID))
+}
+
+// StartReceiveLoops starts receive loops for all existing outgoing connections
+// in the pool. This should be called after bootstrap is complete.
+func (p *connPool) StartReceiveLoops() { // A
+	p.mu.RLock()
+	cb := p.onNewOutgoing
+	var outgoingConns []struct {
+		nodeID NodeID
+		conn   Connection
+	}
+	for nodeID, pc := range p.conns {
+		if pc.conn != nil && !pc.incoming && !isConnClosed(pc.conn) {
+			outgoingConns = append(outgoingConns, struct {
+				nodeID NodeID
+				conn   Connection
+			}{nodeID, pc.conn})
+		}
+	}
+	p.mu.RUnlock()
+
+	if cb == nil {
+		return
+	}
+
+	for _, oc := range outgoingConns {
+		cb(oc.nodeID, oc.conn)
+	}
 }
 
 // remove removes a connection from the pool and closes it.

@@ -186,32 +186,38 @@ func (lb *LogBroadcaster) sendToSubscriber(
 }
 
 // Enabled implements slog.Handler.
+// Always returns true so that all log records are broadcast to subscribers,
+// regardless of the inner handler's log level. The inner handler's Enabled
+// check is performed in Handle() before forwarding to the inner handler.
 func (lb *LogBroadcaster) Enabled(
 	ctx context.Context,
 	level slog.Level,
 ) bool { // A
-	return lb.inner.Enabled(ctx, level)
+	return true
 }
 
-// Handle implements slog.Handler. It forwards the record to the inner handler
-// and queues it for broadcast to subscribers.
+// Handle implements slog.Handler. It queues the record for broadcast to
+// subscribers and forwards to the inner handler if the inner handler accepts
+// the log level.
 func (lb *LogBroadcaster) Handle(
 	ctx context.Context,
 	record slog.Record,
 ) error { // A
-	// Always forward to inner handler first
-	err := lb.inner.Handle(ctx, record)
-
-	// Queue for broadcast (non-blocking)
+	// Queue for broadcast (non-blocking) - always broadcast regardless of level
 	entry := lb.recordToEntry(record)
 	select {
 	case lb.logCh <- entry:
 		// Queued successfully
 	default:
-		// Channel full, drop the broadcast (but inner handler still got it)
+		// Channel full, drop the broadcast
 	}
 
-	return err
+	// Only forward to inner handler if it accepts this level
+	if lb.inner.Enabled(ctx, record.Level) {
+		return lb.inner.Handle(ctx, record)
+	}
+
+	return nil
 }
 
 // WithAttrs implements slog.Handler.

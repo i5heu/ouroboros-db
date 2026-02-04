@@ -33,6 +33,13 @@ func (c *DefaultCarrier) Start(ctx context.Context) error { // A
 	c.running = true
 	c.stopCh = make(chan struct{})
 
+	// Set up callback to start receive loops for outgoing connections.
+	// This enables bidirectional communication on connections we initiate.
+	c.pool.SetOnNewOutgoing(func(nodeID NodeID, conn Connection) {
+		c.wg.Add(1)
+		go c.handleOutgoingConnection(ctx, nodeID, conn)
+	})
+
 	c.log.InfoContext(ctx, "carrier started listening",
 		logKeyAddress, listenAddr)
 
@@ -157,6 +164,40 @@ func (c *DefaultCarrier) handleConnection( // A
 			// Only remove if this exact connection is pooled.
 			c.pool.removeIfMatch(remoteID, conn)
 			_ = conn.Close()
+			return
+		}
+	}
+}
+
+// handleOutgoingConnection processes messages from an outgoing connection.
+// This enables bidirectional communication on connections we initiate.
+// Unlike handleConnection, we don't add the connection to the pool
+// (it's already there from the connect call).
+func (c *DefaultCarrier) handleOutgoingConnection( // A
+	ctx context.Context,
+	nodeID NodeID,
+	conn Connection,
+) {
+	defer c.wg.Done()
+
+	c.log.DebugContext(ctx, "starting receive loop for outgoing connection",
+		logKeyNodeID, string(nodeID))
+
+	// Process messages until connection closes or carrier stops
+	for {
+		select {
+		case <-c.stopCh:
+			return
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if !c.processNextMessage(ctx, conn, nodeID) {
+			// Connection closed or error.
+			// Only remove if this exact connection is pooled.
+			c.pool.removeIfMatch(nodeID, conn)
+			// Don't close the connection here - let the pool manage it
 			return
 		}
 	}

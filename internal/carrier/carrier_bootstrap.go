@@ -115,6 +115,11 @@ func (c *DefaultCarrier) BootstrapFromAddresses( // A
 		// Don't close - the connection is now managed by the pool
 		c.log.InfoContext(ctx, "successfully bootstrapped from address",
 			logKeyAddress, normalizedAddr)
+
+		// Now that bootstrap is complete, start receive loops for outgoing
+		// connections to enable bidirectional communication
+		c.pool.StartReceiveLoops()
+
 		return nil
 	}
 

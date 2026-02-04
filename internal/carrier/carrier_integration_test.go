@@ -291,6 +291,11 @@ func TestCarrierIntegration(t *testing.T) {
 				case receivedChan <- msg:
 				default:
 				}
+				// Don't respond to "pong" messages to avoid infinite loop
+				// with bidirectional connections
+				if string(msg.Payload) == "pong" {
+					return nil, nil
+				}
 				return &Message{
 					Type:    MessageTypeHeartbeat,
 					Payload: []byte("pong"),
@@ -336,6 +341,25 @@ func TestCarrierIntegration(t *testing.T) {
 	})
 
 	t.Run("Broadcast", func(t *testing.T) {
+		// Give time for any response messages from the P2P test to arrive
+		// (responses like "pong" are now received due to bidirectional
+		// communication on outgoing connections)
+		time.Sleep(100 * time.Millisecond)
+
+		// Drain any response messages
+		for i, carrier := range carriers {
+			nodeID := carrier.LocalNode().NodeID
+		drainLoop:
+			for {
+				select {
+				case <-receivedMessages[nodeID]:
+				default:
+					break drainLoop
+				}
+			}
+			_ = i // avoid unused variable warning
+		}
+
 		broadcastMsg := Message{
 			Type:    MessageTypeHeartbeat,
 			Payload: []byte("broadcast from 2"),
