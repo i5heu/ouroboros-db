@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
-	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 )
 
 // UploadFlow represents the state of an upload operation as it progresses
@@ -365,41 +366,155 @@ func (d *Dashboard) handleGetUploadFlow(
 	writeJSON(w, http.StatusOK, *flow)
 }
 
-// processUpload simulates the upload pipeline stages.
-// In a real implementation, this would interact with the CAS and distribution
-// system.
-func (d *Dashboard) processUpload(
+// processUpload processes the upload through the CAS storage pipeline.
+// If CAS is configured, it stores content for real; otherwise it simulates.
+func (d *Dashboard) processUpload( // A
 	flowID, filename string,
 	content []byte,
-) { // A
+) {
+	// Check if we have a real CAS configured
+	if d.config.CAS != nil {
+		d.processUploadWithCAS(flowID, filename, content)
+		return
+	}
+
+	// Fallback to simulated upload if no CAS configured
+	d.processUploadSimulated(flowID, filename, content)
+}
+
+// processUploadWithCAS stores content using real CAS.
+func (d *Dashboard) processUploadWithCAS( // A
+	flowID, filename string,
+	content []byte,
+) {
+	ctx := context.Background()
+
+	d.config.Logger.InfoContext(ctx, "upload started",
+		"flowID", flowID, "filename", filename, "size", len(content))
+
+	// Stage 1: Encrypting (CAS handles this internally)
+	d.uploadTracker.UpdateStatus(flowID, "encrypting")
+	d.config.Logger.InfoContext(ctx, "upload encrypting", "flowID", flowID)
+
+	// Stage 2: WAL Buffering
+	d.uploadTracker.UpdateStatus(flowID, "wal")
+	d.config.Logger.InfoContext(ctx, "upload wal buffering", "flowID", flowID)
+
+	// Stage 3: Block Sealing - Store content via CAS
+	d.uploadTracker.UpdateStatus(flowID, "sealing")
+	d.config.Logger.InfoContext(ctx, "upload sealing block", "flowID", flowID)
+
+	// Use zero hash as parent for root vertices
+	parentHash := hash.Hash{}
+	vertex, err := d.config.CAS.StoreContent(ctx, content, parentHash)
+	if err != nil {
+		d.uploadTracker.SetError(flowID, "CAS store failed: "+err.Error())
+		return
+	}
+
+	// Set the real vertex hash (64-char hex from CAS)
+	vertexHash := vertex.Hash.String()
+	d.uploadTracker.SetVertexHash(flowID, vertexHash)
+
+	d.config.Logger.InfoContext(ctx, "upload stored vertex",
+		"flowID", flowID, "vertexHash", vertexHash)
+
+	// Generate a block hash for display purposes
+	blockHash := hash.HashBytes(append(vertex.Hash[:], content...)).String()
+	d.uploadTracker.SetBlockHash(flowID, blockHash)
+
+	// Stage 4: Distributing - Flush to ensure persistence
+	d.uploadTracker.UpdateStatus(flowID, "distributing")
+	d.config.Logger.InfoContext(ctx, "upload distributing", "flowID", flowID)
+
+	if err := d.config.CAS.Flush(ctx); err != nil {
+		d.uploadTracker.SetError(flowID, "CAS flush failed: "+err.Error())
+		return
+	}
+
+	// Simulate slice distribution tracking for UI
+	nodes, _ := d.config.Carrier.GetNodes(ctx)
+	sliceCount := 6 // Default 4 data + 2 parity slices
+	for i := 0; i < sliceCount; i++ {
+		sliceHash := hash.HashBytes(
+			append(vertex.Hash[:], byte(i)),
+		).String()
+		targetNode := "node-" + string(rune('A'+i))
+		if nodes != nil && i < len(nodes) {
+			targetNode = string(nodes[i].NodeID)
+		}
+
+		d.uploadTracker.AddSliceDistribution(flowID, SliceDistribution{
+			SliceHash:  sliceHash,
+			SliceIndex: uint8(i),
+			TargetNode: targetNode,
+			Status:     "pending",
+		})
+	}
+
+	// Mark slices as confirmed
+	flow, ok := d.uploadTracker.Get(flowID)
+	if ok {
+		for _, dist := range flow.SliceDistribution {
+			time.Sleep(20 * time.Millisecond)
+			d.uploadTracker.UpdateSliceStatus(flowID, dist.SliceHash, "confirmed")
+		}
+	}
+
+	// Update upload counter if configured
+	if d.config.UploadCounter != nil {
+		d.config.UploadCounter.IncrementVertex()
+		d.config.UploadCounter.IncrementBlock()
+		d.config.UploadCounter.IncrementSlices(sliceCount)
+	}
+
+	// Stage 5: Complete
+	d.uploadTracker.UpdateStatus(flowID, "complete")
+	d.config.Logger.InfoContext(ctx, "upload complete",
+		"flowID", flowID, "vertexHash", vertexHash)
+}
+
+// processUploadSimulated simulates the upload pipeline for demo purposes.
+func (d *Dashboard) processUploadSimulated( // A
+	flowID, filename string,
+	content []byte,
+) {
+	ctx := context.Background()
+
+	d.config.Logger.InfoContext(ctx, "upload started (simulated)",
+		"flowID", flowID, "filename", filename, "size", len(content))
+
 	// Stage 1: Encrypting
 	d.uploadTracker.UpdateStatus(flowID, "encrypting")
-	time.Sleep(100 * time.Millisecond) // Simulate work
+	d.config.Logger.InfoContext(ctx, "upload encrypting", "flowID", flowID)
+	time.Sleep(100 * time.Millisecond)
 
-	// In real implementation: encrypt content, create sealed chunks
-	// For now, generate a fake vertex hash
+	// Generate a fake vertex hash for demo
 	vertexHash := generateFakeHash("vertex")
 	d.uploadTracker.SetVertexHash(flowID, vertexHash)
 
 	// Stage 2: WAL Buffering
 	d.uploadTracker.UpdateStatus(flowID, "wal")
+	d.config.Logger.InfoContext(ctx, "upload wal buffering", "flowID", flowID)
 	time.Sleep(100 * time.Millisecond)
 
 	// Stage 3: Block Sealing
 	d.uploadTracker.UpdateStatus(flowID, "sealing")
+	d.config.Logger.InfoContext(ctx, "upload sealing block", "flowID", flowID)
 	time.Sleep(100 * time.Millisecond)
 
 	blockHash := generateFakeHash("block")
 	d.uploadTracker.SetBlockHash(flowID, blockHash)
 
+	d.config.Logger.InfoContext(ctx, "upload created vertex",
+		"flowID", flowID, "vertexHash", vertexHash)
+
 	// Stage 4: Distributing
 	d.uploadTracker.UpdateStatus(flowID, "distributing")
+	d.config.Logger.InfoContext(ctx, "upload distributing", "flowID", flowID)
 
-	// Get nodes for distribution
-	ctx := context.Background()
 	nodes, err := d.config.Carrier.GetNodes(ctx)
 	if err != nil || len(nodes) == 0 {
-		// Use fake nodes for demo
 		nodes = nil
 	}
 
@@ -411,9 +526,6 @@ func (d *Dashboard) processUpload(
 			targetNode = string(nodes[i].NodeID)
 		}
 
-		if i > math.MaxUint8 {
-			continue
-		}
 		d.uploadTracker.AddSliceDistribution(flowID, SliceDistribution{
 			SliceHash:  sliceHash,
 			SliceIndex: uint8(i),
@@ -427,21 +539,16 @@ func (d *Dashboard) processUpload(
 	if !ok {
 		return
 	}
-	snapshot := append(
-		[]SliceDistribution(nil),
-		flow.SliceDistribution...,
-	)
+	snapshot := append([]SliceDistribution(nil), flow.SliceDistribution...)
 	for _, dist := range snapshot {
 		time.Sleep(50 * time.Millisecond)
-		d.uploadTracker.UpdateSliceStatus(
-			flowID,
-			dist.SliceHash,
-			"confirmed",
-		)
+		d.uploadTracker.UpdateSliceStatus(flowID, dist.SliceHash, "confirmed")
 	}
 
 	// Stage 5: Complete
 	d.uploadTracker.UpdateStatus(flowID, "complete")
+	d.config.Logger.InfoContext(ctx, "upload complete",
+		"flowID", flowID, "vertexHash", vertexHash)
 }
 
 // generateFakeHash generates a fake hash for demo purposes.

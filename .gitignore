@@ -7,6 +7,7 @@ data2/
 .gomodcache/
 .golangci-cache/
 showContentsOutput.txt
+data-cluster/
 
 # E2E test artifacts
 e2e/node_modules/

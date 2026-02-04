@@ -11,10 +11,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
+	crypt "github.com/i5heu/ouroboros-crypt"
+	"github.com/i5heu/ouroboros-db/internal/blockstore"
 	"github.com/i5heu/ouroboros-db/internal/carrier"
+	"github.com/i5heu/ouroboros-db/internal/cas"
+	"github.com/i5heu/ouroboros-db/internal/encryption"
+	"github.com/i5heu/ouroboros-db/internal/wal"
 	"github.com/i5heu/ouroboros-db/pkg/dashboard"
+	"github.com/i5heu/ouroboros-db/pkg/storage"
 )
 
 // NodeConfig holds configuration for a single test node.
@@ -25,6 +33,29 @@ type NodeConfig struct { // A
 	BootstrapAddr string
 }
 
+// uploadCounter tracks upload statistics for distribution counters.
+type uploadCounter struct { // A
+	vertices atomic.Int64
+	blocks   atomic.Int64
+	slices   atomic.Int64
+}
+
+func (c *uploadCounter) GetCounts() (vertices, blocks, slices int) { // A
+	return int(c.vertices.Load()), int(c.blocks.Load()), int(c.slices.Load())
+}
+
+func (c *uploadCounter) IncrementVertex() { // A
+	c.vertices.Add(1)
+}
+
+func (c *uploadCounter) IncrementBlock() { // A
+	c.blocks.Add(1)
+}
+
+func (c *uploadCounter) IncrementSlices(count int) { // A
+	c.slices.Add(int64(count))
+}
+
 // TestNode represents a running OuroborosDB node for E2E testing.
 type TestNode struct { // A
 	Config       NodeConfig
@@ -33,6 +64,11 @@ type TestNode struct { // A
 	Dashboard    *dashboard.Dashboard
 	Identity     *carrier.NodeIdentity
 	DashboardURL string
+	CAS          storage.CAS
+
+	// Internal resources to clean up
+	db             *badger.DB
+	logBroadcaster *carrier.LogBroadcaster
 
 	stopOnce sync.Once
 	logger   *slog.Logger
@@ -133,11 +169,11 @@ func NewTestClusterWithOptions(
 }
 
 // newTestNode creates and starts a single test node.
-func newTestNode(
+func newTestNode( // A
 	ctx context.Context,
 	cfg NodeConfig,
 	logger *slog.Logger,
-) (*TestNode, error) { // A
+) (*TestNode, error) {
 	// Create node identity
 	identity, err := carrier.NewNodeIdentity()
 	if err != nil {
@@ -149,6 +185,56 @@ func newTestNode(
 		return nil, fmt.Errorf("derive node ID: %w", err)
 	}
 
+	// Open BadgerDB for storage
+	dbPath := filepath.Join(cfg.DataDir, "db")
+	opts := badger.DefaultOptions(dbPath)
+	opts.Logger = nil // Suppress Badger logging
+	db, err := badger.Open(opts)
+	if err != nil {
+		return nil, fmt.Errorf("open badger: %w", err)
+	}
+
+	// Create storage components
+	bs := blockstore.NewBlockStore(db)
+	enc := encryption.NewEncryptionService()
+	w := wal.NewDistributedWAL(db, bs, nil) // nil DataRouter for local-only
+
+	// Generate encryption keys using ouroboros-crypt
+	c := crypt.New()
+	pub := c.Keys.GetPublicKey()
+	priv := c.Keys.GetPrivateKey()
+
+	pubKEM, err := pub.MarshalBinaryKEM()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("marshal public KEM key: %w", err)
+	}
+	pubSign, err := pub.MarshalBinarySign()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("marshal public sign key: %w", err)
+	}
+	pubBytes := make([]byte, len(pubKEM)+len(pubSign))
+	copy(pubBytes, pubKEM)
+	copy(pubBytes[len(pubKEM):], pubSign)
+
+	privKEM, err := priv.MarshalBinaryKEM()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("marshal private KEM key: %w", err)
+	}
+	privSign, err := priv.MarshalBinarySign()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("marshal private sign key: %w", err)
+	}
+	privBytes := make([]byte, len(privKEM)+len(privSign))
+	copy(privBytes, privKEM)
+	copy(privBytes[len(privKEM):], privSign)
+
+	// Create CAS
+	casInstance := cas.New(w, bs, enc, pubBytes, privBytes)
+
 	// Create QUIC transport
 	transport, err := carrier.NewQUICTransport(
 		logger,
@@ -156,6 +242,7 @@ func newTestNode(
 		carrier.DefaultQUICConfig(),
 	)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("create transport: %w", err)
 	}
 
@@ -183,6 +270,7 @@ func newTestNode(
 
 	carr, err := carrier.NewDefaultCarrier(carrierCfg)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("create carrier: %w", err)
 	}
 
@@ -213,6 +301,7 @@ func newTestNode(
 	// Start the carrier
 	if err := carr.Start(ctx); err != nil {
 		logBroadcaster.Stop()
+		_ = db.Close()
 		return nil, fmt.Errorf("start carrier: %w", err)
 	}
 
@@ -225,35 +314,45 @@ func newTestNode(
 		}
 	}
 
-	// Create and start dashboard
+	// Create upload counter for tracking distribution stats
+	counter := &uploadCounter{}
+
+	// Create and start dashboard with CAS
 	dash, err := dashboard.New(dashboard.Config{
 		Enabled:        true,
 		AllowUpload:    true,
 		PreferredPort:  cfg.DashboardPort,
 		Carrier:        carr,
 		LogBroadcaster: logBroadcaster,
+		CAS:            casInstance,
+		UploadCounter:  counter,
 		Logger:         broadcastLogger,
 	})
 	if err != nil {
 		_ = carr.Stop(ctx)
 		logBroadcaster.Stop()
+		_ = db.Close()
 		return nil, fmt.Errorf("create dashboard: %w", err)
 	}
 
 	if err := dash.Start(ctx); err != nil {
 		_ = carr.Stop(ctx)
 		logBroadcaster.Stop()
+		_ = db.Close()
 		return nil, fmt.Errorf("start dashboard: %w", err)
 	}
 
 	node := &TestNode{
-		Config:       cfg,
-		NodeID:       nodeID,
-		Carrier:      carr,
-		Dashboard:    dash,
-		Identity:     identity,
-		DashboardURL: dash.Address(),
-		logger:       broadcastLogger,
+		Config:         cfg,
+		NodeID:         nodeID,
+		Carrier:        carr,
+		Dashboard:      dash,
+		Identity:       identity,
+		DashboardURL:   dash.Address(),
+		CAS:            casInstance,
+		db:             db,
+		logBroadcaster: logBroadcaster,
+		logger:         broadcastLogger,
 	}
 
 	return node, nil
@@ -271,6 +370,14 @@ func (n *TestNode) Stop(ctx context.Context) error { // A
 		if n.Carrier != nil {
 			if err := n.Carrier.Stop(ctx); err != nil && firstErr == nil {
 				firstErr = fmt.Errorf("stop carrier: %w", err)
+			}
+		}
+		if n.logBroadcaster != nil {
+			n.logBroadcaster.Stop()
+		}
+		if n.db != nil {
+			if err := n.db.Close(); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("close badger: %w", err)
 			}
 		}
 	})

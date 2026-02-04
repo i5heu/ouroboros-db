@@ -157,6 +157,12 @@ func (d *Dashboard) Start(ctx context.Context) error { // A
 		)
 	}
 
+	// Set up local log handler for dashboard log streaming.
+	// SetLocalHandler automatically subscribes the local node to its own logs.
+	if d.config.LogBroadcaster != nil {
+		d.config.LogBroadcaster.SetLocalHandler(d.handleLocalLogEntry)
+	}
+
 	return nil
 }
 
@@ -304,4 +310,16 @@ func (d *Dashboard) handleIncomingLogEntry(
 	})
 
 	return nil, nil
+}
+
+// handleLocalLogEntry processes log entries from the local LogBroadcaster
+// when the local node subscribes to its own logs (self-subscription).
+func (d *Dashboard) handleLocalLogEntry(entry carrier.LogEntryPayload) { // A
+	d.hub.Broadcast(LogStreamMessage{
+		SourceNodeID: string(entry.SourceNodeID),
+		Timestamp:    entry.Timestamp,
+		Level:        entry.Level,
+		Message:      entry.Message,
+		Attributes:   entry.Attributes,
+	})
 }

@@ -192,6 +192,9 @@ func run(
 		// Replace logger with one that broadcasts
 		logger = slog.New(logBroadcaster)
 
+		// Set the logger on the carrier so it broadcasts logs too
+		carr.SetLogger(logger)
+
 		// Register log subscription handlers
 		carr.RegisterHandler(
 			carrier.MessageTypeLogSubscribe,

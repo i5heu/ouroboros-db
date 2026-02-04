@@ -17,6 +17,14 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/storage"
 )
 
+// UploadCounter tracks upload statistics for distribution counters.
+type UploadCounter interface { // A
+	GetCounts() (vertices, blocks, slices int)
+	IncrementVertex()
+	IncrementBlock()
+	IncrementSlices(count int)
+}
+
 // Config holds the configuration for the dashboard.
 type Config struct { // A
 	// Enabled indicates whether the dashboard should be started.
@@ -46,6 +54,12 @@ type Config struct { // A
 
 	// DistributionTracker provides access to block distribution state.
 	DistributionTracker distribution.BlockDistributionTracker
+
+	// CAS provides content-addressable storage for uploads.
+	CAS storage.CAS
+
+	// UploadCounter tracks upload statistics for distribution display.
+	UploadCounter UploadCounter
 
 	// Logger is used for dashboard logging.
 	Logger *slog.Logger

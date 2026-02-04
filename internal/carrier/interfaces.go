@@ -2,6 +2,7 @@ package carrier
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
@@ -19,6 +20,9 @@ type MessageHandler func(
 type Carrier interface { // A
 	// GetNodes returns all known nodes in the cluster.
 	GetNodes(ctx context.Context) ([]Node, error)
+
+	// LocalNode returns the local node's identity.
+	LocalNode() Node
 
 	// Broadcast sends a message to all nodes in the cluster.
 	// Returns the nodes that successfully received the message and any error.
@@ -50,6 +54,10 @@ type Carrier interface { // A
 	// of the provided bootstrap addresses. It tries each address in order
 	// until one succeeds. Returns an error if all addresses fail.
 	BootstrapFromAddresses(ctx context.Context, addresses []string) error
+
+	// SetLogger updates the logger used by the carrier.
+	// This is useful for resolving circular dependencies (e.g. log broadcasting).
+	SetLogger(logger *slog.Logger)
 }
 
 // BootStrapper handles the initialization of nodes joining the cluster.
@@ -68,8 +76,11 @@ type Transport interface { // A
 	// For QUIC transport, address should be in the format "host:port".
 	// Returns a Listener that can be used to accept connections.
 	Listen(ctx context.Context, address string) (Listener, error)
-	// Close shuts down the transport and all active connections.
+	// Close closes the transport and releases any resources.
 	Close() error
+
+	// SetLogger updates the logger used by the transport.
+	SetLogger(logger *slog.Logger)
 }
 
 // Listener accepts incoming connections from remote nodes.

@@ -2,11 +2,13 @@ package dashboard
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/internal/carrier"
 )
 
@@ -78,6 +80,7 @@ type NodeDistribution struct { // A
 
 // handleGetNodes returns all cluster nodes.
 // GET /api/nodes
+// The local node is always returned first.
 func (d *Dashboard) handleGetNodes(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -98,13 +101,33 @@ func (d *Dashboard) handleGetNodes(
 		return
 	}
 
+	// Get local node ID to put it first
+	localNode := d.config.Carrier.LocalNode()
+	localNodeID := localNode.NodeID
+
 	nodeInfos := make([]NodeInfo, 0, len(nodes))
+
+	// Add local node first
 	for _, n := range nodes {
-		nodeInfos = append(nodeInfos, NodeInfo{
-			NodeID:    string(n.NodeID),
-			Addresses: n.Addresses,
-			Available: true, // TODO: Check actual availability
-		})
+		if n.NodeID == localNodeID {
+			nodeInfos = append(nodeInfos, NodeInfo{
+				NodeID:    string(n.NodeID),
+				Addresses: n.Addresses,
+				Available: true, // TODO: Check actual availability
+			})
+			break
+		}
+	}
+
+	// Add remaining nodes
+	for _, n := range nodes {
+		if n.NodeID != localNodeID {
+			nodeInfos = append(nodeInfos, NodeInfo{
+				NodeID:    string(n.NodeID),
+				Addresses: n.Addresses,
+				Available: true, // TODO: Check actual availability
+			})
+		}
 	}
 
 	writeJSON(w, http.StatusOK, nodeInfos)
@@ -144,11 +167,11 @@ func (d *Dashboard) handleNodeRoutes(
 }
 
 // handleLogSubscribe subscribes to logs from a specific node.
-func (d *Dashboard) handleLogSubscribe(
+func (d *Dashboard) handleLogSubscribe( // A
 	w http.ResponseWriter,
 	r *http.Request,
 	nodeID carrier.NodeID,
-) { // A
+) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -157,23 +180,43 @@ func (d *Dashboard) handleLogSubscribe(
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Get our local node ID
-	nodes, err := d.config.Carrier.GetNodes(ctx)
-	if err != nil || len(nodes) == 0 {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "Failed to get local node",
+	// Get our local node ID directly from the carrier
+	localNode := d.config.Carrier.LocalNode()
+	localNodeID := localNode.NodeID
+
+	// If subscribing to local node, use LogBroadcaster directly
+	if nodeID == localNodeID && d.config.LogBroadcaster != nil {
+		d.config.LogBroadcaster.Subscribe(localNodeID, nil)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"message": "Subscribed to local logs",
 		})
 		return
 	}
 
-	// Find local node (first node is typically self)
-	var localNodeID carrier.NodeID
-	for _, n := range nodes {
-		localNodeID = n.NodeID
-		break
+	// Verify target node exists before sending
+	nodes, err := d.config.Carrier.GetNodes(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "Failed to get nodes: " + err.Error(),
+		})
+		return
 	}
 
-	// Send subscription request to target node
+	nodeExists := false
+	for _, n := range nodes {
+		if n.NodeID == nodeID {
+			nodeExists = true
+			break
+		}
+	}
+	if !nodeExists {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Node not found: " + string(nodeID),
+		})
+		return
+	}
+
+	// Send subscription request to remote target node
 	payload := carrier.LogSubscribePayload{
 		SubscriberNodeID: localNodeID,
 		Levels:           nil, // All levels
@@ -206,11 +249,11 @@ func (d *Dashboard) handleLogSubscribe(
 }
 
 // handleLogUnsubscribe unsubscribes from logs from a specific node.
-func (d *Dashboard) handleLogUnsubscribe(
+func (d *Dashboard) handleLogUnsubscribe( // A
 	w http.ResponseWriter,
 	r *http.Request,
 	nodeID carrier.NodeID,
-) { // A
+) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -219,22 +262,20 @@ func (d *Dashboard) handleLogUnsubscribe(
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Get our local node ID
-	nodes, err := d.config.Carrier.GetNodes(ctx)
-	if err != nil || len(nodes) == 0 {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "Failed to get local node",
+	// Get our local node ID directly from the carrier
+	localNode := d.config.Carrier.LocalNode()
+	localNodeID := localNode.NodeID
+
+	// If unsubscribing from local node, use LogBroadcaster directly
+	if nodeID == localNodeID && d.config.LogBroadcaster != nil {
+		d.config.LogBroadcaster.Unsubscribe(localNodeID)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"message": "Unsubscribed from local logs",
 		})
 		return
 	}
 
-	var localNodeID carrier.NodeID
-	for _, n := range nodes {
-		localNodeID = n.NodeID
-		break
-	}
-
-	// Send unsubscription request
+	// Send unsubscription request to remote node
 	payload := carrier.LogUnsubscribePayload{
 		SubscriberNodeID: localNodeID,
 	}
@@ -304,10 +345,10 @@ func (d *Dashboard) handleGetVertices(
 
 // handleGetVertex returns details for a specific vertex.
 // GET /api/vertices/{hash}
-func (d *Dashboard) handleGetVertex(
+func (d *Dashboard) handleGetVertex( // A
 	w http.ResponseWriter,
 	r *http.Request,
-) { // A
+) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -320,13 +361,48 @@ func (d *Dashboard) handleGetVertex(
 		return
 	}
 
-	// In a real implementation, this would query the block store
-	// For now, return not found
-	// TODO: Implement when CAS/BlockStore provides vertex retrieval
+	// If CAS is not configured, return not found
+	if d.config.CAS == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Vertex not found (CAS not configured)",
+		})
+		return
+	}
 
-	writeJSON(w, http.StatusNotFound, map[string]string{
-		"error": "Vertex not found",
-	})
+	// Parse the hash string into a hash.Hash
+	// hash.Hash is SHA-512: 64 bytes = 128 hex characters
+	hashBytes, err := hex.DecodeString(hashStr)
+	if err != nil || len(hashBytes) != 64 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid vertex hash format (expected 128 hex chars)",
+		})
+		return
+	}
+
+	var vertexHash hash.Hash
+	copy(vertexHash[:], hashBytes)
+
+	// Retrieve vertex from CAS
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	vertex, err := d.config.CAS.GetVertex(ctx, vertexHash)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Vertex not found: " + err.Error(),
+		})
+		return
+	}
+
+	// Convert to API response format
+	info := VertexInfo{
+		Hash:       vertex.Hash.String(),
+		Parent:     vertex.Parent.String(),
+		Created:    vertex.Created,
+		ChunkCount: len(vertex.ChunkHashes),
+	}
+
+	writeJSON(w, http.StatusOK, info)
 }
 
 // handleGetBlocks returns a paginated list of blocks.
@@ -410,12 +486,49 @@ func (d *Dashboard) handleGetBlock(
 		return
 	}
 
-	// In a real implementation, this would query the block store
-	// TODO: Implement when BlockStore is available
+	// If BlockStore is not configured, return not found
+	if d.config.BlockStore == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Block not found (BlockStore not configured)",
+		})
+		return
+	}
 
-	writeJSON(w, http.StatusNotFound, map[string]string{
-		"error": "Block not found",
-	})
+	// Parse the hash string into a hash.Hash
+	// hash.Hash is SHA-512: 64 bytes = 128 hex characters
+	hashBytes, err := hex.DecodeString(hashStr)
+	if err != nil || len(hashBytes) != 64 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid block hash format (expected 128 hex chars)",
+		})
+		return
+	}
+
+	var blockHash hash.Hash
+	copy(blockHash[:], hashBytes)
+
+	// Retrieve block from BlockStore
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	block, err := d.config.BlockStore.GetBlock(ctx, blockHash)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Block not found: " + err.Error(),
+		})
+		return
+	}
+
+	// Convert to API response format
+	info := BlockInfo{
+		Hash:        block.Hash.String(),
+		Created:     block.Header.Created,
+		ChunkCount:  int(block.Header.ChunkCount),
+		VertexCount: int(block.Header.VertexCount),
+		Status:      "sealed",
+	}
+
+	writeJSON(w, http.StatusOK, info)
 }
 
 // handleGetBlockSlices returns the slices for a specific block.
@@ -437,10 +550,10 @@ func (d *Dashboard) handleGetBlockSlices(
 
 // handleGetDistribution returns cluster-wide distribution statistics.
 // GET /api/distribution
-func (d *Dashboard) handleGetDistribution(
+func (d *Dashboard) handleGetDistribution( // A
 	w http.ResponseWriter,
 	r *http.Request,
-) { // A
+) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -457,6 +570,12 @@ func (d *Dashboard) handleGetDistribution(
 		return
 	}
 
+	// Get counts from UploadCounter if available
+	var totalVertices, totalBlocks, totalSlices int
+	if d.config.UploadCounter != nil {
+		totalVertices, totalBlocks, totalSlices = d.config.UploadCounter.GetCounts()
+	}
+
 	// Build distribution overview
 	nodeDistribution := make([]NodeDistribution, 0, len(nodes))
 	for _, n := range nodes {
@@ -467,15 +586,15 @@ func (d *Dashboard) handleGetDistribution(
 		nodeDistribution = append(nodeDistribution, NodeDistribution{
 			NodeID:  string(n.NodeID),
 			Address: addr,
-			// TODO: Get actual counts from block store / distribution tracker
+			// Per-node counts would require distributed queries
 		})
 	}
 
 	overview := DistributionOverview{
 		TotalNodes:       len(nodes),
-		TotalVertices:    0, // TODO: Implement
-		TotalBlocks:      0, // TODO: Implement
-		TotalSlices:      0, // TODO: Implement
+		TotalVertices:    totalVertices,
+		TotalBlocks:      totalBlocks,
+		TotalSlices:      totalSlices,
 		NodeDistribution: nodeDistribution,
 	}
 

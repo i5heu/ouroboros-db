@@ -143,8 +143,21 @@ func (c *DefaultCarrier) LocalNode() Node { // A
 }
 
 // NodeIdentity returns the cryptographic identity of this node.
-func (c *DefaultCarrier) NodeIdentity() *NodeIdentity { // A
+func (c *DefaultCarrier) NodeIdentity() *NodeIdentity {
 	return c.nodeIdentity
+}
+
+// SetLogger updates the logger used by the carrier.
+func (c *DefaultCarrier) SetLogger(logger *slog.Logger) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.log = logger
+	if c.pool != nil {
+		c.pool.SetLogger(logger)
+	}
+	if c.transport != nil {
+		c.transport.SetLogger(logger)
+	}
 }
 
 // BootstrapAddresses returns the configured bootstrap addresses.

@@ -219,8 +219,9 @@ test.describe('Bug Regression', () => {
       const { vertexHash } = await uploadReturnsFlowAndVertexHash(page);
 
       // Expected behavior: a real deterministic CAS hash (hex), not a fake "vertex-...".
+      // OuroborosDB uses SHA-512 which produces 128 hex characters (64 bytes).
       expect(vertexHash.startsWith('vertex-')).toBe(false);
-      expect(vertexHash).toMatch(/^[0-9a-f]{64}$/i);
+      expect(vertexHash).toMatch(/^[0-9a-f]{128}$/i);
     });
 
     test('uploaded vertex is retrievable via API', async ({ page }) => {
@@ -282,11 +283,15 @@ test.describe('Bug Regression', () => {
       const sub = await subscribeToNodeLogs(page, nodeId);
       expect(sub.status, 'subscribe should not 500').toBe(200);
 
+      // Start listening for WebSocket frames BEFORE triggering the upload,
+      // since frames arrive during the upload (not after).
+      const framePromise = waitForLogMessage(logWebSocket, timeouts.logAppear);
+
       // Trigger activity (upload) that should generate logs.
       await uploadReturnsFlowAndVertexHash(page);
 
       // Expect at least one log frame to arrive via /ws/logs.
-      const msg = await waitForLogMessage(logWebSocket, timeouts.logAppear);
+      const msg = await framePromise;
       expect(msg).toBeTruthy();
       expect(msg.type).toBe('log');
     });

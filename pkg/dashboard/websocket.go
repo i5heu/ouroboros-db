@@ -63,6 +63,7 @@ func (h *LogStreamHub) Broadcast(msg LogStreamMessage) { // A
 	msg.Type = "log"
 	select {
 	case h.broadcastCh <- msg:
+		// Queued successfully
 	default:
 		// Channel full, drop message
 	}
@@ -109,6 +110,7 @@ func (h *LogStreamHub) broadcastToClients(
 	for client := range clients {
 		select {
 		case client.sendCh <- data:
+			// Sent successfully
 		default:
 			// Client too slow, skip this message for them
 		}

@@ -167,7 +167,7 @@ test.describe('Dashboard Multi-Node Workflow', () => {
     await searchInput.fill(vertexHash!);
 
     // Set up dialog handler for the alert that will appear
-    // (currently the vertex endpoint returns 404 and shows "Vertex not found")
+    // Now that vertex retrieval works, it shows the vertex data
     let dialogMessage = '';
     page.on('dialog', async (dialog) => {
       dialogMessage = dialog.message();
@@ -180,9 +180,8 @@ test.describe('Dashboard Multi-Node Workflow', () => {
     // Wait for the dialog to appear and be handled
     await page.waitForTimeout(1000);
 
-    // Verify the dialog showed the expected message
-    // (The current implementation shows "Vertex not found" via alert)
-    expect(dialogMessage).toContain('not found');
+    // Verify the dialog showed the vertex data (contains the hash)
+    expect(dialogMessage).toContain(vertexHash!);
   });
 
   test('should display distribution overview', async ({ page }) => {

@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// LocalLogHandler is called when logs need to be delivered locally
+// (when the local node subscribes to its own logs).
+type LocalLogHandler func(entry LogEntryPayload) // A
+
 // LogBroadcaster intercepts log records and forwards them to subscribed nodes.
 // It implements slog.Handler to wrap an existing logger and broadcast logs
 // via the carrier to all subscribers.
@@ -16,6 +20,10 @@ type LogBroadcaster struct { // A
 	carrier     Carrier
 	localNodeID NodeID
 	inner       slog.Handler
+
+	// localHandler is called for self-subscription instead of going through
+	// the carrier network
+	localHandler LocalLogHandler
 
 	// preAttrs stores attributes added via WithAttrs for inclusion in broadcasts
 	preAttrs []slog.Attr
@@ -64,6 +72,15 @@ func NewLogBroadcaster(cfg LogBroadcasterConfig) *LogBroadcaster { // A
 	}
 }
 
+// SetLocalHandler sets the callback for local log delivery and subscribes
+// the local node to its own logs. When logs are generated, this handler is
+// called instead of going through the carrier network.
+func (lb *LogBroadcaster) SetLocalHandler(h LocalLogHandler) { // A
+	lb.localHandler = h
+	// Auto-subscribe the local node so logs reach the handler
+	lb.Subscribe(lb.localNodeID, nil)
+}
+
 // Start begins the broadcast loop. Call this before using the broadcaster.
 func (lb *LogBroadcaster) Start() { // A
 	go lb.run()
@@ -109,7 +126,9 @@ func (lb *LogBroadcaster) run() { // A
 			delete(subscribers, nodeID)
 
 		case entry := <-lb.logCh:
-			lb.broadcastToSubscribers(subscribers, entry)
+			if len(subscribers) > 0 {
+				lb.broadcastToSubscribers(subscribers, entry)
+			}
 
 		case <-lb.stopCh:
 			return
@@ -139,6 +158,16 @@ func (lb *LogBroadcaster) sendToSubscriber(
 	nodeID NodeID,
 	entry LogEntryPayload,
 ) { // A
+	// Handle self-subscription locally without going through the network
+	if nodeID == lb.localNodeID {
+		if lb.localHandler != nil {
+			lb.localHandler(entry)
+			return
+		}
+		// No local handler configured, skip self-messages
+		return
+	}
+
 	payload, err := SerializeLogEntry(entry)
 	if err != nil {
 		return // Silently drop on serialization error

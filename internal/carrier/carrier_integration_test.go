@@ -47,6 +47,9 @@ func (t *pipeTransport) RegisterNode(
 	t.network.identities[address] = nodeInfo{nodeID: nodeID, pubKey: pubKey}
 }
 
+func (t *pipeTransport) SetLogger(logger *slog.Logger) {
+}
+
 func (t *pipeTransport) Connect(
 	ctx context.Context,
 	address string,

@@ -152,6 +152,13 @@ func (t *QUICTransport) Close() error { // A
 	return nil
 }
 
+// SetLogger updates the logger used by the transport.
+func (t *QUICTransport) SetLogger(logger *slog.Logger) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logger = logger
+}
+
 // quicListener implements the Listener interface for QUIC connections.
 type quicListener struct { // A
 	listener *quic.Listener

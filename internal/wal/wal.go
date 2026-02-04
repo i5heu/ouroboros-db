@@ -24,11 +24,12 @@ import (
 const DefaultBlockSize = 16 * 1024 * 1024
 
 const (
-	prefixChunk    = "wal:chunk:"
-	prefixVertex   = "wal:vertex:"
-	prefixKey      = "wal:key:"
-	prefixChunkIdx = "idx:chunk:"
-	prefixKeyIdx   = "idx:key:"
+	prefixChunk     = "wal:chunk:"
+	prefixVertex    = "wal:vertex:"
+	prefixKey       = "wal:key:"
+	prefixChunkIdx  = "idx:chunk:"
+	prefixKeyIdx    = "idx:key:"
+	prefixVertexIdx = "idx:vertex:"
 )
 
 // DefaultDistributedWAL implements the DistributedWAL interface.
@@ -272,6 +273,19 @@ func (w *DefaultDistributedWAL) SealBlock(
 				}
 			}
 
+			// Write vertex index entries for retrieval after ClearBlock.
+			// We map: idx:vertex:<vertexHash> -> serialized Vertex
+			for _, v := range vertices {
+				data, serr := serialize(v)
+				if serr != nil {
+					continue
+				}
+				key := []byte(prefixVertexIdx + v.Hash.String())
+				if err := txn.Set(key, data); err != nil {
+					return err
+				}
+			}
+
 			return nil
 		}); err != nil {
 			return model.Block{}, nil, fmt.Errorf("store block and indexes: %w", err)
@@ -493,7 +507,8 @@ func (w *DefaultDistributedWAL) GetChunk(
 	return chunk, nil
 }
 
-// GetVertex retrieves a vertex from the WAL buffer if it exists.
+// GetVertex retrieves a vertex from the WAL buffer if it exists,
+// falling back to the vertex index if not found in WAL.
 func (w *DefaultDistributedWAL) GetVertex(
 	ctx context.Context,
 	vertexHash hash.Hash,
@@ -512,7 +527,24 @@ func (w *DefaultDistributedWAL) GetVertex(
 	})
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
-			return model.Vertex{}, fmt.Errorf("vertex not found in WAL")
+			// Fallback to vertex index (data persisted after ClearBlock)
+			idxKey := []byte(prefixVertexIdx + vertexHash.String())
+			err = w.db.View(func(txn *badger.Txn) error {
+				item, err := txn.Get(idxKey)
+				if err != nil {
+					return err
+				}
+				return item.Value(func(val []byte) error {
+					return deserialize(val, &vertex)
+				})
+			})
+			if err != nil {
+				if err == badger.ErrKeyNotFound {
+					return model.Vertex{}, fmt.Errorf("vertex not found")
+				}
+				return model.Vertex{}, fmt.Errorf("get vertex from index: %w", err)
+			}
+			return vertex, nil
 		}
 		return model.Vertex{}, fmt.Errorf("get vertex from WAL: %w", err)
 	}

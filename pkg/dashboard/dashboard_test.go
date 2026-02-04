@@ -3,7 +3,9 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-db/internal/carrier"
+	"github.com/i5heu/ouroboros-db/pkg/model"
 )
 
 // mockCarrier implements carrier.Carrier for testing.
@@ -107,6 +111,17 @@ func (m *mockCarrier) BootstrapFromAddresses(
 	return nil
 }
 
+func (m *mockCarrier) LocalNode() carrier.Node { // A
+	if len(m.nodes) > 0 {
+		return m.nodes[0]
+	}
+	return carrier.Node{NodeID: "mock-local-node"}
+}
+
+func (m *mockCarrier) SetLogger(logger *slog.Logger) { // A
+	// no-op for testing
+}
+
 func (m *mockCarrier) getSentMessages() []sentMessage { // A
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -120,6 +135,250 @@ func (m *mockCarrier) clearMessages() { // A
 	m.mu.Lock()
 	m.sentMessages = nil
 	m.mu.Unlock()
+}
+
+// mockCAS implements storage.CAS for testing.
+type mockCAS struct {
+	mu         sync.RWMutex
+	vertices   map[hash.Hash]model.Vertex
+	content    map[hash.Hash][]byte
+	blockStore *mockBlockStore // Link to block store for creating blocks
+}
+
+func newMockCAS() *mockCAS {
+	return &mockCAS{
+		vertices: make(map[hash.Hash]model.Vertex),
+		content:  make(map[hash.Hash][]byte),
+	}
+}
+
+func (m *mockCAS) StoreContent(
+	ctx context.Context,
+	content []byte,
+	parentHash hash.Hash,
+) (model.Vertex, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Create chunk hash from content
+	chunkHash := hash.HashBytes(content)
+
+	// Create vertex
+	vertex := model.Vertex{
+		Hash:        hash.HashBytes(append(parentHash[:], chunkHash[:]...)),
+		Parent:      parentHash,
+		Created:     time.Now().UnixMilli(),
+		ChunkHashes: []hash.Hash{chunkHash},
+	}
+
+	m.vertices[vertex.Hash] = vertex
+	m.content[chunkHash] = content
+
+	// Also create a block if blockStore is linked
+	// The block hash matches what processUploadWithCAS generates:
+	// hash.HashBytes(append(vertex.Hash[:], content...))
+	if m.blockStore != nil {
+		blockHash := hash.HashBytes(append(vertex.Hash[:], content...))
+		block := model.Block{
+			Hash: blockHash,
+			Header: model.BlockHeader{
+				Version:     1,
+				Created:     vertex.Created,
+				ChunkCount:  1,
+				VertexCount: 1,
+			},
+			VertexIndex: map[hash.Hash]model.VertexRegion{
+				vertex.Hash: {Offset: 0, Length: 100},
+			},
+			ChunkIndex: map[hash.Hash]model.ChunkRegion{
+				chunkHash: {Offset: 0, Length: uint32(len(content))},
+			},
+		}
+		_ = m.blockStore.StoreBlock(ctx, block)
+	}
+
+	return vertex, nil
+}
+
+func (m *mockCAS) GetContent(
+	ctx context.Context,
+	vertexHash hash.Hash,
+) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	vertex, ok := m.vertices[vertexHash]
+	if !ok {
+		return nil, errors.New("vertex not found")
+	}
+
+	if len(vertex.ChunkHashes) == 0 {
+		return nil, errors.New("no chunks")
+	}
+
+	content, ok := m.content[vertex.ChunkHashes[0]]
+	if !ok {
+		return nil, errors.New("content not found")
+	}
+
+	return content, nil
+}
+
+func (m *mockCAS) DeleteContent(
+	ctx context.Context,
+	vertexHash hash.Hash,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	vertex, ok := m.vertices[vertexHash]
+	if !ok {
+		return nil
+	}
+
+	for _, ch := range vertex.ChunkHashes {
+		delete(m.content, ch)
+	}
+	delete(m.vertices, vertexHash)
+	return nil
+}
+
+func (m *mockCAS) GetVertex(
+	ctx context.Context,
+	vertexHash hash.Hash,
+) (model.Vertex, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	vertex, ok := m.vertices[vertexHash]
+	if !ok {
+		return model.Vertex{}, errors.New("vertex not found")
+	}
+	return vertex, nil
+}
+
+func (m *mockCAS) ListChildren(
+	ctx context.Context,
+	parentHash hash.Hash,
+) ([]model.Vertex, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var children []model.Vertex
+	for _, v := range m.vertices {
+		if v.Parent == parentHash {
+			children = append(children, v)
+		}
+	}
+	return children, nil
+}
+
+func (m *mockCAS) Flush(ctx context.Context) error {
+	return nil
+}
+
+// mockBlockStore implements storage.BlockStore for testing.
+type mockBlockStore struct {
+	mu     sync.RWMutex
+	blocks map[hash.Hash]model.Block
+	slices map[hash.Hash]model.BlockSlice
+}
+
+func newMockBlockStore() *mockBlockStore {
+	return &mockBlockStore{
+		blocks: make(map[hash.Hash]model.Block),
+		slices: make(map[hash.Hash]model.BlockSlice),
+	}
+}
+
+func (m *mockBlockStore) StoreBlock(
+	ctx context.Context,
+	block model.Block,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blocks[block.Hash] = block
+	return nil
+}
+
+func (m *mockBlockStore) GetBlock(
+	ctx context.Context,
+	blockHash hash.Hash,
+) (model.Block, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	block, ok := m.blocks[blockHash]
+	if !ok {
+		return model.Block{}, errors.New("block not found")
+	}
+	return block, nil
+}
+
+func (m *mockBlockStore) DeleteBlock(
+	ctx context.Context,
+	blockHash hash.Hash,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.blocks, blockHash)
+	return nil
+}
+
+func (m *mockBlockStore) StoreBlockSlice(
+	ctx context.Context,
+	slice model.BlockSlice,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.slices[slice.Hash] = slice
+	return nil
+}
+
+func (m *mockBlockStore) GetBlockSlice(
+	ctx context.Context,
+	sliceHash hash.Hash,
+) (model.BlockSlice, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	slice, ok := m.slices[sliceHash]
+	if !ok {
+		return model.BlockSlice{}, errors.New("slice not found")
+	}
+	return slice, nil
+}
+
+func (m *mockBlockStore) ListBlockSlices(
+	ctx context.Context,
+	blockHash hash.Hash,
+) ([]model.BlockSlice, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []model.BlockSlice
+	for _, slice := range m.slices {
+		if slice.BlockHash == blockHash {
+			result = append(result, slice)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockBlockStore) GetSealedChunkByRegion(
+	ctx context.Context,
+	blockHash hash.Hash,
+	region model.ChunkRegion,
+) (model.SealedChunk, error) {
+	return model.SealedChunk{}, errors.New("not implemented")
+}
+
+func (m *mockBlockStore) GetVertexByRegion(
+	ctx context.Context,
+	blockHash hash.Hash,
+	region model.VertexRegion,
+) (model.Vertex, error) {
+	return model.Vertex{}, errors.New("not implemented")
 }
 
 func TestDashboard_New(t *testing.T) { // A

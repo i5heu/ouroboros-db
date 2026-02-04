@@ -46,6 +46,16 @@ func newConnPool(transport Transport, localID NodeID, log interface { // A
 	}
 }
 
+// SetLogger updates the logger used by the connection pool.
+func (p *connPool) SetLogger(log interface {
+	Debug(msg string, args ...any)
+	Warn(msg string, args ...any)
+}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.log = log
+}
+
 // getOrConnect returns an existing connection to the node or establishes a new
 // one. The returned connection is persistent and should NOT be closed by the
 // caller.
