@@ -8,7 +8,7 @@ import (
 // Config configures the database instance. Only Paths[0] is used at the
 // moment; future versions may use multiple paths for sharding or tiering.
 type Config struct {
-	// Paths contains data directories. Currently only Paths[0] is used.
+	// Paths contains data directories.
 	Paths []string
 	// MinimumFreeGB is a free-space threshold for on-disk operations.
 	MinimumFreeGB uint
