@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -15,7 +14,7 @@ import (
 )
 
 func ExampleClusterLog() { // A
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	carrier := &mockCarrier{}
 
 	var self keys.NodeID

@@ -13,4 +13,5 @@ const ( // AC
 	keySince     = "since"
 	keyEntries   = "entries"
 	keyError     = "error"
+	keyMessage   = "message"
 )

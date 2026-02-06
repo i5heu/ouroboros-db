@@ -136,8 +136,8 @@ func (cl *ClusterLog) Log( // AC
 	}
 
 	cl.logger.Log(
-		ctx, level.toSlogLevel(), msg,
-		cl.baseAttrs(level, fields)...,
+		ctx, level.toSlogLevel(), "log entry",
+		append(cl.baseAttrs(level, fields), keyMessage, msg)...,
 	)
 
 	cl.record(ctx, entry)
@@ -158,8 +158,8 @@ func (cl *ClusterLog) Info( // H
 	}
 
 	cl.logger.Log(
-		ctx, slog.LevelInfo, msg,
-		cl.baseAttrs(LogLevelInfo, fields)...,
+		ctx, slog.LevelInfo, "log entry",
+		append(cl.baseAttrs(LogLevelInfo, fields), keyMessage, msg)...,
 	)
 
 	cl.record(ctx, entry)
@@ -180,8 +180,8 @@ func (cl *ClusterLog) Warn( // H
 	}
 
 	cl.logger.Log(
-		ctx, slog.LevelWarn, msg,
-		cl.baseAttrs(LogLevelWarn, fields)...,
+		ctx, slog.LevelWarn, "log entry",
+		append(cl.baseAttrs(LogLevelWarn, fields), keyMessage, msg)...,
 	)
 
 	cl.record(ctx, entry)
@@ -202,8 +202,8 @@ func (cl *ClusterLog) Debug( // H
 	}
 
 	cl.logger.Log(
-		ctx, slog.LevelDebug, msg,
-		cl.baseAttrs(LogLevelDebug, fields)...,
+		ctx, slog.LevelDebug, "log entry",
+		append(cl.baseAttrs(LogLevelDebug, fields), keyMessage, msg)...,
 	)
 
 	cl.record(ctx, entry)
@@ -242,7 +242,8 @@ func (cl *ClusterLog) Err( // AC
 		attrs = append(attrs, keyError, err)
 	}
 	cl.logger.Log(
-		ctx, slog.LevelError, msg, attrs...,
+		ctx, slog.LevelError, "log entry",
+		append(attrs, keyMessage, msg)...,
 	)
 
 	cl.record(ctx, entry)
