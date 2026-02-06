@@ -231,7 +231,7 @@ BlockSlice (physical shard distributed to cluster nodes)
 
 ## Testing Requirements
 
-- **Coverage Gate**: 50% minimum (files, packages, total) enforced by `.github/.testcoverage.yml`
+- **Coverage Gate**: 85% minimum (files, packages, total) enforced by `.github/.testcoverage.yml`
 - **Test Location**: Tests live in `_test.go` files alongside code
 - **Test Naming**: `TestXxx` for tests, `BenchmarkXxx` for benchmarks, `ExampleXxx` for examples
 - **Table-Driven Tests**: Preferred pattern

@@ -12,7 +12,7 @@ go test -race -count=1 ./...
 go test ./... -run TestNew
 go test ./pkg/cas -run TestNew
 
-# Coverage (50% minimum required)
+# Coverage (85% minimum required)
 go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
 # Heavy testing suite
@@ -89,7 +89,7 @@ import (
 
 ## Testing Requirements
 
-- Coverage: 50% minimum (files, packages, total)
+- Coverage: 85% minimum (files, packages, total)
 - Tests live in `_test.go` files alongside code
 - Use table-driven tests
 - Property testing with `pgregory.net/rapid`
