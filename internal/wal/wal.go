@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"strings"
@@ -106,6 +107,15 @@ func (w *DefaultDistributedWAL) AppendChunk(
 	}
 
 	w.bufferSize += int64(len(data))
+	// Debug log that we've accepted a new WAL chunk entry
+	slog.DebugContext(
+		ctx,
+		"wal: appended chunk",
+		"chunkHash",
+		chunk.ChunkHash.String(),
+		"size",
+		len(data),
+	)
 	return nil
 }
 
@@ -128,6 +138,15 @@ func (w *DefaultDistributedWAL) AppendVertex(
 	}
 
 	w.bufferSize += int64(len(data))
+	// Debug log that we've accepted a new WAL vertex entry
+	slog.DebugContext(
+		ctx,
+		"wal: appended vertex",
+		"vertexHash",
+		vertex.Hash.String(),
+		"size",
+		len(data),
+	)
 	return nil
 }
 
@@ -157,6 +176,15 @@ func (w *DefaultDistributedWAL) AppendKeyEntry(
 		return fmt.Errorf("persist key entry: %w", err)
 	}
 
+	// Debug log that we've accepted a new WAL key entry
+	slog.DebugContext(
+		ctx,
+		"wal: appended key entry",
+		"chunkHash",
+		keyEntry.ChunkHash.String(),
+		"pubKeyHash",
+		keyEntry.PubKeyHash.String(),
+	)
 	return nil
 }
 
@@ -451,7 +479,11 @@ func (w *DefaultDistributedWAL) GetChunk(
 				// We have block location; fetch block and extract chunk
 				// Prefer BlockStore region read if available (more robust)
 				if w.bs != nil {
-					if sc, serr := w.bs.GetSealedChunkByRegion(context.Background(), idxEntry.BlockHash, idxEntry.Region); serr == nil {
+					if sc, serr := w.bs.GetSealedChunkByRegion(
+						context.Background(),
+						idxEntry.BlockHash,
+						idxEntry.Region,
+					); serr == nil {
 						// Recreate WAL entry for faster future reads. Best-effort.
 						_ = w.db.Update(func(txn *badger.Txn) error {
 							wkey := []byte(prefixChunk + chunkHash.String())

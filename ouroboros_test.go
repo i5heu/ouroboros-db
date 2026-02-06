@@ -110,8 +110,8 @@ func TestGetStats_CountsMultipleBlocks(t *testing.T) {
 			VertexCount: 3,
 		},
 		KeyRegistry: map[hash.Hash][]model.KeyEntry{
-			hash.HashBytes([]byte("c1")): {{}, {}},    // 2 entries
-			hash.HashBytes([]byte("c2")): {{}},        // 1 entry
+			hash.HashBytes([]byte("c1")): {{}, {}}, // 2 entries
+			hash.HashBytes([]byte("c2")): {{}},     // 1 entry
 		},
 	}
 	block2 := model.Block{

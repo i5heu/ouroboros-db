@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
+	"github.com/i5heu/ouroboros-db/internal/carrier"
 )
 
 // UploadFlow represents the state of an upload operation as it progresses
@@ -432,6 +433,20 @@ func (d *Dashboard) processUploadWithCAS( // A
 		return
 	}
 
+	// Broadcast a BlockAnnouncement to the cluster so other nodes can log it
+	if d.config.Carrier != nil {
+		announce := carrier.BlockAnnouncementPayload{
+			BlockHash:   hash.HashBytes(append(vertex.Hash[:], 0x00)),
+			Timestamp:   time.Now().UnixMilli(),
+			ChunkCount:  uint32(0),
+			VertexCount: uint32(1),
+		}
+		if data, err := carrier.SerializeBlockAnnouncement(&announce); err == nil {
+			msg := carrier.Message{Type: carrier.MessageTypeBlockAnnouncement, Payload: data}
+			_, _ = d.config.Carrier.Broadcast(ctx, msg)
+		}
+	}
+
 	// Simulate slice distribution tracking for UI
 	nodes, _ := d.config.Carrier.GetNodes(ctx)
 	sliceCount := 6 // Default 4 data + 2 parity slices
@@ -513,6 +528,20 @@ func (d *Dashboard) processUploadSimulated( // A
 	d.uploadTracker.UpdateStatus(flowID, "distributing")
 	d.config.Logger.InfoContext(ctx, "upload distributing", "flowID", flowID)
 
+	// Broadcast a BlockAnnouncement so other nodes see the new block in the cluster
+	if d.config.Carrier != nil {
+		announce := carrier.BlockAnnouncementPayload{
+			BlockHash:   hash.HashBytes([]byte(generateFakeHash("block-hash-metadata"))),
+			Timestamp:   time.Now().UnixMilli(),
+			ChunkCount:  uint32(0),
+			VertexCount: uint32(1),
+		}
+		if data, err := carrier.SerializeBlockAnnouncement(&announce); err == nil {
+			msg := carrier.Message{Type: carrier.MessageTypeBlockAnnouncement, Payload: data}
+			_, _ = d.config.Carrier.Broadcast(ctx, msg)
+		}
+	}
+
 	nodes, err := d.config.Carrier.GetNodes(ctx)
 	if err != nil || len(nodes) == 0 {
 		nodes = nil
@@ -533,7 +562,6 @@ func (d *Dashboard) processUploadSimulated( // A
 			Status:     "pending",
 		})
 	}
-
 	// Simulate slice confirmations
 	flow, ok := d.uploadTracker.Get(flowID)
 	if !ok {

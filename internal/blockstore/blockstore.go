@@ -4,6 +4,7 @@ package blockstore
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
@@ -45,11 +46,18 @@ func (s *BadgerBlockStore) StoreBlock(
 		return fmt.Errorf("serialize block: %w", err)
 	}
 
-	return s.db.Update(func(txn *badger.Txn) error {
+	err = s.db.Update(func(txn *badger.Txn) error {
 		key := []byte(prefixBlock + block.Hash.String())
 		// Set TTL or other options if needed, but blocks are permanent for now
 		return txn.Set(key, data)
 	})
+	if err != nil {
+		return err
+	}
+
+	// Debug log that we've stored a block
+	slog.DebugContext(ctx, "blockstore: stored block", "blockHash", block.Hash.String(), "vertexCount", block.Header.VertexCount, "chunkCount", block.Header.ChunkCount)
+	return nil
 }
 
 // GetBlock retrieves a block by its hash.
@@ -110,7 +118,7 @@ func (s *BadgerBlockStore) StoreBlockSlice(
 		return fmt.Errorf("serialize slice hash: %w", err)
 	}
 
-	return s.db.Update(func(txn *badger.Txn) error {
+	err = s.db.Update(func(txn *badger.Txn) error {
 		// Store the slice
 		sliceKey := []byte(prefixSlice + slice.Hash.String())
 		if err := txn.Set(sliceKey, data); err != nil {
@@ -122,6 +130,13 @@ func (s *BadgerBlockStore) StoreBlockSlice(
 		// We store the serialized hash as value
 		return txn.Set(indexKey, hashData)
 	})
+	if err != nil {
+		return err
+	}
+
+	// Debug log that we've stored a block slice
+	slog.DebugContext(ctx, "blockstore: stored block slice", "sliceHash", slice.Hash.String(), "blockHash", slice.BlockHash.String())
+	return nil
 }
 
 // GetBlockSlice retrieves a block slice by its hash.
