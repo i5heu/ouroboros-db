@@ -32,16 +32,27 @@ classDiagram
     %% What it is NOT:
     %% - Not the long-term analytics system; it is a conceptual component for centralized visibility.
     class ClusterLog {
-        +Append(entry LogEntry)
+        +New(logger *slog.Logger, carrier Carrier, selfID NodeID) *ClusterLog
+        +Stop()
+        +Log(ctx context.Context, level LogLevel, msg string, fields map~string, string~)
+        +Info(ctx context.Context, msg string, fields map~string, string~)
+        +Warn(ctx context.Context, msg string, fields map~string, string~)
+        +Debug(ctx context.Context, msg string, fields map~string, string~)
+        +Err(ctx context.Context, msg string, fields map~string, string~)
         +Tail(limit int) []LogEntry
-        +Query(nodeID string, since int64) []LogEntry
-        +QueryAll(since int64) []LogEntry
-        +QueryByLevel(level LogLevel, since int64) []LogEntry
+        +Query(nodeID NodeID, since time.Time) []LogEntry
+        +QueryAll(since time.Time) []LogEntry
+        +QueryByLevel(level LogLevel, since time.Time) []LogEntry
+        +SubscribeLog(ctx context.Context, sourceNodeID NodeID, subscriberNodeID NodeID)
+        +SubscribeLogAll(ctx context.Context, subscriberNodeID NodeID)
+        +UnsubscribeLog(ctx context.Context, sourceNodeID NodeID, subscriberNodeID NodeID)
+        +UnsubscribeLogAll(ctx context.Context, subscriberNodeID NodeID)
+        +SendLog(ctx context.Context, targetNodeID NodeID, sourceNodeID NodeID, since time.Time) error
     }
 
     class LogEntry {
-        +int64 Timestamp
-        +string NodeID
+        +time.Time Timestamp
+        +keys.NodeID NodeID
         +LogLevel Level
         +string Message
         +map~string, string~ Fields
@@ -154,6 +165,8 @@ classDiagram
         KeyEntryRequest
         KeyEntryResponse
         BlockSyncRequest
+        LogPush
+        LogSendResponse
     }
     Message "1" o-- "1" MessageType : has type
 
