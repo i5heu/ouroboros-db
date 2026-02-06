@@ -14,6 +14,104 @@ classDiagram
 
     class ClusterMonitor {
         +MonitorNodeHealth()
+        +CollectClusterLogs()
+        +GetDataState()
+        +CollectNodeStats()
+        +GetNodeStats(nodeID string) (NodeStats, error)
+    }
+
+    %% ClusterLog: Cluster-wide log aggregation.
+    %% Purpose:
+    %% - Single place to collect operational logs/events from every Node.
+    %% - Makes it easy to debug replication, routing, and failures without SSH-ing into nodes.
+    %% - Enables cluster-level timelines ("what happened across the system at time T?").
+    %%
+    %% What it contains:
+    %% - Timestamped LogEntry records tagged with NodeID + Level and optional structured fields.
+    %%
+    %% What it is NOT:
+    %% - Not the long-term analytics system; it is a conceptual component for centralized visibility.
+    class ClusterLog {
+        +Append(entry LogEntry)
+        +Tail(limit int) []LogEntry
+        +Query(nodeID string, since int64) []LogEntry
+        +QueryAll(since int64) []LogEntry
+        +QueryByLevel(level LogLevel, since int64) []LogEntry
+    }
+
+    class LogEntry {
+        +int64 Timestamp
+        +string NodeID
+        +LogLevel Level
+        +string Message
+        +map~string, string~ Fields
+    }
+
+    class LogLevel {
+        <<Enumeration>>
+        Debug
+        Info
+        Warn
+        Error
+    }
+
+    %% DataState: Cluster-wide data placement + status view.
+    %% Purpose:
+    %% - Answer "which node has which data" and "what is its current state" at a glance.
+    %% - Provides an operational index for replication monitoring, rebalancing, repair, and offline sync.
+    %%
+    %% Scope of "Data": the objects modeled in Logical_Hierarchy + Block_Storage_Modern:
+    %% - Vertex (logical DAG nodes)
+    %% - SealedChunk (encrypted chunk payloads)
+    %% - KeyEntry (access-control entries)
+    %% - Block and BlockSlice (physical archive and shards)
+    %%
+    %% Status examples:
+    %% - Present/Missing (inventory)
+    %% - Syncing (in-progress replication)
+    %% - PendingDelete (DeletionWAL/GC lifecycle)
+    %% - Corrupt (integrity mismatch / failed reconstruction)
+    class DataState {
+        +GetNodesForVertex(vertexHash hash.Hash) ([]NodeDataStatus, error)
+        +GetNodesForSealedChunk(chunkHash hash.Hash) ([]NodeDataStatus, error)
+        +GetNodesForBlock(blockHash hash.Hash) ([]NodeDataStatus, error)
+        +GetNodesForBlockSlice(sliceHash hash.Hash) ([]NodeDataStatus, error)
+        +GetNodeInventory(nodeID string) ([]NodeDataStatus, error)
+    }
+
+    class NodeDataStatus {
+        +string NodeID
+        +hash.Hash DataHash
+        +DataStatus Status
+        +string Detail
+    }
+
+    class DataStatus {
+        <<Enumeration>>
+        Present
+        Missing
+        Syncing
+        PendingDelete
+        Corrupt
+    }
+
+    %% NodeStats: Per-node storage statistics (fast "at a glance" view).
+    %% Purpose:
+    %% - Quick capacity/health signal: how much the node is storing across major object types.
+    %% - Supports dashboards and placement decisions (e.g., rebalancer choosing less-loaded nodes).
+    %% - Helps identify skew (too many slices/blocks on one node) and replication gaps.
+    %%
+    %% Notes:
+    %% - Counts cover the same "Data" scope as DataState (Logical_Hierarchy + Block_Storage_Modern).
+    %% - "Chunks" at rest are represented as SealedChunks (encrypted payloads).
+    class NodeStats {
+        +string NodeID
+        +int64 Updated
+        +uint64 VertexCount
+        +uint64 BlockCount
+        +uint64 BlockSliceCount
+        +uint64 SealedChunkCount
+        +uint64 KeyEntryCount
     }
 
     class NodeAvailabilityTracker {
@@ -179,8 +277,24 @@ classDiagram
     ClusterController "1" *-- "1" ClusterMonitor : monitors
     Node "1" *-- "1" BackupManager : manages backups
     ClusterMonitor "1" *-- "1" NodeAvailabilityTracker : utilizes
+    ClusterMonitor "1" *-- "1" ClusterLog : aggregates
+    ClusterMonitor "1" *-- "1" DataState : tracks
+    ClusterMonitor "1" o-- "*" NodeStats : collects
     DataReBalancer "1" *-- "1" SyncIndexTree : utilizes
     Node "1" *-- "1" DeletionWAL : logs deletions
+
+    %% Nodes emit logs into the cluster-wide log.
+    Node ..> ClusterLog : emits logs to
+
+    %% DataState maps data to nodes with status.
+    %% Tracks objects from Logical_Hierarchy + Block_Storage_Modern:
+    %% Vertex, SealedChunk, Block, BlockSlice, KeyEntry.
+    DataState "1" o-- "*" Node : maps data to nodes
+
+    %% NodeStats are associated with nodes.
+    Node "1" o-- "*" NodeStats : reports
+
+    %% (Diagram simplification) LogEntry/LogLevel are internal to ClusterLog.
 
 
     namespace IndexModel {
