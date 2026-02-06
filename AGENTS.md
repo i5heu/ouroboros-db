@@ -15,6 +15,12 @@ go test ./...
 # Run specific test (e.g., TestNew)
 go test ./... -run TestNew
 
+# Run tests for specific package
+go test ./pkg/cas/...
+
+# Run specific test in specific package
+go test ./pkg/cas -run TestNew
+
 # Run with race detector
 go test -race -count=1 ./...
 
@@ -64,6 +70,38 @@ func criticalOperation() { // PHC
     // production-ready, human-comprehended
 }
 ```
+
+## Linting and Formatting Rules
+
+This project uses `golangci-lint` with strict rules:
+
+### Linters (enforced)
+- `govet` — Go vet static analysis
+- `errcheck` — Check for unchecked errors
+- `staticcheck` — Go static analysis
+- `unused` — Check for unused code
+- `ineffassign` — Detect ineffectual assignments
+- `gosec` — Security inspection
+- `sloglint` — Structured logging best practices (kv-only, context-aware, static messages)
+- `cyclop` — Cyclomatic complexity (max 10)
+- `lll` — Long line length (max 80 chars)
+
+### Formatters (enforced)
+- `gofumpt` — Stricter gofmt with extra rules
+- `goimports` — Format and fix imports automatically
+- `gci` — Group imports (stdlib → third-party → local)
+- `golines` — Shorten long lines (80 char max, 2 tab width)
+- `gofmt` — Standard Go formatting
+
+### Logging Rules (sloglint)
+- Use key-value pairs only (`kv-only: true`)
+- No mixed arguments (`no-mixed-args: true`)
+- No global loggers (`no-global: all`)
+- Use context-aware logging (`context: all`)
+- Static log messages only (`static-msg: true`)
+- camelCase key names (`key-naming-case: camel`)
+- lowercased messages (`msg-style: lowercased`)
+- Define constants for keys (`no-raw-keys: true`)
 
 ## Code Style Guidelines
 
