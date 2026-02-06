@@ -1,62 +1,54 @@
-<!--
-Copilot instructions file for the OuroborosDB repo.
-Keep short and concrete. Refer to project files and patterns discovered in the repo.
--->
-# Copilot & AI Developer Instructions — OuroborosDB
+# Copilot & AI Developer Instructions — OuroborosDB 🔧
 
-Summary
-- OuroborosDB is a small, Go-based content-addressable database library (DAG of blobs → chunks → sealed slices).
-- The single root package is `ouroboros` (see `ouroboros.go`, `config.go`, `cluster.go`), and CLI/daemon binaries live under `cmd/`.
-- The design centers on a Git-like DAG, index synchronization (SyncIndexTree), and a deletion WAL. See `README.md` for diagrams and more.
+Short summary
+- OuroborosDB is a Go content-addressable DB using a Git-like DAG: Blob → Chunk → SealedSlice. The root library package is `ouroboros`; stable helpers live in `pkg/`; changeable internals live in `internal/`; CLIs/daemons go under `cmd/`.
 
-Key files + architecture pointers
-- `ouroboros.go` contains the root type `OuroborosDB` and constructor `New(conf Config)`.
-- `config.go` contains `Config` and `defaultLogger()` — `Config.Paths[0]` is the only path used today; `UiPort` controls the built-in UI.
-- `cluster.go` (top-level clustering concerns) + `cmd/` (cli/daemon) show planned entrypoints; `internal/` and `pkg/` are for library and internal code.
-- `go.mod` references an external crypto module: `github.com/i5heu/ouroboros-crypt` — check this for crypto patterns.
+Quick commands (local parity with CI) ✅
+- Run tests: `go test ./...`
+- Race detector: `go test -race -count=1 ./...`
+- Coverage: `go test ./... -coverprofile=cover.out -covermode=atomic -coverpkg=./...`
+- Heavy suite (maintainers): `./testHeavy.sh`
+- Format & lint: `gofumpt`/`goimports`; `golangci-lint run` (`--fix` allowed for auto-fixes)
 
-Project conventions & critical rules
-- Annotation scheme (core convention): all function comments must reflect authorship/review status in the function declaration, included in `README.md`:
-  - `// A` AI-authored, no human review
-  - `// AP` AI-authored, human-reviewed w/ TODO
-  - `// AC` AI-authored, human reviewed and approved
-  - `// H` Human authored, `// HP` human authored w/ TODO
-  - `// HC` Human comprehended & confident
-  - `P` prefix denotes **priority/critical** functions. e.g., `// PHC` means production-critical and human-reviewed.
-- It is negotiable that AI generated functions must be generated with an `// A` or `// AP` annotation after the function declaration `func exampleFunction() { // A`.
+Architecture essentials (what to read first) 📚
+- Read `README.md` and `docs/diagrams/architecture.mmd` for the big picture.
+- Key patterns: content-addressed objects, SyncIndexTree, DeletionWAL, DataRouter / LocalKVStore, and idempotent, retry-safe operations.
+- Important files: `ouroboros.go`, `config.go` (note `Config.Paths[0]` usage), `pkg/clusterlog` (logging), `AGENTS.md` (detailed dev rules).
 
-Patterns relevant to AI coding agents
-- Use the `ouroboros` package root for library changes (not random top-level packages). If adding binaries, put code under `cmd/<binary>`.
-- Persisted data model: Blob → Chunk → SealedSlice. Local KV stores map hashes to stored objects — check this model when designing storage logic.
-- Indexing & sync: Distributed `SyncIndexTree` and `DeletionWAL` exist to make nodes converge — use their interfaces for replication changes.
-- Nodes are intended to be mostly stateless; prefer designing idempotent operations for replication and replays.
+Repo conventions you must follow ⚠️
+- Function authorship/review annotation is mandatory on the same `func` line. Examples:
+  - `func New(conf Config) (*OuroborosDB, error) { // A`  (AI authored)
+  - `func criticalOp() { // PHC`  (production-critical, human-reviewed)
+- Logging: prefer `pkg/clusterlog` and follow `sloglint` rules (kv-only, context-aware, static messages, camelCase keys). See `pkg/clusterlog/cluster_log_test.go` for examples and `interfaces.Carrier` usage.
+- Tests: add unit tests, use `Example...` functions for small docs (`pkg/clusterlog/example_test.go`), and use property tests with `pgregory.net/rapid` (if local fork is needed, add the replace in `go.mod` as in tests).
 
-Testing & CI
-- GitHub Actions: `.github/workflows/go.yml` runs `go test ./...` and coverage. Use the same coverage and test steps locally for parity.
-- Add unit tests when adding logic; `go test ./...` is the canonical command.
+Testing patterns & deliberate choices 🧪
+- Use table-driven tests, property tests (rapid), and add integration tests when state/replication semantics are involved.
+- Example rapid fork snippet you may need in `go.mod`:
+  require pgregory.net/rapid v1.2.0
+  replace pgregory.net/rapid => github.com/flyingmutant/rapid v1.2.0
 
-Integration & external deps
-- Crypto: `github.com/i5heu/ouroboros-crypt` is used for sealing/encryption — inspect that module for expected APIs and types.
-- Indirect deps like `cloudflare/circl` may be used by the crypto module; do not edit those direct/in-direct deps lightly.
+PR checklist for AI authors ✅
+1. Add tests that demonstrate the behavior (unit, property, integration as needed).
+2. Add function annotation (`// A` / `// AP` / etc.) on the `func` line.
+3. Run `go test ./...` and `golangci-lint run`; fix issues (follow `AGENTS.md` lint list).
+4. Add or update `Example...` tests and top-level docs (`README.md`/`AGENTS.md`) for public API changes.
+5. Mark production-critical changes with `P` annotations and request human review to reach `PHC`.
 
-Architecture/Design hints for AI PRs
-- Start by reading `README.md` architecture section; changes should respect the DAG + index approch and the DataRouter / LocalKVStore pattern.
-- If adding storage or network code, preserve idempotency and make operations safe to retry (stateless-ish nodes).
-- When designing APIs that modify persistent state, include unit tests and, if relevant, an integration test that simulates concurrent writes creating separate heads.
+Where to put code & integration points 🔗
+- Library/core changes → `ouroboros` package
+- New public packages → `pkg/`
+- Implementation details → `internal/`
+- Binaries → `cmd/<name>`
+- Inspect `pkg/clusterlog` and `interfaces` for logging and carrier patterns; reuse `mockCarrier` in tests.
 
-Reporting & merging
-- For production/priority code paths (marked with `P`), require `PHC` status before a release — add tests and manual review.
-- Document new public APIs in top-level docs or README if they change primary behavior.
+If unsure or blocked
+- Open an issue or ping a maintainer before changing critical flows (replication, encryption, deletion WAL). For architecture questions, read `CLAUDE.md` and `AGENTS.md` first.
 
-If anything is unclear
-- Ask a maintainer if unsure where to put code (pkg vs internal vs cmd) or when adding critical operations.
-- Check `README.md` for the full annotation legend and architecture diagram. If you’d like more rules codified here (linting, PR labels, or GH checks) say so and we’ll add them.
-
-Short example: create a new DB
+Short example — create DB
 ```go
 conf := ouroboros.Config{Paths: []string{"/tmp/ouroboros"}}
-db, err := ouroboros.New(conf)
-if err != nil { // handle err }
+db, err := ouroboros.New(conf) // A
 ```
 
-Thanks — leave feedback or request additional rules (linters, commit message format, more test harnesses) and I’ll update this guidance.
+Feedback? Tell me what’s unclear or missing and I’ll iterate. ✨

@@ -48,6 +48,24 @@ go mod tidy
 
 # Format code
 go fmt ./...
+
+# Lint code
+golangci-lint run
+
+# Lint and auto-fix issues
+golangci-lint run --fix
+```
+
+### Running Specific Tests
+```bash
+# Run specific test by name
+go test ./... -run TestNew
+
+# Run tests for specific package
+go test ./pkg/cas/...
+
+# Run specific test in specific package
+go test ./pkg/cas -run TestNew
 ```
 
 ## Critical Development Convention: Function Annotations
@@ -219,6 +237,30 @@ BlockSlice (physical shard distributed to cluster nodes)
 - **Table-Driven Tests**: Preferred pattern
 - **Property Testing**: Use `pgregory.net/rapid` for property-based tests (set `RAPID_CHECKS` env var)
 - **Helpers**: Use `internal/testutil` for test utilities
+
+## Logging Policy
+
+**All logging in this repository must use the `pkg/clusterlog` package.** This ensures logs are recorded in the cluster-wide log, emitted to the configured `slog.Logger`, and delivered to subscribers via the Carrier transport where applicable.
+
+**Exception**: Only use direct `slog.Logger` when using `pkg/clusterlog` would create or risk a subscription loop (circular subscriptions) that could cause self-delivery or unbounded propagation. In such cases, document the justification with a clear `// LOGGER` comment referencing the potential subscription loop.
+
+## Linting and Code Quality
+
+This project uses `golangci-lint` with strict rules enforced via `.golangci.yml`:
+
+**Linters**:
+- `govet`, `errcheck`, `staticcheck`, `unused`, `ineffassign` - Standard Go quality checks
+- `gosec` - Security inspection
+- `sloglint` - Structured logging best practices (kv-only, context-aware, static messages, camelCase keys, lowercased messages, no raw keys)
+- `cyclop` - Cyclomatic complexity (max 10)
+- `lll` - Long line length (max 80 chars, tab-width 2)
+
+**Formatters** (auto-applied with `--fix`):
+- `gofumpt` - Stricter gofmt with extra rules
+- `goimports` - Format and fix imports
+- `gci` - Group imports (stdlib → third-party → local)
+- `golines` - Shorten long lines (80 char max, 2 tab width)
+- `gofmt` - Standard Go formatting
 
 ## Example Usage
 

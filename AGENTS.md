@@ -1,164 +1,145 @@
-# AGENTS.md — OuroborosDB Developer Guide
+# AGENTS.md — OuroborosDB Developer Guidelines
 
-Guidelines for AI coding agents working on OuroborosDB, a Go-based content-addressable distributed database.
+## Quick Commands
 
-## Build, Test, and Lint Commands
-
-### Essential Commands
 ```bash
-# Build all packages
+# Build and test
 go build ./...
-
-# Run all tests
 go test ./...
-
-# Run specific test (e.g., TestNew)
-go test ./... -run TestNew
-
-# Run tests for specific package
-go test ./pkg/cas/...
-
-# Run specific test in specific package
-go test ./pkg/cas -run TestNew
-
-# Run with race detector
 go test -race -count=1 ./...
 
-# Generate coverage report
+# Run specific test
+go test ./... -run TestNew
+go test ./pkg/cas -run TestNew
+
+# Coverage (50% minimum required)
 go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
-# Format code
-go fmt ./...
+# Heavy testing suite
+./testHeavy.sh
 
-# Lint (golangci-lint)
+# Lint and format
 golangci-lint run
-
-# Format and fix lint issues
 golangci-lint run --fix
-
-# Tidy dependencies
 go mod tidy
 ```
 
-### Heavy Testing (comprehensive)
-Use `./testHeavy.sh` for thorough validation:
-```bash
-./testHeavy.sh  # Runs race detection, repeated tests, benchmarks, and property tests
-```
+## Function Annotations (Mandatory)
 
-## Critical Convention: Function Annotations
+All functions MUST have authorship annotations on the same line as `func`:
 
-**BLOCKING REQUIREMENT**: Every function MUST have an authorship/review annotation on the same line as `func`:
+- `// A` - AI-authored, no review
+- `// AP` - AI-authored, reviewed with TODO
+- `// AC` - AI-authored, reviewed and approved
+- `// H` - Human-authored
+- `// HP` - Human-authored with TODO
+- `// HC` - Human-comprehended and confident
 
-- `// A` — AI-authored, no human review
-- `// AP` — AI-authored, human reviewed with TODO
-- `// AC` — AI-authored, human reviewed and approved
-- `// H` — Human-authored
-- `// HP` — Human-authored with TODO
-- `// HC` — Human comprehended and confident
-
-For production-critical functions, prefix with `P`:
-- `// PAP`, `// PAC`, `// PHC` — must reach `// PHC` before production release
+Production-critical functions (prefix with `P`):
+- `// PAP`, `// PAC`, `// PHC` - Must reach `// PHC` before production
 
 Example:
 ```go
-func New(conf Config) (*OuroborosDB, error) { // A
-    // implementation
+func exampleFunction() { // A
+    // Low-risk, AI-authored
 }
 
-func criticalOperation() { // PHC
-    // production-ready, human-comprehended
+func criticalFunction() { // PHC
+    // High-risk, production-ready
 }
 ```
 
-## Linting and Formatting Rules
+## Code Style
 
-This project uses `golangci-lint` with strict rules:
+**Formatting:**
+- Line length: 80 characters max
+- Cyclomatic complexity: max 10
+- Use `gofumpt`, `goimports`, `gci`, `golines`
 
-### Linters (enforced)
-- `govet` — Go vet static analysis
-- `errcheck` — Check for unchecked errors
-- `staticcheck` — Go static analysis
-- `unused` — Check for unused code
-- `ineffassign` — Detect ineffectual assignments
-- `gosec` — Security inspection
-- `sloglint` — Structured logging best practices (kv-only, context-aware, static messages)
-- `cyclop` — Cyclomatic complexity (max 10)
-- `lll` — Long line length (max 80 chars)
+**Imports (grouped):**
+```go
+import (
+    // stdlib
+    "context"
+    
+    // third-party
+    "github.com/example/lib"
+    
+    // local
+    "github.com/i5heu/ouroboros-db/pkg/interfaces"
+)
+```
 
-### Formatters (enforced)
-- `gofumpt` — Stricter gofmt with extra rules
-- `goimports` — Format and fix imports automatically
-- `gci` — Group imports (stdlib → third-party → local)
-- `golines` — Shorten long lines (80 char max, 2 tab width)
-- `gofmt` — Standard Go formatting
+**Naming:**
+- Test functions: `TestXxx`, `BenchmarkXxx`, `ExampleXxx`
+- Table-driven tests preferred
+- Property tests with `pgregory.net/rapid`
 
-### Logging Rules (sloglint)
-- Use key-value pairs only (`kv-only: true`)
-- No mixed arguments (`no-mixed-args: true`)
-- No global loggers (`no-global: all`)
-- Use context-aware logging (`context: all`)
-- Static log messages only (`static-msg: true`)
-- camelCase key names (`key-naming-case: camel`)
-- lowercased messages (`msg-style: lowercased`)
-- Define constants for keys (`no-raw-keys: true`)
+## Logging Policy
 
-## Code Style Guidelines
+**Always use `pkg/clusterlog`** for logging. Exception only when it would create subscription loops (document with `// LOGGER` comment).
 
-### Imports
-- Use standard library first, then third-party, then internal
-- Group imports with blank lines between groups
-- Use `goimports` or `go fmt` for automatic formatting
+**sloglint rules:**
+- kv-only (no mixed args)
+- context-aware methods
+- Static messages
+- camelCase keys
+- lowercased messages
+- No raw keys
 
-### Naming Conventions
-- **Exported types/functions**: PascalCase (e.g., `OuroborosDB`, `New`)
-- **Unexported**: camelCase (e.g., `defaultLogger`)
-- **Interfaces**: `-er` suffix (e.g., `Reader`, `Writer`)
-- **Test files**: `*_test.go` alongside source files
-- **Test functions**: `TestXxx`, `BenchmarkXxx`, `ExampleXxx`
+## Testing Requirements
 
-### Error Handling
-- Return errors as the last return value
-- Wrap errors with context using `fmt.Errorf("...: %w", err)`
-- Check errors immediately: `if err != nil { return err }`
-- Use `log/slog` for structured logging, never panic in library code
-
-### Types and Structs
-- Prefer concrete types over interfaces for data structures
-- Use embedding for composition
-- Document exported types with comments starting with the type name
-
-### Testing
-- **Coverage Gate**: 50% minimum (files, packages, total)
+- Coverage: 50% minimum (files, packages, total)
+- Tests live in `_test.go` files alongside code
 - Use table-driven tests
-- Property testing with `pgregory.net/rapid` (set `RAPID_CHECKS` env var)
-- Place test utilities in `internal/testutil`
+- Property testing with `pgregory.net/rapid`
+- Set `RAPID_CHECKS=10_000` for thorough property testing
 
 ## Project Structure
 
-- **Root package**: `ouroboros` — main library code (`ouroboros.go`, `config.go`)
-- **cmd/**: CLI and daemon binaries
-- **pkg/**: Public API packages (stable)
-- **internal/**: Implementation details (may change)
+```
+├── ouroboros.go       # Root type and constructor
+├── config.go          # Config struct
+├── pkg/               # Public packages
+│   ├── cas/           # CAS primitives
+│   ├── clusterlog/    # Logging (use this!)
+│   └── interfaces/    # Interface definitions
+├── internal/          # Internal services
+├── cmd/               # Binaries
+└── benchmark/         # Benchmarking tools
+```
 
-## Architecture Notes
+## Linting Configuration
 
-- **Content addressing**: Everything identified by cryptographic hash
-- **DAG structure**: Git-like directed acyclic graph via Vertices
-- **Idempotency**: Design operations to be safely retryable
-- **Encryption**: Per-chunk with key wrappers
-- **Replication**: Reed-Solomon encoded BlockSlices distributed across nodes
+Linters enabled in `.golangci.yml`:
+- `govet`, `errcheck`, `staticcheck`, `unused`, `ineffassign`
+- `gosec` - Security
+- `sloglint` - Structured logging
+- `cyclop` - Complexity (max 10)
+- `lll` - Line length (80 chars, tab-width 2)
+
+Formatters auto-applied with `--fix`:
+- `gofumpt`, `goimports`, `gci`, `golines`, `gofmt`
 
 ## Key Dependencies
 
-- `github.com/i5heu/ouroboros-crypt` — encryption/sealing
-- `github.com/dgraph-io/badger/v4` — embedded KV store
-- `github.com/klauspost/reedsolomon` — erasure coding
-- `pgregory.net/rapid` — property-based testing
+- `github.com/i5heu/ouroboros-crypt` - Encryption
+- `github.com/dgraph-io/badger/v4` - KV store
+- `github.com/klauspost/reedsolomon` - Erasure coding
+- `pgregory.net/rapid` - Property testing
 
-## References
+## PR Checklist
 
-- `CLAUDE.md` — comprehensive architecture documentation
-- `.github/copilot-instructions.md` — detailed AI developer instructions
-- `docs/diagrams/architecture.mmd` — Mermaid class diagram
-- `README.md` — full annotation legend and project overview
+1. Add tests demonstrating behavior
+2. Add function annotation (`// A`, `// AC`, etc.)
+3. Run `go test ./...` and `golangci-lint run`
+4. Add/update `Example...` tests for public API changes
+5. Mark production-critical changes with `P` prefix and request human review
+
+## Important Files
+
+- `CLAUDE.md` - Full architecture overview
+- `.github/copilot-instructions.md` - AI developer instructions
+- `docs/diagrams/architecture.mmd` - Architecture diagram
+- `.golangci.yml` - Linting rules
+- `.github/.testcoverage.yml` - Coverage thresholds

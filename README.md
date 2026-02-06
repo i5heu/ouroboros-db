@@ -69,6 +69,12 @@ func manyParametersFunction( // AC
 }
 ```
 
+### Logging policy
+
+**All logging in this repository should use the `pkg/clusterlog` package.** This ensures logs are recorded in the cluster-wide log, emitted to the configured `slog.Logger`, and delivered to subscribers via the Carrier transport where applicable.
+
+Exceptions: an exception is allowed **only** when using `pkg/clusterlog` would create or risk a subscription loop (circular subscriptions) that could cause self-delivery or unbounded propagation. In such cases, document the justification with a clear `// LOGGER` referencing the potential subscription loop.
+
 ## License
 ouroboros-db © 2026 Mia Heidenstedt and contributors   
 SPDX-License-Identifier: AGPL-3.0  
