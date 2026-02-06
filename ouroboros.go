@@ -30,3 +30,7 @@ func New(conf Config) (*OuroborosDB, error) { // A
 		config: conf,
 	}, nil
 }
+
+func GetVersion() string {
+	return CurrentDbVersion
+}
