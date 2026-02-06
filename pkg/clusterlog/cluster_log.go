@@ -1,7 +1,34 @@
-// Package clusterlog provides cluster-wide logging
-// with TTL-based retention, slog output, and
-// push-based subscriber delivery via a Carrier
-// network transport.
+// Package clusterlog provides a small, in-memory, cluster-scoped log.
+//
+// It supports:
+// - Recording log entries (Info/Warn/Debug/Err or Log with an explicit level)
+// - Emitting structured output via slog.Logger
+// - Keeping an in-memory history with TTL-based retention
+// - Querying recent history (Tail, Query, QueryAll, QueryByLevel)
+// - Push delivery to subscribers using an interfaces.Carrier transport
+//
+// Each ClusterLog instance is associated with a single node identity
+// (keys.NodeID). When the local node records a log entry, the entry is stored
+// in memory and pushed to any subscribers registered for that source node.
+//
+// New starts a background cleanup goroutine that periodically removes expired
+// entries. Call Stop to terminate the cleanup goroutine when shutting down.
+//
+// Example:
+//
+//	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+//	carrier := myCarrier{} // implements interfaces.Carrier
+//	selfID := keys.NodeID{1}
+//
+//	cl := clusterlog.New(logger, carrier, selfID)
+//	defer cl.Stop()
+//
+//	ctx := context.Background()
+//	cl.SubscribeLog(ctx, selfID, keys.NodeID{2})
+//	cl.Info(ctx, "hello", map[string]string{"k": "v"})
+//
+//	entries := cl.Tail(10)
+//	_ = entries
 package clusterlog
 
 import (

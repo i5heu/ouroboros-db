@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -11,6 +13,35 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	rapid "pgregory.net/rapid"
 )
+
+func ExampleClusterLog() { // A
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	carrier := &mockCarrier{}
+
+	var self keys.NodeID
+	self[0] = 1
+	var subscriber keys.NodeID
+	subscriber[0] = 2
+
+	cl := New(logger, carrier, self)
+	defer cl.Stop()
+
+	ctx := context.Background()
+	cl.SubscribeLog(ctx, self, subscriber)
+
+	cl.Info(ctx, "hello", map[string]string{"k": "v"})
+	cl.Warn(ctx, "careful", nil)
+
+	entries := cl.Tail(2)
+	fmt.Printf("%s:%s\n", entries[0].Level.String(), entries[0].Message)
+	fmt.Printf("%s:%s\n", entries[1].Level.String(), entries[1].Message)
+	fmt.Printf("pushes:%d\n", len(carrier.getMessages()))
+
+	// Output:
+	// INFO:hello
+	// WARN:careful
+	// pushes:2
+}
 
 func TestAllLogs(t *testing.T) { // AC
 	t.Parallel()
