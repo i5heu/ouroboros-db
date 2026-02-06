@@ -13,6 +13,41 @@
 
 The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of change.
 
+
+## Architecture Overview
+
+### Data Model: Content Pipeline
+
+The core data flow follows a transformation pipeline from cleartext to distributed shards:
+
+```
+Chunk (cleartext)
+  ↓ [encryption via EncryptionService]
+SealedChunk (encrypted with SealedHash for integrity)
+  ↓ [buffering in DistributedWAL]
+DistributedWAL (intake buffer, aggregates until ~16MB)
+  ↓ [batching via SealBlock()]
+Block (DataSection + VertexSection + KeyRegistry + Indexes)
+  ↓ [Reed-Solomon erasure coding]
+BlockSlice (physical shard distributed to cluster nodes)
+```
+
+**Key Data Structures**:
+
+- **Vertex** (formerly "Blob"): DAG node with metadata, parent references, and ChunkHash pointers (stored UNENCRYPTED in Block's VertexSection)
+- **Chunk**: Temporary cleartext content with hash and size
+- **SealedChunk**: Encrypted content with Nonce, OriginalSize, and SealedHash (integrity check without decryption)
+- **Block**: Central archive unit (~16MB) containing:
+  - BlockHeader (metadata, Reed-Solomon params)
+  - DataSection (encrypted SealedChunks)
+  - VertexSection (unencrypted Vertices for DAG structure)
+  - ChunkRegion Index (ChunkHash → byte offset/length)
+  - VertexRegion Index (VertexHash → byte offset/length)
+  - KeyRegistry (map[Hash][]KeyEntry for access control)
+- **KeyEntry**: Per-user encryption key wrapper linking pubKey to chunkHash
+- **BlockSlice**: RS-encoded shard with reconstruction params, distributed across nodes
+
+
 ## Development Notes
 
 ### Legend

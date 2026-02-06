@@ -1,33 +1,126 @@
-# Repository Guidelines
+# AGENTS.md — OuroborosDB Developer Guide
 
-## Project Structure & Module Organization
-- Library root (`ouroboros.go`, `config.go`) exposes `OuroborosDB` with a simple `Config` for paths, logging, and UI port selection.
-- Public packages live in `pkg/`: `pkg/cas` implements content-addressable storage primitives (blobs, chunks, sealed slices) and `pkg/logging` wraps structured logging.
-- Internal services live in `internal/` (`api`, `cluster`, `dataRouting`, `health`, `index`, `node`, `rebalance`, `transport`, `testutil`) and may change without notice; keep new features out of `internal` unless stability is not required.
-- Entry points in `cmd/cli` and `cmd/daemon` are placeholders for tooling; add commands there instead of the library root.
-- Benchmarks sit in `benchmark/` (Docker-based runner plus HTML template) with generated results in `docs/bench-html/`. Heavy local runs are orchestrated by `testHeavy.sh`.
+Guidelines for AI coding agents working on OuroborosDB, a Go-based content-addressable distributed database.
 
-## Build, Test, and Development Commands
-- Use Go 1.24.6. Standard check: `go build ./...` to ensure all packages compile.
-- Fast tests: `go test ./...`; race/soak: `go test -race -count=1 ./...` or `./testHeavy.sh` for race, repeated runs, and benches.
-- Benchmarks only: `go test -bench=. -benchtime=10s ./...` or Dockerized comparisons via `./benchmarkVersions.bash` (writes results to `docs/bench-html/`).
-- Keep dependencies tidy with `go mod tidy` after adding imports. Format with `gofmt -w` or `go fmt ./...`.
+## Build, Test, and Lint Commands
 
-## Coding Style & Naming Conventions
-- Rely on Go defaults: tabs for indentation, CamelCase for exported identifiers, package names short and lower-case.
-- Apply the annotation legend from `README.md`: append `// A`, `// AC`, `// H`, etc. to `func` declarations to record authorship/review state; upgrade high-risk paths to `PHC` before release.
-- Tests live alongside code in `_test.go` files; favor table-driven patterns; prefer slog-based logging via `pkg/logging` or `defaultLogger`.
+### Essential Commands
+```bash
+# Build all packages
+go build ./...
 
-## Testing Guidelines
-- Primary framework is Go’s `testing` package; `internal/testutil` hosts helpers.
-- Coverage gates in `.github/.testcoverage.yml` set 50% minimum for files, packages, and total. Generate profiles with `go test -coverprofile=cover.out ./...`.
-- Name tests `TestXxx`, benchmarks `BenchmarkXxx`, and example snippets `ExampleXxx` to keep tooling discoverable.
+# Run all tests
+go test ./...
 
-## Commit & Pull Request Guidelines
-- Follow the existing log style: concise, imperative messages with optional Conventional Commit prefixes (e.g., `feat: ...`, `docs: ...`); keep scope small.
-- PRs should describe motivation, summarize major code paths touched, link issues, and list how to reproduce or validate (tests, benches). Note any new configuration knobs or data-directory expectations.
-- Before opening a PR, run formatting, `go test ./...`, and (when touching hot paths) the race suite; include function annotations for new or changed logic so reviewers can gauge review depth.
+# Run specific test (e.g., TestNew)
+go test ./... -run TestNew
 
-## Security & Configuration Tips
-- Do not commit real data paths or secrets; `Config.Paths` should point to local scratch directories and only `Paths[0]` is used today.
-- Logging defaults to stderr; set a custom `*slog.Logger` in `Config` for structured output and to control verbosity.
+# Run with race detector
+go test -race -count=1 ./...
+
+# Generate coverage report
+go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+
+# Format code
+go fmt ./...
+
+# Lint (golangci-lint)
+golangci-lint run
+
+# Format and fix lint issues
+golangci-lint run --fix
+
+# Tidy dependencies
+go mod tidy
+```
+
+### Heavy Testing (comprehensive)
+Use `./testHeavy.sh` for thorough validation:
+```bash
+./testHeavy.sh  # Runs race detection, repeated tests, benchmarks, and property tests
+```
+
+## Critical Convention: Function Annotations
+
+**BLOCKING REQUIREMENT**: Every function MUST have an authorship/review annotation on the same line as `func`:
+
+- `// A` — AI-authored, no human review
+- `// AP` — AI-authored, human reviewed with TODO
+- `// AC` — AI-authored, human reviewed and approved
+- `// H` — Human-authored
+- `// HP` — Human-authored with TODO
+- `// HC` — Human comprehended and confident
+
+For production-critical functions, prefix with `P`:
+- `// PAP`, `// PAC`, `// PHC` — must reach `// PHC` before production release
+
+Example:
+```go
+func New(conf Config) (*OuroborosDB, error) { // A
+    // implementation
+}
+
+func criticalOperation() { // PHC
+    // production-ready, human-comprehended
+}
+```
+
+## Code Style Guidelines
+
+### Imports
+- Use standard library first, then third-party, then internal
+- Group imports with blank lines between groups
+- Use `goimports` or `go fmt` for automatic formatting
+
+### Naming Conventions
+- **Exported types/functions**: PascalCase (e.g., `OuroborosDB`, `New`)
+- **Unexported**: camelCase (e.g., `defaultLogger`)
+- **Interfaces**: `-er` suffix (e.g., `Reader`, `Writer`)
+- **Test files**: `*_test.go` alongside source files
+- **Test functions**: `TestXxx`, `BenchmarkXxx`, `ExampleXxx`
+
+### Error Handling
+- Return errors as the last return value
+- Wrap errors with context using `fmt.Errorf("...: %w", err)`
+- Check errors immediately: `if err != nil { return err }`
+- Use `log/slog` for structured logging, never panic in library code
+
+### Types and Structs
+- Prefer concrete types over interfaces for data structures
+- Use embedding for composition
+- Document exported types with comments starting with the type name
+
+### Testing
+- **Coverage Gate**: 50% minimum (files, packages, total)
+- Use table-driven tests
+- Property testing with `pgregory.net/rapid` (set `RAPID_CHECKS` env var)
+- Place test utilities in `internal/testutil`
+
+## Project Structure
+
+- **Root package**: `ouroboros` — main library code (`ouroboros.go`, `config.go`)
+- **cmd/**: CLI and daemon binaries
+- **pkg/**: Public API packages (stable)
+- **internal/**: Implementation details (may change)
+
+## Architecture Notes
+
+- **Content addressing**: Everything identified by cryptographic hash
+- **DAG structure**: Git-like directed acyclic graph via Vertices
+- **Idempotency**: Design operations to be safely retryable
+- **Encryption**: Per-chunk with key wrappers
+- **Replication**: Reed-Solomon encoded BlockSlices distributed across nodes
+
+## Key Dependencies
+
+- `github.com/i5heu/ouroboros-crypt` — encryption/sealing
+- `github.com/dgraph-io/badger/v4` — embedded KV store
+- `github.com/klauspost/reedsolomon` — erasure coding
+- `pgregory.net/rapid` — property-based testing
+
+## References
+
+- `CLAUDE.md` — comprehensive architecture documentation
+- `.github/copilot-instructions.md` — detailed AI developer instructions
+- `docs/diagrams/architecture.mmd` — Mermaid class diagram
+- `README.md` — full annotation legend and project overview
