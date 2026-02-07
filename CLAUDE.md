@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Communication Guidelines
+
+**Always use the `question` tool** to ask users for clarification or decisions before taking actions. Do not make assumptions or proceed without user confirmation on implementation choices, preferences, or ambiguous requirements.
+
 ## Project Overview
 
 OuroborosDB is a content-addressable distributed database library written in Go, currently in early development (v0.1.1-alpha-3, not production-ready). The architecture centers on a Git-like DAG structure with encryption at the chunk level, erasure coding for resilience, and distributed replication across cluster nodes.
@@ -22,7 +26,7 @@ go test ./...
 go test -race -count=1 ./...
 
 # Generate coverage report
-go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+./coverage.sh
 ```
 
 ### Heavy Testing

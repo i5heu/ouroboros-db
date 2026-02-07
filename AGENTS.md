@@ -1,5 +1,9 @@
 # AGENTS.md — OuroborosDB Developer Guidelines
 
+## Communication Guidelines
+
+**Always use the `question` tool** to ask users for clarification or decisions before taking actions. Do not make assumptions or proceed without user confirmation on implementation choices, preferences, or ambiguous requirements.
+
 ## Quick Commands
 
 ```bash
@@ -13,7 +17,7 @@ go test ./... -run TestNew
 go test ./pkg/cas -run TestNew
 
 # Coverage (85% minimum required)
-go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+./coverage.sh
 
 # Heavy testing suite
 ./testHeavy.sh

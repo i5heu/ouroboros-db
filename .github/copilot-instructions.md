@@ -1,12 +1,16 @@
 # Copilot & AI Developer Instructions — OuroborosDB 🔧
 
+## Communication Guidelines
+
+**Always use the `question` tool** to ask users for clarification or decisions before taking actions. Do not make assumptions or proceed without user confirmation on implementation choices, preferences, or ambiguous requirements.
+
 Short summary
 - OuroborosDB is a Go content-addressable DB using a Git-like DAG: Blob → Chunk → SealedSlice. The root library package is `ouroboros`; stable helpers live in `pkg/`; changeable internals live in `internal/`; CLIs/daemons go under `cmd/`.
 
 Quick commands (local parity with CI) ✅
 - Run tests: `go test ./...`
 - Race detector: `go test -race -count=1 ./...`
-- Coverage: `go test ./... -coverprofile=cover.out -covermode=atomic -coverpkg=./...`
+- Coverage: `./coverage.sh`
 - Heavy suite (maintainers): `./testHeavy.sh`
 - Format & lint: `gofumpt`/`goimports`; `golangci-lint run` (`--fix` allowed for auto-fixes)
 
