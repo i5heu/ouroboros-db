@@ -1,6 +1,7 @@
 package node
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -111,10 +112,19 @@ func newCrypt() (c *crypt.Crypt, err error) { // AC
 }
 
 // Json returns the JSON representation of the node.
-func (n Node) Json() (string, error) { // AC
-	b, err := json.Marshal(n)
+func (n Node) Json() (string, error) { // A
+	type nodeJSON struct {
+		NodeID string `json:"nodeId"`
+	}
+
+	data, err := json.Marshal(nodeJSON{
+		NodeID: base64.StdEncoding.EncodeToString(
+			n.nodeID[:],
+		),
+	})
 	if err != nil {
 		return "", err
 	}
-	return string(b), nil
+
+	return string(data), nil
 }
