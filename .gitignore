@@ -6,3 +6,5 @@ data/
 .gomodcache/
 .golangci-cache/
 showContentsOutput.txt
+cover.out
+cover.html
