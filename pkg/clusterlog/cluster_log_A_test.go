@@ -3,6 +3,7 @@ package clusterlog
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -10,14 +11,16 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/node"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	"pgregory.net/rapid"
 )
 
 // mockCarrier records all messages sent via the
 // Carrier interface so tests can inspect them.
 type mockCarrier struct { // A
 	mu       sync.Mutex
-	nodes    []interfaces.Node
+	nodes    []node.Node
 	messages []sentMessage
 }
 
@@ -26,7 +29,7 @@ type sentMessage struct { // A
 	Msg    interfaces.Message
 }
 
-func (m *mockCarrier) GetNodes() []interfaces.Node { // A
+func (m *mockCarrier) GetNodes() []node.Node { // A
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.nodes
@@ -34,12 +37,12 @@ func (m *mockCarrier) GetNodes() []interfaces.Node { // A
 
 func (m *mockCarrier) Broadcast( // A
 	msg interfaces.Message,
-) ([]interfaces.Node, error) {
+) ([]node.Node, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, n := range m.nodes {
 		m.messages = append(m.messages, sentMessage{
-			Target: n.NodeID,
+			Target: n.ID(),
 			Msg:    msg,
 		})
 	}
@@ -60,14 +63,14 @@ func (m *mockCarrier) SendMessageToNode( // A
 }
 
 func (m *mockCarrier) JoinCluster( // A
-	_ interfaces.Node,
+	_ node.Node,
 	_ interfaces.NodeCert,
 ) error {
 	return nil
 }
 
 func (m *mockCarrier) LeaveCluster( // A
-	_ interfaces.Node,
+	_ node.Node,
 ) error {
 	return nil
 }
@@ -91,6 +94,30 @@ func nodeID(b byte) keys.NodeID { // A
 	var id keys.NodeID
 	id[0] = b
 	return id
+}
+
+func createTestNode(t *testing.T) node.Node { // A
+	tmpDir := t.TempDir()
+	n, err := node.New(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create test node: %v", err)
+	}
+	return *n
+}
+
+func createTestNodeRapid(t *rapid.T) node.Node { // A
+	tmpDir, err := os.MkdirTemp("", "node-test-*")
+	if err != nil {
+		panic(fmt.Sprintf("failed to create temp dir: %v", err))
+	}
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+	n, err := node.New(tmpDir)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create test node: %v", err))
+	}
+	return *n
 }
 
 func TestNewAndStop(t *testing.T) { // A
@@ -231,16 +258,16 @@ func TestSubscribeAndPush(t *testing.T) { // A
 }
 
 func TestSubscribeAllAndPush(t *testing.T) { // A
-	self := nodeID(1)
-	other := nodeID(2)
+	selfNode := createTestNode(t)
 	sub := nodeID(3)
 
 	carrier := &mockCarrier{
-		nodes: []interfaces.Node{
-			{NodeID: self},
-			{NodeID: other},
+		nodes: []node.Node{
+			selfNode,
+			createTestNode(t),
 		},
 	}
+	self := selfNode.ID()
 	cl := New(newTestLogger(), carrier, self)
 	defer cl.Stop()
 
@@ -282,13 +309,14 @@ func TestUnsubscribeLog(t *testing.T) { // A
 }
 
 func TestUnsubscribeLogAll(t *testing.T) { // A
-	self := nodeID(1)
+	selfNode := createTestNode(t)
 	sub := nodeID(2)
 	carrier := &mockCarrier{
-		nodes: []interfaces.Node{
-			{NodeID: self},
+		nodes: []node.Node{
+			selfNode,
 		},
 	}
+	self := selfNode.ID()
 	cl := New(newTestLogger(), carrier, self)
 	defer cl.Stop()
 
