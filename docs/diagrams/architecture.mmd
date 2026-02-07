@@ -4,9 +4,56 @@ classDiagram
     }
 
     class Node {
-        +string NodeID
+        +NodeID NodeID
         +[]string Addresses
-        +Cert NodeCert
+        +NodeCert NodeCert
+    }
+
+    %% NodeCert: Node identity certificate payload.
+    %% Contents:
+    %% - Carries the node public key material (composite keys.PublicKey: KEM + Sign).
+    %% - Identifies the issuer CA by hash (IssuerCAHash).
+    %%   - There can be multiple AdminCAs and multiple UserCAs.
+    %%   - IssuerCAHash allows selecting the expected CA without trial-verifying many roots.
+    %% NodeID derivation:
+    %% - NodeID is NOT a free-form name.
+    %% - NodeID is derived ONLY from the node public key material:
+    %%   NodeID = SHA-256(NodePubKey).
+    %% - AdminCA/UserCA signatures authorize the node but do not change its NodeID.
+    %% Signature scope (what is signed):
+    %% - The CA signature MUST be over a canonical serialization of the ENTIRE NodeCert
+    %%   structure (including IssuerCAHash and any future metadata like expiry/constraints).
+    %% - Sign/Verify MUST use cryptographic domain separation to prevent type confusion
+    %%   between different signed payload types.
+    %% - Required form:
+    %%   CA_Signature = Sign(CTX_NODECERT_V1 || CanonicalSerialize(NodeCert))
+    %% - This follows the "what you see is what was signed" rule and prevents mutable fields.
+    %% Identity model:
+    %% - There is NO name/CN/SAN-based identity. The only stable identity is NodeID derived
+    %%   from NodePubKey().
+    %% - Any presented NodeID must be treated as informational unless recomputed from NodePubKey().
+    %% Security (proof of possession / binding):
+    %% - The peer is ONLY authenticated if the QUIC/TLS session proves possession of the
+    %%   private key corresponding to NodePubKey().publicSign.
+    %% - This prevents replay/impersonation if an attacker obtains a valid NodeCert + CA signature.
+    class NodeCert {
+        +NodePubKey() keys.PublicKey
+        +IssuerCAHash() hash.Hash
+        +NodeID() keys.NodeID
+    }
+
+    %% TrustScope: Authentication scope of a connected peer.
+    %% - ScopeAdmin: AdminCA-authorized node.
+    %%   - May perform system/cluster actions.
+    %%   - May request any data (subject to cluster policy), not tied to a specific user.
+    %% - ScopeUser: UserCA-authorized node.
+    %%   - Must be sandboxed; never allow system/cluster actions.
+    %%   - May request ONLY data for users that have authorized this node (i.e., whose UserCA
+    %%     signed/permits the node and whose access proof is presented with the request).
+    class TrustScope {
+        <<Enumeration>>
+        ScopeAdmin
+        ScopeUser
     }
 
     class ClusterController {
@@ -134,8 +181,131 @@ classDiagram
         +Broadcast(message Message) (success []Node, error)
         +SendMessageToNode(nodeID NodeID, message Message) error
         
-        +JoinCluster(clusterNode Node, Cert NodeCert) error
+        +JoinCluster(clusterNode Node, nodeCert NodeCert) error
         +LeaveCluster(clusterNode Node) error
+    }
+
+    %% AdminCA: Cluster admin certificate authority (one trust root).
+    %% Trust model:
+    %% - The cluster may trust MULTIPLE AdminCAs (multi-root). Each AdminCA represents
+    %%   exactly one Admin signing public key + its identifier.
+    %% - AdminCA is verification-only: signing/issuance happens off-device/out-of-band.
+    %% What it verifies:
+    %% - A "node certificate" is the peer-presented NodeCert plus a detached CA signature.
+    %% - VerifyNodeCert checks the CA signature is valid under this Admin pubkey over the
+    %%   domain-separated payload:
+    %%   SignInput = CTX_NODECERT_V1 || CanonicalSerialize(NodeCert)
+    %%   (not over a name or string identifier).
+    %% - On success, the returned NodeID MUST be computed from the NodeCert itself:
+    %%   NodeID = SHA-256(NodeCert.NodePubKey).
+    %% - This verifies issuance/authorization of the NodeCert, NOT proof-of-possession.
+    %% Proof of possession (PoP):
+    %% - PoP is provided by the QUIC/TLS handshake: the peer must prove possession of the
+    %%   private signing key corresponding to NodeCert.NodePubKey().publicSign.
+    %% Hash semantics:
+    %% - Hash() is the SHA-256 identifier of the Admin public key.
+    %% - Nodes can exchange/compare AdminCAHash values to agree on which Admin root is trusted
+    %%   without transmitting full key material.
+    %% Enforcement:
+    %% - A peer is considered an "admin-authorized node" only if (1) VerifyNodeCert succeeds
+    %%   under at least one trusted AdminCA and (2) the NodeID is not revoked by CarrierAuth.
+    class AdminCA {
+        +PubKey() sign.PublicKey
+        +Hash() hash.Hash
+        +VerifyNodeCert(nodeCert NodeCert, caSignature []byte) (nodeID NodeID, error)
+    }
+
+    %% DataClaim: Application-level access claim payload.
+    %% Security:
+    %% - MUST be canonically serialized (no ambiguity across implementations).
+    %% - MUST be domain-separated from NodeCert signatures.
+    %% - Required form for user signatures:
+    %%   UserSignature = Sign(CTX_DATACLAIM_V1 || CanonicalSerialize(DataClaim))
+    %% Notes:
+    %% - The exact fields are application-defined, but MUST include enough information to
+    %%   prevent replay and scope confusion (e.g., request type, resource, nonce/expiry).
+    class DataClaim {
+        +Canonical() []byte
+    }
+
+    %% UserCA: User certificate authority (one trust root).
+    %% Purpose:
+    %% - Represents a user identity root that enables two related checks:
+    %%   (1) user-scoped node admission (node certs signed by this UserCA), and
+    %%   (2) user access proofs for requested data.
+    %% Identification:
+    %% - Hash() is the SHA-256 identifier of the UserCA public key (UserCAHash).
+    %% - Requesting nodes can send only UserCAHash to reference the correct UserCA.
+    %% Access check (high level):
+    %% - Requesting node sends: UserCAHash + userSignature (+ the DataClaim payload).
+    %% - Receiving node resolves UserCA by hash and runs VerifyUserDataClaim over:
+    %%   CTX_DATACLAIM_V1 || CanonicalSerialize(DataClaim).
+    %% - If signature verifies, the request is treated as authorized for the data implied by
+    %%   the signed claim.
+    %% Node admission:
+    %% - VerifyNodeCert validates user-signed node certificates.
+    %% - The signature is always a cryptographic signature over the domain-separated NodeCert
+    %%   payload (never a name):
+    %%   CTX_NODECERT_V1 || CanonicalSerialize(NodeCert).
+    %% - On success, the returned NodeID MUST be computed from the NodeCert itself:
+    %%   NodeID = SHA-256(NodeCert.NodePubKey).
+    %% - Nodes admitted under a UserCA are "user-scoped" and must be restricted to data
+    %%   authorized by that UserCA (not full cluster authority).
+    %% Proof of possession (PoP):
+    %% - As with AdminCA, PoP is provided by the QUIC/TLS handshake using the NodeCert signing key.
+    class UserCA {
+        +PubKey() sign.PublicKey
+        +Hash() hash.Hash
+        +VerifyUserDataClaim(claim DataClaim, userSignature []byte) bool
+        +VerifyNodeCert(nodeCert NodeCert, caSignature []byte) (nodeID NodeID, error)
+    }
+
+    %% CarrierAuth (pkg): Carrier-side authentication + trust-root management.
+    %% Inputs:
+    %% - Carrier extracts identity material from the QUIC handshake:
+    %%   - peerCert: NodeCert
+    %%   - caSignature: detached CA signature over CTX_NODECERT_V1 || canonical(NodeCert)
+    %%   - tlsPeerPubKey: the QUIC/TLS authenticated peer signing public key
+    %%     (the key the peer proved possession of during the TLS handshake)
+    %% Decision:
+    %% - VerifyPeerCert attempts to authenticate the peer as either:
+    %%   - admin-authorized node: NodeCert verifies under a trusted AdminCA, OR
+    %%   - user-scoped node: NodeCert verifies under a trusted UserCA.
+    %% - On success it returns the authenticated NodeID AND the TrustScope.
+    %% - On failure it returns error and the connection MUST be rejected.
+    %% Proof of possession (PoP) requirement:
+    %% - CarrierAuth MUST reject unless tlsPeerPubKey matches peerCert.NodePubKey().publicSign.
+    %% - This binds the presented NodeCert to the transport session and prevents replay.
+    %% Namespace collision requirement:
+    %% - Because NodeID is CA-independent, callers MUST NOT use NodeID alone to grant
+    %%   system privileges.
+    %% - Callers MUST enforce authorization using TrustScope:
+    %%   - ScopeAdmin => eligible for system-level actions and cluster-wide data requests
+    %%   - ScopeUser  => sandboxed; never allow system-level actions
+    %%     - may request ONLY data belonging to users that authorized this node
+    %%       (i.e., requests must carry a matching UserCAHash + valid userSignature proof
+    %%        over CTX_DATACLAIM_V1 || canonical(DataClaim))
+    %% Trust-root management:
+    %% - Add/RemoveAdminPubKey updates the trusted AdminCA set (keyed by AdminCAHash).
+    %% - Add/RemoveUserPubKey updates the trusted UserCA set (keyed by UserCAHash).
+    %% Revocation:
+    %% - RevokeNode denies a NodeID even if it presents a valid certificate.
+    %% - Revocation applies to both admin-authorized and user-scoped nodes.
+    %% - RevokeAdminCA / RevokeUserCA disables a CA by hash (stronger than Remove*; intended
+    %%   to prevent re-adding the same root without an explicit un-revoke policy).
+    %% Authorization boundary (important):
+    %% - Authentication answers "who is the peer node?" (NodeID + which CA validated it).
+    %% - Authorization answers "what may it do?" and must be enforced by higher-level
+    %%   components (e.g., routing/ACL), especially for user-scoped nodes.
+    class CarrierAuth {
+        +VerifyPeerCert(peerCert NodeCert, caSignature []byte, tlsPeerPubKey sign.PublicKey) (nodeID NodeID, scope TrustScope, error)
+        +AddAdminPubKey(pubKey sign.PublicKey) error
+        +RemoveAdminPubKey(pubKeyHash hash.Hash) error
+        +RevokeAdminCA(adminCAHash hash.Hash) error
+        +AddUserPubKey(pubKey sign.PublicKey) error
+        +RemoveUserPubKey(pubKeyHash hash.Hash) error
+        +RevokeUserCA(userCAHash hash.Hash) error
+        +RevokeNode(nodeID NodeID) error
     }
 
     class BootStrapper {
@@ -143,6 +313,11 @@ classDiagram
     }
 
     Carrier "1" *-- "1" BootStrapper : initializes
+    Carrier "1" *-- "1" CarrierAuth : authenticatesVia
+    CarrierAuth ..> "1..*" AdminCA : verifiesPeerCertWith
+    CarrierAuth ..> "0..*" UserCA : verifiesPeerCertOrAccessWith
+    AdminCA ..> Node : validatesAdminSignedNodeCertFor
+    UserCA ..> Node : validatesUserSignedNodeCertFor
 
     class Message  {
         +MessageType Type
