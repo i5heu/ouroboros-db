@@ -19,7 +19,7 @@ linters:
       package-average: 0
     lll:
       # '\t' is counted as 1 character by default, and can be changed with the tab-width option.
-      line-length: 80
+      line-length: 160
       tab-width: 2
     sloglint:
       # Enforce not mixing key-value pairs and attributes.
@@ -94,7 +94,7 @@ formatters:
       extra-rules: true
     golines:
       # Target maximum line length.
-      max-len: 80
+      max-len: 160
       # Length of a tabulation.
       tab-len: 2
       shorten-comments: true
