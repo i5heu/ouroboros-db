@@ -153,8 +153,8 @@ func TestAllLogs(t *testing.T) { // AC
 			// fields match (nil vs empty map considered equal)
 			if (entries[i].Fields == nil) != (expected[i].Fields == nil) {
 				// if one is nil and the other empty, consider equal
-				if !(entries[i].Fields != nil && len(entries[i].Fields) == 0 && expected[i].Fields == nil) &&
-					!(expected[i].Fields != nil && len(expected[i].Fields) == 0 && entries[i].Fields == nil) {
+				if (entries[i].Fields == nil || len(entries[i].Fields) != 0 || expected[i].Fields != nil) &&
+					(expected[i].Fields == nil || len(expected[i].Fields) != 0 || entries[i].Fields != nil) {
 					t.Fatalf(
 						"entry %d fields nil mismatch: got %v want %v",
 						i,

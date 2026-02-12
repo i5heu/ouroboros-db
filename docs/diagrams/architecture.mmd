@@ -38,7 +38,7 @@ classDiagram
     %% - This prevents replay/impersonation if an attacker obtains a valid NodeCert + CA signature.
     class NodeCert {
         +NodePubKey() keys.PublicKey
-        +IssuerCAHash() hash.Hash
+        +IssuerCAHash() CaHash.Hash
         +NodeID() keys.NodeID
     }
 
@@ -214,7 +214,7 @@ classDiagram
     %%   under at least one trusted AdminCA and (2) the NodeID is not revoked by CarrierAuth.
     class AdminCA {
         +PubKey() sign.PublicKey
-        +Hash() hash.Hash
+        +Hash() CaHash.Hash
         +VerifyNodeCert(nodeCert NodeCert, caSignature []byte) (nodeID NodeID, error)
     }
 
@@ -237,7 +237,7 @@ classDiagram
     %% - As with AdminCA, PoP is provided by the QUIC/TLS handshake using the NodeCert signing key.
     class UserCA {
         +PubKey() sign.PublicKey
-        +Hash() hash.Hash
+        +Hash() CaHash.Hash
         +VerifyNodeCert(nodeCert NodeCert, caSignature []byte) (nodeID NodeID, error)
     }
 
@@ -280,11 +280,11 @@ classDiagram
     class CarrierAuth {
         +VerifyPeerCert(peerCert NodeCert, caSignature []byte, tlsPeerPubKey sign.PublicKey) (nodeID NodeID, scope TrustScope, error)
         +AddAdminPubKey(pubKey sign.PublicKey) error
-        +RemoveAdminPubKey(pubKeyHash hash.Hash) error
-        +RevokeAdminCA(adminCAHash hash.Hash) error
+        +RemoveAdminPubKey(pubKeyHash CaHash.Hash) error
+        +RevokeAdminCA(adminCAHash CaHash.Hash) error
         +AddUserPubKey(pubKey sign.PublicKey) error
-        +RemoveUserPubKey(pubKeyHash hash.Hash) error
-        +RevokeUserCA(userCAHash hash.Hash) error
+        +RemoveUserPubKey(pubKeyHash CaHash.Hash) error
+        +RevokeUserCA(userCAHash CaHash.Hash) error
         +RevokeNode(nodeID NodeID) error
     }
 

@@ -6,6 +6,7 @@ package interfaces
 import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/node"
+	"github.com/i5heu/ouroboros-db/pkg/auth"
 )
 
 // MessageType enumerates the kinds of messages
@@ -36,12 +37,6 @@ type Message struct { // AC
 	Payload []byte
 }
 
-// NodeCert holds the cryptographic certificate
-// material for a cluster node.
-type NodeCert struct { // AC
-	PublicKey []byte
-}
-
 // Carrier abstracts the network transport used to
 // communicate between cluster nodes.
 type Carrier interface { // AC
@@ -55,7 +50,7 @@ type Carrier interface { // AC
 	) error
 	JoinCluster(
 		clusterNode node.Node,
-		cert NodeCert,
+		cert *auth.NodeCert,
 	) error
 	LeaveCluster(clusterNode node.Node) error
 }

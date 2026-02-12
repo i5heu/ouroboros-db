@@ -12,6 +12,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/node"
+	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	"pgregory.net/rapid"
 )
@@ -64,7 +65,7 @@ func (m *mockCarrier) SendMessageToNode( // A
 
 func (m *mockCarrier) JoinCluster( // A
 	_ node.Node,
-	_ interfaces.NodeCert,
+	_ *auth.NodeCert,
 ) error {
 	return nil
 }
