@@ -350,10 +350,10 @@ func (cl *ClusterLog) SubscribeLogAll( // AC
 	defer cl.mu.Unlock()
 
 	for _, n := range nodes {
-		if cl.subscribers[n.ID()] == nil {
-			cl.subscribers[n.ID()] = make(map[keys.NodeID]struct{})
+		if cl.subscribers[n.NodeID] == nil {
+			cl.subscribers[n.NodeID] = make(map[keys.NodeID]struct{})
 		}
-		cl.subscribers[n.ID()][subscriberNodeID] = struct{}{}
+		cl.subscribers[n.NodeID][subscriberNodeID] = struct{}{}
 	}
 }
 

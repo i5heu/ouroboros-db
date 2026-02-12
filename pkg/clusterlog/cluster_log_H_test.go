@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/internal/node"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	rapid "pgregory.net/rapid"
 )
@@ -206,14 +205,14 @@ func TestSubscribeUnsubscribe(t *testing.T) { // AC
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		ctx := context.Background()
-		// create a small cluster of nodes including self
+		// create a small cluster of peer nodes
 		n := rapid.IntRange(2, 6).Draw(t, "n")
 		ids := make([]keys.NodeID, 0, n)
-		nodes := make([]node.Node, 0, n)
+		nodes := make([]interfaces.PeerNode, 0, n)
 		for i := 0; i < n; i++ {
-			testNode := createTestNodeRapid(t)
-			ids = append(ids, testNode.ID())
-			nodes = append(nodes, testNode)
+			id := nodeID(byte(i + 1))
+			ids = append(ids, id)
+			nodes = append(nodes, peerNode(id))
 		}
 
 		self := ids[0]

@@ -3,7 +3,6 @@ package clusterlog
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -11,17 +10,15 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/internal/node"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
-	"pgregory.net/rapid"
 )
 
 // mockCarrier records all messages sent via the
 // Carrier interface so tests can inspect them.
 type mockCarrier struct { // A
 	mu       sync.Mutex
-	nodes    []node.Node
+	nodes    []interfaces.PeerNode
 	messages []sentMessage
 }
 
@@ -30,22 +27,80 @@ type sentMessage struct { // A
 	Msg    interfaces.Message
 }
 
-func (m *mockCarrier) GetNodes() []node.Node { // A
+func (m *mockCarrier) GetNodes() []interfaces.PeerNode { // A
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.nodes
 }
 
-func (m *mockCarrier) Broadcast( // A
-	msg interfaces.Message,
-) ([]node.Node, error) {
+func (m *mockCarrier) GetNode( // A
+	nodeID keys.NodeID,
+) (interfaces.PeerNode, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, n := range m.nodes {
-		m.messages = append(m.messages, sentMessage{
-			Target: n.ID(),
-			Msg:    msg,
-		})
+		if n.NodeID == nodeID {
+			return n, nil
+		}
+	}
+	return interfaces.PeerNode{}, nil
+}
+
+func (m *mockCarrier) BroadcastReliable( // A
+	msg interfaces.Message,
+) (
+	[]interfaces.PeerNode,
+	[]interfaces.PeerNode,
+	error,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, n := range m.nodes {
+		m.messages = append(
+			m.messages,
+			sentMessage{
+				Target: n.NodeID,
+				Msg:    msg,
+			},
+		)
+	}
+	return m.nodes, nil, nil
+}
+
+func (m *mockCarrier) SendMessageToNodeReliable( // A
+	nodeID keys.NodeID,
+	msg interfaces.Message,
+) error {
+	return m.SendMessageToNode(nodeID, msg)
+}
+
+func (m *mockCarrier) BroadcastUnreliable( // A
+	msg interfaces.Message,
+) []interfaces.PeerNode {
+	s, _, _ := m.BroadcastReliable(msg)
+	return s
+}
+
+func (m *mockCarrier) SendMessageToNodeUnreliable( // A
+	nodeID keys.NodeID,
+	msg interfaces.Message,
+) error {
+	return m.SendMessageToNode(nodeID, msg)
+}
+
+func (m *mockCarrier) Broadcast( // A
+	msg interfaces.Message,
+) ([]interfaces.PeerNode, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, n := range m.nodes {
+		m.messages = append(
+			m.messages,
+			sentMessage{
+				Target: n.NodeID,
+				Msg:    msg,
+			},
+		)
 	}
 	return m.nodes, nil
 }
@@ -64,16 +119,28 @@ func (m *mockCarrier) SendMessageToNode( // A
 }
 
 func (m *mockCarrier) JoinCluster( // A
-	_ node.Node,
+	_ interfaces.PeerNode,
 	_ *auth.NodeCert,
 ) error {
 	return nil
 }
 
 func (m *mockCarrier) LeaveCluster( // A
-	_ node.Node,
+	_ interfaces.PeerNode,
 ) error {
 	return nil
+}
+
+func (m *mockCarrier) RemoveNode( // A
+	_ keys.NodeID,
+) error {
+	return nil
+}
+
+func (m *mockCarrier) IsConnected( // A
+	_ keys.NodeID,
+) bool {
+	return true
 }
 
 func (m *mockCarrier) getMessages() []sentMessage { // A
@@ -97,28 +164,8 @@ func nodeID(b byte) keys.NodeID { // A
 	return id
 }
 
-func createTestNode(t *testing.T) node.Node { // A
-	tmpDir := t.TempDir()
-	n, err := node.New(tmpDir)
-	if err != nil {
-		t.Fatalf("failed to create test node: %v", err)
-	}
-	return *n
-}
-
-func createTestNodeRapid(t *rapid.T) node.Node { // A
-	tmpDir, err := os.MkdirTemp("", "node-test-*")
-	if err != nil {
-		panic(fmt.Sprintf("failed to create temp dir: %v", err))
-	}
-	defer func() {
-		_ = os.RemoveAll(tmpDir)
-	}()
-	n, err := node.New(tmpDir)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create test node: %v", err))
-	}
-	return *n
+func peerNode(id keys.NodeID) interfaces.PeerNode { // A
+	return interfaces.PeerNode{NodeID: id}
 }
 
 func TestNewAndStop(t *testing.T) { // A
@@ -259,17 +306,17 @@ func TestSubscribeAndPush(t *testing.T) { // A
 }
 
 func TestSubscribeAllAndPush(t *testing.T) { // A
-	selfNode := createTestNode(t)
+	selfID := nodeID(1)
+	otherID := nodeID(2)
 	sub := nodeID(3)
 
 	carrier := &mockCarrier{
-		nodes: []node.Node{
-			selfNode,
-			createTestNode(t),
+		nodes: []interfaces.PeerNode{
+			peerNode(selfID),
+			peerNode(otherID),
 		},
 	}
-	self := selfNode.ID()
-	cl := New(newTestLogger(), carrier, self)
+	cl := New(newTestLogger(), carrier, selfID)
 	defer cl.Stop()
 
 	ctx := context.Background()
@@ -310,15 +357,14 @@ func TestUnsubscribeLog(t *testing.T) { // A
 }
 
 func TestUnsubscribeLogAll(t *testing.T) { // A
-	selfNode := createTestNode(t)
+	selfID := nodeID(1)
 	sub := nodeID(2)
 	carrier := &mockCarrier{
-		nodes: []node.Node{
-			selfNode,
+		nodes: []interfaces.PeerNode{
+			peerNode(selfID),
 		},
 	}
-	self := selfNode.ID()
-	cl := New(newTestLogger(), carrier, self)
+	cl := New(newTestLogger(), carrier, selfID)
 	defer cl.Stop()
 
 	ctx := context.Background()
@@ -527,6 +573,37 @@ func TestLogLevelString(t *testing.T) { // A
 			t.Errorf("LogLevel(%d).String() = %q, "+
 				"want %q", tc.level, got, tc.want)
 		}
+	}
+}
+
+func TestLogEntryIsExpiredUnknownLevel( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	now := time.Now()
+	entry := LogEntry{
+		Timestamp: now.Add(-4 * 24 * time.Hour),
+		Level:     LogLevel(99),
+	}
+	// Unknown level falls back to Info TTL (3d),
+	// so 4d old should be expired.
+	if !entry.isExpired(now) {
+		t.Error(
+			"unknown level should fall back to " +
+				"Info TTL and be expired",
+		)
+	}
+
+	fresh := LogEntry{
+		Timestamp: now.Add(-2 * 24 * time.Hour),
+		Level:     LogLevel(99),
+	}
+	if fresh.isExpired(now) {
+		t.Error(
+			"unknown level 2d old should not be " +
+				"expired (Info TTL = 3d)",
+		)
 	}
 }
 

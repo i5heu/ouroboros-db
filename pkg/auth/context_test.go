@@ -263,3 +263,76 @@ func TestVerifyNodeCertWrongCA(t *testing.T) { // A
 		t.Fatal("expected error for wrong CA key")
 	}
 }
+
+func TestVerifyNodeCertNilCA(t *testing.T) { // A
+	t.Parallel()
+
+	nodeAC := generateKeys(t)
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(t, caPub, nodePub)
+	sig := signCert(t, caAC, cert)
+
+	_, err := verifyNodeCert(nil, cert, sig)
+	if err == nil {
+		t.Fatal("expected error for nil CA key")
+	}
+	if !strings.Contains(
+		err.Error(), "CA public key",
+	) {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyNodeCertNilCert( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+
+	_, err := verifyNodeCert(
+		caPub, nil, []byte("sig"),
+	)
+	if err == nil {
+		t.Fatal("expected error for nil cert")
+	}
+	if !strings.Contains(
+		err.Error(), "node cert must not be nil",
+	) {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyNodeCertNilNodePubKey( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	caHash, err := computeCAHash(caPub)
+	if err != nil {
+		t.Fatalf("computeCAHash: %v", err)
+	}
+
+	// Create a NodeCert with nil public key.
+	cert, err := NewNodeCert(nil, caHash)
+	if err != nil {
+		// If NewNodeCert rejects nil, that is fine;
+		// the guard cannot be reached.
+		t.Skipf("NewNodeCert rejects nil: %v", err)
+	}
+
+	_, err = verifyNodeCert(
+		caPub, cert, []byte("sig"),
+	)
+	if err == nil {
+		t.Fatal(
+			"expected error for nil node pub key",
+		)
+	}
+}
