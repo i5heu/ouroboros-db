@@ -94,6 +94,8 @@ class ClusterDemoApp(App[None]):
         self.binary_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo"
         self.nodes: dict[str, NodeProcess] = {}
         self.stream_tasks: list[asyncio.Task[Any]] = []
+        self._stopping_cluster = False
+        self._startup_task: asyncio.Task[Any] | None = None
 
         # auto-run options (used for reproducing Ctrl+C shutdown)
         self._auto = bool(auto)
@@ -119,7 +121,29 @@ class ClusterDemoApp(App[None]):
         yield Footer()
 
     async def on_mount(self) -> None:
-        asyncio.create_task(self.start_cluster())
+        await self._install_signal_handlers()
+        self._startup_task = asyncio.create_task(self.start_cluster())
+
+    async def _install_signal_handlers(self) -> None:
+        loop = asyncio.get_running_loop()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(
+                    signum,
+                    lambda s=signum: asyncio.create_task(
+                        self._shutdown_from_signal(s)
+                    ),
+                )
+
+    async def _shutdown_from_signal(self, signum: int) -> None:
+        if self._stopping_cluster:
+            return
+        self._broadcast(f"received signal {signum}, shutting down")
+        await self.stop_cluster()
+        self.exit()
+
+    async def action_quit(self) -> None:
+        await self._shutdown_from_signal(signal.SIGINT)
 
     async def start_cluster(self) -> None:
         try:
@@ -268,7 +292,14 @@ class ClusterDemoApp(App[None]):
 
     async def on_node_event(self, message: NodeEvent) -> None:
         payload = message.payload
-        node = self.nodes[message.node]
+        node = self.nodes.get(message.node)
+
+        if node is None:
+            self._write_log(
+                message.node,
+                self._format_event_line(payload),
+            )
+            return
 
         event = payload.get("event", "unknown")
         if event == "ready":
@@ -306,26 +337,36 @@ class ClusterDemoApp(App[None]):
         if node.process.stdin is None:
             self._write_log(node.name, "stdin is closed")
             return
-        node.process.stdin.write(data.encode())
-        await node.process.stdin.drain()
+        try:
+            node.process.stdin.write(data.encode())
+            await node.process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            self._write_log(node.name, "stdin pipe closed")
 
     async def on_shutdown(self) -> None:
         await self.stop_cluster()
 
     async def stop_cluster(self) -> None:
-        for task in self.stream_tasks:
-            task.cancel()
-        await asyncio.gather(
-            *self.stream_tasks,
-            return_exceptions=True,
-        )
+        if self._stopping_cluster:
+            return
+        self._stopping_cluster = True
+        if self._startup_task is not None and not self._startup_task.done():
+            self._startup_task.cancel()
+            with contextlib.suppress(Exception):
+                await self._startup_task
+        nodes = list(self.nodes.values())
 
-        for node in self.nodes.values():
+        for node in nodes:
+            if node.process.stdin is not None:
+                with contextlib.suppress(Exception):
+                    node.process.stdin.close()
+
+        for node in nodes:
             if node.process.returncode is None:
                 with contextlib.suppress(ProcessLookupError):
                     node.process.terminate()
 
-        for node in self.nodes.values():
+        for node in nodes:
             if node.process.returncode is not None:
                 continue
             try:
@@ -336,12 +377,245 @@ class ClusterDemoApp(App[None]):
                 with contextlib.suppress(Exception):
                     await node.process.wait()
 
-        for node in self.nodes.values():
+        if self.stream_tasks:
+            done, pending = await asyncio.wait(
+                self.stream_tasks,
+                timeout=2,
+            )
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                with contextlib.suppress(Exception):
+                    task.result()
+
+        for node in nodes:
+            transport = getattr(node.process, "_transport", None)
+            if transport is None:
+                continue
+            for fd in (0, 1, 2):
+                pipe_transport = transport.get_pipe_transport(fd)
+                if pipe_transport is None:
+                    continue
+                with contextlib.suppress(Exception):
+                    pipe_transport.close()
+
+        for node in nodes:
             shutil.rmtree(node.data_dir, ignore_errors=True)
+
+        self.stream_tasks.clear()
+        self.nodes.clear()
 
     def _write_log(self, node: str, line: str) -> None:
         log = self.query_one(f"#log-{node}", RichLog)
         log.write(line)
+
+    def _broadcast(self, line: str) -> None:
+        for node in NODE_NAMES:
+            self._write_log(node, line)
+
+
+class HeadlessAutoRunner:
+    def __init__(self, auto_msg: str, auto_delay: float) -> None:
+        self.repo_root = Path(__file__).resolve().parent
+        self.binary_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo"
+        self.nodes: dict[str, NodeProcess] = {}
+        self.stream_tasks: list[asyncio.Task[Any]] = []
+        self._stopping_cluster = False
+        self._auto_msg = str(auto_msg)
+        self._auto_delay = float(auto_delay)
+
+    async def run(self) -> None:
+        try:
+            await self._build_binary()
+            await self._spawn_nodes()
+            await self._wait_until_ready()
+            await self._join_mesh()
+            self._broadcast("cluster ready")
+
+            node1 = self.nodes.get("node1")
+            if node1 is not None:
+                await self._write_stdin(node1, f"/send {self._auto_msg}\n")
+
+            await asyncio.sleep(self._auto_delay)
+        finally:
+            await self.stop_cluster()
+
+    async def _build_binary(self) -> None:
+        self._broadcast("building cmd/clusterdemo-A")
+        self.binary_path.parent.mkdir(parents=True, exist_ok=True)
+
+        proc = await asyncio.create_subprocess_exec(
+            "go",
+            "build",
+            "-o",
+            str(self.binary_path),
+            "./cmd/clusterdemo-A",
+            cwd=str(self.repo_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            msg = stderr.decode().strip() or stdout.decode().strip()
+            raise RuntimeError(msg or "go build failed")
+
+    async def _spawn_nodes(self) -> None:
+        for name in NODE_NAMES:
+            data_dir = Path(tempfile.mkdtemp(prefix=f"clusterdemo-A-{name}-"))
+            cmd = [
+                str(self.binary_path),
+                "--node-name",
+                name,
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+                str(data_dir),
+                "--stdin=true",
+            ]
+            if name == "node1":
+                cmd.append("--send-on-stdin=true")
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(self.repo_root),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            runtime = NodeProcess(name=name, process=proc, data_dir=data_dir)
+            self.nodes[name] = runtime
+            self.stream_tasks.append(asyncio.create_task(self._read_stdout(runtime)))
+            self.stream_tasks.append(asyncio.create_task(self._read_stderr(runtime)))
+
+    async def _wait_until_ready(self) -> None:
+        await asyncio.gather(*(self.nodes[name].ready.wait() for name in NODE_NAMES))
+
+    async def _join_mesh(self) -> None:
+        for src in NODE_NAMES:
+            src_node = self.nodes[src]
+            for dst in NODE_NAMES:
+                if src == dst:
+                    continue
+                dst_node = self.nodes[dst]
+                await self._write_stdin(
+                    src_node,
+                    f"/join {dst_node.node_id} {dst_node.listen_addr}\n",
+                )
+
+    async def _read_stdout(self, node: NodeProcess) -> None:
+        assert node.process.stdout is not None
+        while True:
+            raw = await node.process.stdout.readline()
+            if not raw:
+                self._write_log(node.name, "[stdout closed]")
+                return
+
+            line = raw.decode(errors="replace").strip()
+            if line.startswith(EVENT_PREFIX):
+                payload_text = line[len(EVENT_PREFIX) :]
+                try:
+                    payload = json.loads(payload_text)
+                except json.JSONDecodeError:
+                    self._write_log(node.name, line)
+                    continue
+                self._handle_event(node, payload)
+                continue
+
+            self._write_log(node.name, line)
+
+    async def _read_stderr(self, node: NodeProcess) -> None:
+        assert node.process.stderr is not None
+        while True:
+            raw = await node.process.stderr.readline()
+            if not raw:
+                self._write_log(node.name, "[stderr closed]")
+                return
+            line = raw.decode(errors="replace").strip()
+            if any(snippet in line for snippet in IGNORED_STDERR_SNIPPETS):
+                continue
+            if line:
+                self._write_log(node.name, line)
+
+    def _handle_event(self, node: NodeProcess, payload: dict[str, Any]) -> None:
+        if payload.get("event", "unknown") == "ready":
+            node.node_id = payload.get("nodeId", "")
+            node.listen_addr = payload.get("listenAddr", "")
+            node.ready.set()
+        self._write_log(node.name, self._format_event_line(payload))
+
+    def _format_event_line(self, payload: dict[str, Any]) -> str:
+        event = payload.get("event", "unknown")
+        peer = payload.get("peerId", "-")
+        text = payload.get("text", "-")
+        ok = payload.get("success", 0)
+        fail = payload.get("failed", 0)
+        return (
+            f"event:{event} | peer:{peer} | "
+            f"text:{text} | ok:{ok} fail:{fail}"
+        )
+
+    async def _write_stdin(self, node: NodeProcess, data: str) -> None:
+        if node.process.stdin is None:
+            self._write_log(node.name, "stdin is closed")
+            return
+        try:
+            node.process.stdin.write(data.encode())
+            await node.process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            self._write_log(node.name, "stdin pipe closed")
+
+    async def stop_cluster(self) -> None:
+        if self._stopping_cluster:
+            return
+        self._stopping_cluster = True
+        nodes = list(self.nodes.values())
+
+        for node in nodes:
+            if node.process.stdin is not None:
+                with contextlib.suppress(Exception):
+                    node.process.stdin.close()
+
+        for node in nodes:
+            if node.process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    node.process.terminate()
+
+        for node in nodes:
+            if node.process.returncode is not None:
+                continue
+            try:
+                await asyncio.wait_for(node.process.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    node.process.kill()
+                with contextlib.suppress(Exception):
+                    await node.process.wait()
+
+        if self.stream_tasks:
+            await asyncio.gather(*self.stream_tasks, return_exceptions=True)
+
+        for node in nodes:
+            transport = getattr(node.process, "_transport", None)
+            if transport is None:
+                continue
+            for fd in (0, 1, 2):
+                pipe_transport = transport.get_pipe_transport(fd)
+                if pipe_transport is None:
+                    continue
+                with contextlib.suppress(Exception):
+                    pipe_transport.close()
+
+        for node in nodes:
+            shutil.rmtree(node.data_dir, ignore_errors=True)
+
+        self.stream_tasks.clear()
+        self.nodes.clear()
+
+    def _write_log(self, node: str, line: str) -> None:
+        print(f"[{node}] {line}", flush=True)
 
     def _broadcast(self, line: str) -> None:
         for node in NODE_NAMES:
@@ -355,4 +629,7 @@ if __name__ == "__main__":
     parser.add_argument("--auto-delay", type=float, default=0.5, help="seconds to wait after sending before SIGINT")
     args = parser.parse_args()
 
-    ClusterDemoApp(auto=args.auto, auto_msg=args.auto_msg, auto_kill_delay=args.auto_delay).run()
+    if args.auto:
+        asyncio.run(HeadlessAutoRunner(args.auto_msg, args.auto_delay).run())
+    else:
+        ClusterDemoApp(auto=args.auto, auto_msg=args.auto_msg, auto_kill_delay=args.auto_delay).run()
