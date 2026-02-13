@@ -16,6 +16,34 @@ const (
 	maxPayload   = maxPayloadMB * 1024 * 1024
 )
 
+const maxUint32 = ^uint32(0)
+
+func messageTypeToUint32( // A
+	msgType interfaces.MessageType,
+) (uint32, error) {
+	v := int64(msgType)
+	if v < 0 || v > int64(maxUint32) {
+		return 0, fmt.Errorf(
+			"message type out of range: %d",
+			msgType,
+		)
+	}
+	return uint32(v), nil
+}
+
+func intLenToUint32( // A
+	value int,
+) (uint32, error) {
+	if value < 0 || uint64(value) > uint64(maxUint32) {
+		return 0, fmt.Errorf(
+			"length out of uint32 range: %d",
+			value,
+		)
+	}
+	// #nosec G115 -- bounds are validated just above.
+	return uint32(value), nil
+}
+
 // WriteMessage serializes a Message to a writer
 // using length-prefixed framing. Wire format:
 // [4B type big-endian uint32]
@@ -31,14 +59,22 @@ func WriteMessage( // A
 			maxPayloadMB,
 		)
 	}
+	msgType, err := messageTypeToUint32(msg.Type)
+	if err != nil {
+		return err
+	}
+	payloadLen, err := intLenToUint32(len(msg.Payload))
+	if err != nil {
+		return err
+	}
 	var hdr [headerSize]byte
 	binary.BigEndian.PutUint32(
 		hdr[:4],
-		uint32(msg.Type),
+		msgType,
 	)
 	binary.BigEndian.PutUint32(
 		hdr[4:],
-		uint32(len(msg.Payload)),
+		payloadLen,
 	)
 	if _, err := w.Write(hdr[:]); err != nil {
 		return fmt.Errorf("write header: %w", err)
@@ -105,14 +141,22 @@ func SerializeMessage( // A
 			maxPayloadMB,
 		)
 	}
+	msgType, err := messageTypeToUint32(msg.Type)
+	if err != nil {
+		return nil, err
+	}
+	payloadLen, err := intLenToUint32(len(msg.Payload))
+	if err != nil {
+		return nil, err
+	}
 	buf := make([]byte, headerSize+len(msg.Payload))
 	binary.BigEndian.PutUint32(
 		buf[:4],
-		uint32(msg.Type),
+		msgType,
 	)
 	binary.BigEndian.PutUint32(
 		buf[4:8],
-		uint32(len(msg.Payload)),
+		payloadLen,
 	)
 	copy(buf[headerSize:], msg.Payload)
 	return buf, nil
@@ -193,9 +237,13 @@ func writeResponseData( // A
 	if resp.Error != nil {
 		hdr[0] = 1
 	}
+	payloadLen, err := intLenToUint32(len(resp.Payload))
+	if err != nil {
+		return err
+	}
 	binary.BigEndian.PutUint32(
 		hdr[1:5],
-		uint32(len(resp.Payload)),
+		payloadLen,
 	)
 	if _, err := w.Write(hdr[:]); err != nil {
 		return fmt.Errorf(
@@ -243,9 +291,13 @@ func writeResponseError( // A
 		return nil
 	}
 	errMsg := []byte(respErr.Error())
+	errLen, err := intLenToUint32(len(errMsg))
+	if err != nil {
+		return err
+	}
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(
-		lenBuf[:], uint32(len(errMsg)),
+		lenBuf[:], errLen,
 	)
 	if _, err := w.Write(lenBuf[:]); err != nil {
 		return fmt.Errorf(
@@ -261,11 +313,15 @@ func writeResponseMetadata( // A
 	w io.Writer,
 	md map[string]string,
 ) error {
+	entryCount, err := intLenToUint32(len(md))
+	if err != nil {
+		return err
+	}
 	var countBuf [4]byte
 	binary.BigEndian.PutUint32(
-		countBuf[:], uint32(len(md)),
+		countBuf[:], entryCount,
 	)
-	if _, err := w.Write(countBuf[:]); err != nil {
+	if _, err = w.Write(countBuf[:]); err != nil {
 		return fmt.Errorf(
 			"write metadata count: %w", err,
 		)
@@ -298,11 +354,15 @@ func writeLenPrefixed( // A
 	w io.Writer,
 	data []byte,
 ) error {
+	dataLen, err := intLenToUint32(len(data))
+	if err != nil {
+		return err
+	}
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(
-		lenBuf[:], uint32(len(data)),
+		lenBuf[:], dataLen,
 	)
-	if _, err := w.Write(lenBuf[:]); err != nil {
+	if _, err = w.Write(lenBuf[:]); err != nil {
 		return fmt.Errorf(
 			"write length prefix: %w", err,
 		)

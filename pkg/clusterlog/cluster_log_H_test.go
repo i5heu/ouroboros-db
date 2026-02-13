@@ -42,6 +42,7 @@ func ExampleClusterLog() { // A
 	// pushes:2
 }
 
+//nolint:cyclop // property test intentionally exercises many operation branches
 func TestAllLogs(t *testing.T) { // AC
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -201,6 +202,7 @@ func TestAllLogs(t *testing.T) { // AC
 	})
 }
 
+//nolint:cyclop // property test intentionally exercises many operation branches
 func TestSubscribeUnsubscribe(t *testing.T) { // AC
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {

@@ -107,7 +107,9 @@ func (s *nodeSyncImpl) ExchangeNodeList( // A
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
 	}
-	defer stream.Close()
+	defer func() {
+		_ = stream.Close()
+	}()
 
 	// Send our node list
 	allNodes := s.registry.GetAllNodes()

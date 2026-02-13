@@ -222,6 +222,8 @@ func (t *quicTransportImpl) clientTLSConfig() *tls.Config { // A
 		Certificates: []tls.Certificate{
 			t.tlsCert,
 		},
+		// #nosec G402 -- peer identity is verified by CarrierAuth
+		// after handshake using NodeCert and trust scopes.
 		InsecureSkipVerify: true,
 		NextProtos:         []string{alpnProtocol},
 		MinVersion:         tls.VersionTLS13,

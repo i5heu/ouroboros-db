@@ -24,7 +24,12 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
-const eventPrefix = "OB_EVT "
+const (
+	eventPrefix  = "OB_EVT "
+	logKeyPeerID = "peerId"
+	logKeyText   = "text"
+	logKeyError  = "error"
+)
 
 type demoEvent struct { // A
 	Event       string `json:"event"`
@@ -47,11 +52,6 @@ type cliConfig struct { // A
 	enableStdIn   bool
 	sendOnPlainIn bool
 	joinPeers     peerSpecs
-}
-
-type peerSpec struct { // A
-	nodeID keys.NodeID
-	addr   string
 }
 
 type peerSpecs []string
@@ -162,6 +162,28 @@ func run() error { // A
 	defer cancel()
 
 	lines, errs := startLineReader(os.Stdin, cfg.enableStdIn)
+	return runLoop(
+		ctx,
+		lines,
+		errs,
+		cfg,
+		localNode.ID(),
+		carrier,
+		events,
+		cancel,
+	)
+}
+
+func runLoop( // A
+	ctx context.Context,
+	lines <-chan string,
+	errs <-chan error,
+	cfg cliConfig,
+	localNodeID keys.NodeID,
+	carrier interfaces.Carrier,
+	events *eventWriter,
+	cancel context.CancelFunc,
+) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -189,7 +211,7 @@ func run() error { // A
 			err := handleLine(
 				line,
 				cfg.sendOnPlainIn,
-				localNode.ID(),
+				localNodeID,
 				carrier,
 				events,
 				cancel,
@@ -289,7 +311,7 @@ func registerRoutes( // A
 			auth.ScopeUser,
 		},
 		func(
-			_ context.Context,
+			ctx context.Context,
 			msg interfaces.Message,
 			peer keys.NodeID,
 			_ auth.TrustScope,
@@ -310,10 +332,13 @@ func registerRoutes( // A
 				PeerID: encodeNodeID(peer),
 				Text:   payload.Text,
 			})
-			logger.Info(
+			logger.InfoContext(
+				ctx,
 				"received user message",
-				slog.String("peerId", encodeNodeID(peer)),
-				slog.String("text", payload.Text),
+				logKeyPeerID,
+				encodeNodeID(peer),
+				logKeyText,
+				payload.Text,
 			)
 
 			return interfaces.Response{
@@ -324,9 +349,11 @@ func registerRoutes( // A
 		},
 	)
 	if err != nil {
-		logger.Error(
+		logger.ErrorContext(
+			context.Background(),
 			"register user message handler",
-			slog.String("error", err.Error()),
+			logKeyError,
+			err.Error(),
 		)
 	}
 }

@@ -50,54 +50,19 @@ func (ca *CarrierAuth) VerifyPeerCert( // AP
 	caSignature []byte,
 	tlsPeerPubKey *keys.PublicKey,
 ) (keys.NodeID, TrustScope, error) {
-	if ca == nil {
-		return keys.NodeID{}, 0, errors.New(
-			"carrier auth must not be nil",
-		)
+	if err := validateVerifyPeerInputs(
+		ca,
+		peerCert,
+		tlsPeerPubKey,
+	); err != nil {
+		return keys.NodeID{}, 0, err
 	}
 
-	if peerCert == nil {
-		return keys.NodeID{}, 0, errors.New(
-			"peer cert must not be nil",
-		)
-	}
-
-	if tlsPeerPubKey == nil {
-		return keys.NodeID{}, 0, errors.New(
-			"TLS peer public key must not be nil",
-		)
-	}
-
-	if peerCert.NodePubKey() == nil {
-		return keys.NodeID{}, 0, errors.New(
-			"peer cert node public key must not be nil",
-		)
-	}
-
-	// Proof-of-possession: compare the TLS-provided *signing* public key
-	// to the certificate's signing subkey. This follows the spec (TLS may
-	// present only the signing key) while remaining compatible with callers
-	// that pass the full composite public key.
-	{
-		tlsSign, err := tlsPeerPubKey.MarshalBinarySign()
-		if err != nil {
-			return keys.NodeID{}, 0, fmt.Errorf(
-				"marshal TLS peer sign key: %w", err,
-			)
-		}
-
-		certSign, err := peerCert.NodePubKey().MarshalBinarySign()
-		if err != nil {
-			return keys.NodeID{}, 0, fmt.Errorf(
-				"marshal cert sign key: %w", err,
-			)
-		}
-
-		if !bytes.Equal(tlsSign, certSign) {
-			return keys.NodeID{}, 0, errors.New(
-				"TLS peer sign key does not match cert",
-			)
-		}
+	if err := verifyProofOfPossession(
+		tlsPeerPubKey,
+		peerCert,
+	); err != nil {
+		return keys.NodeID{}, 0, err
 	}
 
 	nodeID, err := peerCert.NodeID()
@@ -126,6 +91,55 @@ func (ca *CarrierAuth) VerifyPeerCert( // AP
 	}
 
 	return nodeID, scope, nil
+}
+
+func validateVerifyPeerInputs( // A
+	ca *CarrierAuth,
+	peerCert *NodeCert,
+	tlsPeerPubKey *keys.PublicKey,
+) error {
+	if ca == nil {
+		return errors.New("carrier auth must not be nil")
+	}
+	if peerCert == nil {
+		return errors.New("peer cert must not be nil")
+	}
+	if tlsPeerPubKey == nil {
+		return errors.New("TLS peer public key must not be nil")
+	}
+	if peerCert.NodePubKey() == nil {
+		return errors.New(
+			"peer cert node public key must not be nil",
+		)
+	}
+	return nil
+}
+
+func verifyProofOfPossession( // A
+	tlsPeerPubKey *keys.PublicKey,
+	peerCert *NodeCert,
+) error {
+	tlsSign, err := tlsPeerPubKey.MarshalBinarySign()
+	if err != nil {
+		return fmt.Errorf(
+			"marshal TLS peer sign key: %w", err,
+		)
+	}
+
+	certSign, err := peerCert.NodePubKey().MarshalBinarySign()
+	if err != nil {
+		return fmt.Errorf(
+			"marshal cert sign key: %w", err,
+		)
+	}
+
+	if !bytes.Equal(tlsSign, certSign) {
+		return errors.New(
+			"TLS peer sign key does not match cert",
+		)
+	}
+
+	return nil
 }
 
 // tryVerify attempts verification against admin CAs

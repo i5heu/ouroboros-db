@@ -101,7 +101,9 @@ func TestNodeSyncTriggerNoConnections( // A
 	if err != nil {
 		t.Fatalf("new transport: %v", err)
 	}
-	defer tr.Close()
+	defer func() {
+		_ = tr.Close()
+	}()
 
 	ns := NewNodeSync(
 		reg,

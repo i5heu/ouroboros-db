@@ -8,6 +8,16 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
+func deferCloseNoError( // A
+	t *testing.T,
+	closeFn func() error,
+) {
+	t.Helper()
+	if err := closeFn(); err != nil {
+		t.Errorf("close: %v", err)
+	}
+}
+
 func TestQuicTransportDialAccept( // A
 	t *testing.T,
 ) {
@@ -23,7 +33,7 @@ func TestQuicTransportDialAccept( // A
 	if err != nil {
 		t.Fatalf("transport A: %v", err)
 	}
-	defer tA.Close()
+	defer deferCloseNoError(t, tA.Close)
 
 	tB, err := NewQuicTransport(
 		"127.0.0.1:0",
@@ -33,7 +43,7 @@ func TestQuicTransportDialAccept( // A
 	if err != nil {
 		t.Fatalf("transport B: %v", err)
 	}
-	defer tB.Close()
+	defer deferCloseNoError(t, tB.Close)
 
 	addrA := tA.(*quicTransportImpl).ListenAddr()
 
@@ -58,12 +68,12 @@ func TestQuicTransportDialAccept( // A
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer connB.Close()
+	defer deferCloseNoError(t, connB.Close)
 
 	// Wait for accept
 	select {
 	case connA := <-acceptDone:
-		defer connA.Close()
+		defer deferCloseNoError(t, connA.Close)
 	case err := <-acceptErr:
 		t.Fatalf("accept: %v", err)
 	}
@@ -84,7 +94,7 @@ func TestQuicTransportStreamRoundTrip( // A
 	if err != nil {
 		t.Fatalf("transport A: %v", err)
 	}
-	defer tA.Close()
+	defer deferCloseNoError(t, tA.Close)
 
 	tB, err := NewQuicTransport(
 		"127.0.0.1:0",
@@ -94,7 +104,7 @@ func TestQuicTransportStreamRoundTrip( // A
 	if err != nil {
 		t.Fatalf("transport B: %v", err)
 	}
-	defer tB.Close()
+	defer deferCloseNoError(t, tB.Close)
 
 	addrA := tA.(*quicTransportImpl).ListenAddr()
 
@@ -112,10 +122,10 @@ func TestQuicTransportStreamRoundTrip( // A
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer connB.Close()
+	defer deferCloseNoError(t, connB.Close)
 
 	connA := <-acceptDone
-	defer connA.Close()
+	defer deferCloseNoError(t, connA.Close)
 
 	// Open stream from B, accept on A
 	streamDone := make(chan Stream, 1)
@@ -163,7 +173,7 @@ func TestQuicTransportDatagramRoundTrip( // A
 	if err != nil {
 		t.Fatalf("transport A: %v", err)
 	}
-	defer tA.Close()
+	defer deferCloseNoError(t, tA.Close)
 
 	tB, err := NewQuicTransport(
 		"127.0.0.1:0",
@@ -173,7 +183,7 @@ func TestQuicTransportDatagramRoundTrip( // A
 	if err != nil {
 		t.Fatalf("transport B: %v", err)
 	}
-	defer tB.Close()
+	defer deferCloseNoError(t, tB.Close)
 
 	addrA := tA.(*quicTransportImpl).ListenAddr()
 
@@ -191,10 +201,10 @@ func TestQuicTransportDatagramRoundTrip( // A
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer connB.Close()
+	defer deferCloseNoError(t, connB.Close)
 
 	connA := <-acceptDone
-	defer connA.Close()
+	defer deferCloseNoError(t, connA.Close)
 
 	// Send datagram from B, receive on A
 	msg := []byte("datagram test")
@@ -253,7 +263,7 @@ func TestQuicTransportDialNoAddress( // A
 	if err != nil {
 		t.Fatalf("new transport: %v", err)
 	}
-	defer tr.Close()
+	defer deferCloseNoError(t, tr.Close)
 
 	peer := interfaces.PeerNode{
 		NodeID: keys.NodeID{2},

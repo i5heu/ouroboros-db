@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
@@ -19,7 +21,26 @@ type BootstrapConfig struct { // A
 func (c *BootstrapConfig) LoadFromFile( // A
 	path string,
 ) error {
-	data, err := os.ReadFile(path)
+	if path == "" {
+		return fmt.Errorf("empty path")
+	}
+
+	// sanitize and reject obvious path-traversal attempts
+	clean := filepath.Clean(path)
+	if strings.Contains(clean, "..") {
+		return fmt.Errorf("invalid path: contains '..'")
+	}
+
+	// ensure the target exists and is a regular file
+	info, err := os.Stat(clean)
+	if err != nil {
+		return fmt.Errorf("stat bootstrap config %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("bootstrap config %q is a directory", path)
+	}
+
+	data, err := os.ReadFile(clean)
 	if err != nil {
 		return fmt.Errorf(
 			"read bootstrap config %q: %w",
