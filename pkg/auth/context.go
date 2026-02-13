@@ -10,14 +10,19 @@ import (
 )
 
 const (
-	ctxNodeAdmissionV1 = "CTX_NODE_ADMISSION_V1"
-	certVersion        = 1
+	ctxNodeAdmissionV1  = "CTX_NODE_ADMISSION_V1"
+	ctxNodePopV1        = "CTX_NODE_POP_V1"
+	ctxNodeDelegationV1 = "CTX_NODE_DELEGATION_V1"
+	currentCertVersion  = 2
 )
 
 // canonicalSerialize encodes a NodeCert into a
 // deterministic binary representation:
 // version(1) || len(KEM)(4) || KEM ||
-// len(Sign)(4) || Sign || IssuerCAHash(32).
+// len(Sign)(4) || Sign || IssuerCAHash(32) ||
+// ValidFrom(8, unix-sec BE) ||
+// ValidUntil(8, unix-sec BE) ||
+// Serial(16) || RoleClaims(1) || CertNonce(32).
 func canonicalSerialize( // A
 	cert *NodeCert,
 ) ([]byte, error) {
@@ -49,10 +54,12 @@ func canonicalSerialize( // A
 	}
 
 	size := 1 + 4 + len(kemBytes) +
-		4 + len(signBytes) + len(cert.issuerCAHash)
+		4 + len(signBytes) +
+		len(cert.issuerCAHash) +
+		8 + 8 + 16 + 1 + 32
 	buf := make([]byte, 0, size)
 
-	buf = append(buf, certVersion)
+	buf = append(buf, cert.certVersion)
 
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(
@@ -68,6 +75,25 @@ func canonicalSerialize( // A
 	buf = append(buf, signBytes...)
 
 	buf = append(buf, cert.issuerCAHash[:]...)
+
+	var timeBuf [8]byte
+	binary.BigEndian.PutUint64(
+		timeBuf[:],
+		uint64(cert.validFrom.Unix()),
+	)
+	buf = append(buf, timeBuf[:]...)
+
+	binary.BigEndian.PutUint64(
+		timeBuf[:],
+		uint64(cert.validUntil.Unix()),
+	)
+	buf = append(buf, timeBuf[:]...)
+
+	buf = append(buf, cert.serial[:]...)
+
+	buf = append(buf, uint8(cert.roleClaims))
+
+	buf = append(buf, cert.certNonce[:]...)
 
 	return buf, nil
 }
@@ -89,6 +115,43 @@ func signingPayload( // A
 	payload = append(payload, ctx...)
 	payload = append(payload, canon...)
 
+	return payload, nil
+}
+
+// popSigningPayload builds the signing payload for
+// enrollment proof-of-possession.
+func popSigningPayload( // A
+	challenge []byte,
+) []byte {
+	ctx := []byte(ctxNodePopV1)
+	payload := make(
+		[]byte, 0, len(ctx)+len(challenge),
+	)
+	payload = append(payload, ctx...)
+	payload = append(payload, challenge...)
+	return payload
+}
+
+// delegationSigningPayload builds the domain-separated
+// signing payload for a DelegationProof.
+func delegationSigningPayload( // A
+	proof *DelegationProof,
+) ([]byte, error) {
+	if proof == nil {
+		return nil, errors.New(
+			"delegation proof must not be nil",
+		)
+	}
+	canon, err := canonicalSerializeDelegation(proof)
+	if err != nil {
+		return nil, err
+	}
+	ctx := []byte(ctxNodeDelegationV1)
+	payload := make(
+		[]byte, 0, len(ctx)+len(canon),
+	)
+	payload = append(payload, ctx...)
+	payload = append(payload, canon...)
 	return payload, nil
 }
 

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"encoding/binary"
 	"strings"
 	"testing"
 )
@@ -9,14 +10,16 @@ import (
 func TestCanonicalSerializeDeterministic( // A
 	t *testing.T,
 ) {
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
-	caHash := HashBytes([]byte("test-ca"))
+	t.Parallel()
 
-	cert, err := NewNodeCert(pub, caHash)
-	if err != nil {
-		t.Fatalf("NewNodeCert: %v", err)
-	}
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
 
 	b1, err := canonicalSerialize(cert)
 	if err != nil {
@@ -38,15 +41,18 @@ func TestCanonicalSerializeDeterministic( // A
 func TestCanonicalSerializeDifferentCerts( // A
 	t *testing.T,
 ) {
-	ac1 := generateKeys(t)
-	ac2 := generateKeys(t)
-	caHash := HashBytes([]byte("test-ca"))
+	t.Parallel()
 
-	cert1, _ := NewNodeCert(
-		pubKeyPtr(t, ac1), caHash,
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	node1AC := generateKeys(t)
+	node2AC := generateKeys(t)
+
+	cert1 := buildTestCert(
+		t, caPub, pubKeyPtr(t, node1AC), ScopeAdmin,
 	)
-	cert2, _ := NewNodeCert(
-		pubKeyPtr(t, ac2), caHash,
+	cert2 := buildTestCert(
+		t, caPub, pubKeyPtr(t, node2AC), ScopeAdmin,
 	)
 
 	b1, _ := canonicalSerialize(cert1)
@@ -63,42 +69,160 @@ func TestCanonicalSerializeDifferentCerts( // A
 func TestCanonicalSerializeStartsWithVersion( // A
 	t *testing.T,
 ) {
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
-	caHash := HashBytes([]byte("ca"))
+	t.Parallel()
 
-	cert, _ := NewNodeCert(pub, caHash)
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeUser,
+	)
+
 	b, err := canonicalSerialize(cert)
 	if err != nil {
 		t.Fatalf("canonicalSerialize: %v", err)
 	}
 
-	if b[0] != certVersion {
+	if b[0] != currentCertVersion {
 		t.Errorf(
 			"first byte = %d, want %d",
-			b[0], certVersion,
+			b[0], currentCertVersion,
 		)
 	}
 }
 
-func TestCanonicalSerializeEndsWithCAHash( // A
+func TestCanonicalSerializeEndsWithCertNonce( // A
 	t *testing.T,
 ) {
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
-	caHash := HashBytes([]byte("ca"))
+	t.Parallel()
 
-	cert, _ := NewNodeCert(pub, caHash)
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
+
 	b, err := canonicalSerialize(cert)
 	if err != nil {
 		t.Fatalf("canonicalSerialize: %v", err)
 	}
 
 	suffix := b[len(b)-32:]
-	if !bytes.Equal(suffix, caHash.Bytes()) {
+	nonce := cert.CertNonce()
+	if !bytes.Equal(suffix, nonce[:]) {
 		t.Error(
 			"serialization should end with " +
-				"IssuerCAHash",
+				"CertNonce",
+		)
+	}
+}
+
+func TestCanonicalSerializeFieldOrdering( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
+
+	b, err := canonicalSerialize(cert)
+	if err != nil {
+		t.Fatalf("canonicalSerialize: %v", err)
+	}
+
+	// version(1)
+	offset := 0
+	if b[offset] != currentCertVersion {
+		t.Errorf(
+			"version at offset 0: got %d, want %d",
+			b[offset], currentCertVersion,
+		)
+	}
+	offset++
+
+	// len(KEM)(4) || KEM
+	kemLen := binary.BigEndian.Uint32(
+		b[offset : offset+4],
+	)
+	offset += 4 + int(kemLen)
+
+	// len(Sign)(4) || Sign
+	signLen := binary.BigEndian.Uint32(
+		b[offset : offset+4],
+	)
+	offset += 4 + int(signLen)
+
+	// IssuerCAHash(32)
+	caHash := cert.IssuerCAHash()
+	if !bytes.Equal(
+		b[offset:offset+32], caHash[:],
+	) {
+		t.Error("IssuerCAHash mismatch at expected offset")
+	}
+	offset += 32
+
+	// ValidFrom(8, BE)
+	vfUnix := binary.BigEndian.Uint64(
+		b[offset : offset+8],
+	)
+	if int64(vfUnix) != cert.ValidFrom().Unix() {
+		t.Errorf(
+			"validFrom: got %d, want %d",
+			int64(vfUnix), cert.ValidFrom().Unix(),
+		)
+	}
+	offset += 8
+
+	// ValidUntil(8, BE)
+	vuUnix := binary.BigEndian.Uint64(
+		b[offset : offset+8],
+	)
+	if int64(vuUnix) != cert.ValidUntil().Unix() {
+		t.Errorf(
+			"validUntil: got %d, want %d",
+			int64(vuUnix), cert.ValidUntil().Unix(),
+		)
+	}
+	offset += 8
+
+	// Serial(16)
+	serial := cert.Serial()
+	if !bytes.Equal(b[offset:offset+16], serial[:]) {
+		t.Error("serial mismatch at expected offset")
+	}
+	offset += 16
+
+	// RoleClaims(1)
+	if b[offset] != uint8(cert.RoleClaims()) {
+		t.Errorf(
+			"roleClaims: got %d, want %d",
+			b[offset], uint8(cert.RoleClaims()),
+		)
+	}
+	offset++
+
+	// CertNonce(32)
+	nonce := cert.CertNonce()
+	if !bytes.Equal(b[offset:offset+32], nonce[:]) {
+		t.Error("certNonce mismatch at expected offset")
+	}
+	offset += 32
+
+	if offset != len(b) {
+		t.Errorf(
+			"unexpected trailing bytes: consumed %d, total %d",
+			offset, len(b),
 		)
 	}
 }
@@ -106,11 +230,17 @@ func TestCanonicalSerializeEndsWithCAHash( // A
 func TestSigningPayloadHasContextPrefix( // A
 	t *testing.T,
 ) {
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
-	caHash := HashBytes([]byte("ca"))
+	t.Parallel()
 
-	cert, _ := NewNodeCert(pub, caHash)
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
+
 	payload, err := signingPayload(cert)
 	if err != nil {
 		t.Fatalf("signingPayload: %v", err)
@@ -130,11 +260,17 @@ func TestSigningPayloadHasContextPrefix( // A
 func TestSigningPayloadContainsCanonical( // A
 	t *testing.T,
 ) {
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
-	caHash := HashBytes([]byte("ca"))
+	t.Parallel()
 
-	cert, _ := NewNodeCert(pub, caHash)
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeUser,
+	)
+
 	payload, _ := signingPayload(cert)
 	canon, _ := canonicalSerialize(cert)
 
@@ -147,9 +283,211 @@ func TestSigningPayloadContainsCanonical( // A
 	}
 }
 
+func TestPopSigningPayloadPrefix( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	challenge := []byte("test-challenge-data")
+	payload := popSigningPayload(challenge)
+
+	prefix := string(
+		payload[:len(ctxNodePopV1)],
+	)
+	if prefix != ctxNodePopV1 {
+		t.Errorf(
+			"prefix = %q, want %q",
+			prefix, ctxNodePopV1,
+		)
+	}
+}
+
+func TestPopSigningPayloadContainsChallenge( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	challenge := []byte("my-challenge-bytes")
+	payload := popSigningPayload(challenge)
+
+	tail := payload[len(ctxNodePopV1):]
+	if !bytes.Equal(tail, challenge) {
+		t.Error(
+			"payload tail should equal challenge",
+		)
+	}
+}
+
+func TestPopSigningPayloadDeterministic( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	challenge := []byte("deterministic-test")
+
+	p1 := popSigningPayload(challenge)
+	p2 := popSigningPayload(challenge)
+
+	if !bytes.Equal(p1, p2) {
+		t.Error(
+			"popSigningPayload not deterministic",
+		)
+	}
+}
+
+func TestPopSigningPayloadDiffChallenge( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	p1 := popSigningPayload([]byte("alpha"))
+	p2 := popSigningPayload([]byte("beta"))
+
+	if bytes.Equal(p1, p2) {
+		t.Error(
+			"different challenges should produce " +
+				"different payloads",
+		)
+	}
+}
+
+func TestPopSigningPayloadEmpty( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	payload := popSigningPayload(nil)
+	if !bytes.Equal(
+		payload, []byte(ctxNodePopV1),
+	) {
+		t.Error(
+			"nil challenge should yield only prefix",
+		)
+	}
+}
+
+func TestDelegationSigningPayloadPrefix( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+	sessionAC := generateKeys(t)
+	sessionPub := pubKeyPtr(t, sessionAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
+	x509FP := testNonce(t)
+	proof := buildTestDelegation(
+		t, sessionPub, cert, x509FP,
+	)
+
+	payload, err := delegationSigningPayload(proof)
+	if err != nil {
+		t.Fatalf(
+			"delegationSigningPayload: %v", err,
+		)
+	}
+
+	prefix := string(
+		payload[:len(ctxNodeDelegationV1)],
+	)
+	if prefix != ctxNodeDelegationV1 {
+		t.Errorf(
+			"prefix = %q, want %q",
+			prefix, ctxNodeDelegationV1,
+		)
+	}
+}
+
+func TestDelegationSigningPayloadContainsCanon( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+	sessionAC := generateKeys(t)
+	sessionPub := pubKeyPtr(t, sessionAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeUser,
+	)
+	x509FP := testNonce(t)
+	proof := buildTestDelegation(
+		t, sessionPub, cert, x509FP,
+	)
+
+	payload, _ := delegationSigningPayload(proof)
+	canon, _ := canonicalSerializeDelegation(proof)
+
+	tail := payload[len(ctxNodeDelegationV1):]
+	if !bytes.Equal(tail, canon) {
+		t.Error(
+			"delegation payload tail should " +
+				"equal canonical serialization",
+		)
+	}
+}
+
+func TestDelegationSigningPayloadNilProof( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	_, err := delegationSigningPayload(nil)
+	if err == nil {
+		t.Fatal("expected error for nil proof")
+	}
+	if !strings.Contains(
+		err.Error(), "must not be nil",
+	) {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDelegationSigningPayloadDeterministic( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+	sessionAC := generateKeys(t)
+	sessionPub := pubKeyPtr(t, sessionAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
+	x509FP := testNonce(t)
+	proof := buildTestDelegation(
+		t, sessionPub, cert, x509FP,
+	)
+
+	p1, _ := delegationSigningPayload(proof)
+	p2, _ := delegationSigningPayload(proof)
+
+	if !bytes.Equal(p1, p2) {
+		t.Error(
+			"delegationSigningPayload " +
+				"not deterministic",
+		)
+	}
+}
+
 func TestComputeCAHashDeterministic( // A
 	t *testing.T,
 ) {
+	t.Parallel()
+
 	ac := generateKeys(t)
 	pub := pubKeyPtr(t, ac)
 
@@ -171,6 +509,8 @@ func TestComputeCAHashDeterministic( // A
 func TestComputeCAHashDifferentKeys( // A
 	t *testing.T,
 ) {
+	t.Parallel()
+
 	ac1 := generateKeys(t)
 	ac2 := generateKeys(t)
 
@@ -186,6 +526,8 @@ func TestComputeCAHashDifferentKeys( // A
 }
 
 func TestComputeCAHashNotZero(t *testing.T) { // A
+	t.Parallel()
+
 	ac := generateKeys(t)
 	h, err := computeCAHash(pubKeyPtr(t, ac))
 	if err != nil {
@@ -197,12 +539,16 @@ func TestComputeCAHashNotZero(t *testing.T) { // A
 }
 
 func TestVerifyNodeCertValid(t *testing.T) { // A
+	t.Parallel()
+
 	caAC := generateKeys(t)
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
 	sig := signCert(t, caAC, cert)
 
 	nodeID, err := verifyNodeCert(
@@ -221,15 +567,41 @@ func TestVerifyNodeCertValid(t *testing.T) { // A
 	}
 }
 
-func TestVerifyNodeCertWrongSignature( // A
-	t *testing.T,
-) {
+func TestVerifyNodeCertUserRole(t *testing.T) { // A
+	t.Parallel()
+
 	caAC := generateKeys(t)
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeUser,
+	)
+	sig := signCert(t, caAC, cert)
+
+	_, err := verifyNodeCert(caPub, cert, sig)
+	if err != nil {
+		t.Fatalf(
+			"verifyNodeCert with ScopeUser: %v",
+			err,
+		)
+	}
+}
+
+func TestVerifyNodeCertWrongSignature( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
 
 	badSig := []byte("not-a-valid-signature")
 	_, err := verifyNodeCert(
@@ -246,6 +618,8 @@ func TestVerifyNodeCertWrongSignature( // A
 }
 
 func TestVerifyNodeCertWrongCA(t *testing.T) { // A
+	t.Parallel()
+
 	caAC := generateKeys(t)
 	caPub := pubKeyPtr(t, caAC)
 	otherAC := generateKeys(t)
@@ -253,7 +627,9 @@ func TestVerifyNodeCertWrongCA(t *testing.T) { // A
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
 	sig := signCert(t, caAC, cert)
 
 	_, err := verifyNodeCert(
@@ -272,7 +648,9 @@ func TestVerifyNodeCertNilCA(t *testing.T) { // A
 	caPub := pubKeyPtr(t, caAC)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(
+		t, caPub, nodePub, ScopeAdmin,
+	)
 	sig := signCert(t, caAC, cert)
 
 	_, err := verifyNodeCert(nil, cert, sig)
@@ -319,20 +697,21 @@ func TestVerifyNodeCertNilNodePubKey( // A
 		t.Fatalf("computeCAHash: %v", err)
 	}
 
-	// Create a NodeCert with nil public key.
-	cert, err := NewNodeCert(nil, caHash)
-	if err != nil {
-		// If NewNodeCert rejects nil, that is fine;
-		// the guard cannot be reached.
-		t.Skipf("NewNodeCert rejects nil: %v", err)
-	}
-
-	_, err = verifyNodeCert(
-		caPub, cert, []byte("sig"),
-	)
+	// NewNodeCert rejects nil public key; verify that.
+	_, err = NewNodeCert(NodeCertParams{
+		NodePubKey:   nil,
+		IssuerCAHash: caHash,
+		Serial:       testSerial(t),
+		CertNonce:    testNonce(t),
+	})
 	if err == nil {
 		t.Fatal(
-			"expected error for nil node pub key",
+			"NewNodeCert should reject nil public key",
 		)
+	}
+	if !strings.Contains(
+		err.Error(), "node public key",
+	) {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

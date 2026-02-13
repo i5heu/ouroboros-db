@@ -52,6 +52,8 @@ type PeerNode struct { // A
 type NodeInfo struct { // A
 	Peer             PeerNode
 	CASignature      []byte
+	DelegationProof  *auth.DelegationProof
+	DelegationSig    []byte
 	LastSeen         time.Time
 	ConnectionStatus ConnectionStatus
 	TrustScope       auth.TrustScope

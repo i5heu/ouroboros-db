@@ -30,6 +30,7 @@ const ( // AC
 	MessageTypeBlockSyncRequest
 	MessageTypeLogPush
 	MessageTypeLogSendResponse
+	MessageTypeAuthHandshake
 )
 
 // UserMessagePayload is the payload for

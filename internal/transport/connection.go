@@ -14,4 +14,8 @@ type Connection interface { // A
 	SendDatagram(data []byte) error
 	ReceiveDatagram() ([]byte, error)
 	Close() error
+	// PeerCertificatesDER returns the raw DER-encoded
+	// X.509 certificates presented by the peer during
+	// the TLS handshake.
+	PeerCertificatesDER() [][]byte
 }

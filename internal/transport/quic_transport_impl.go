@@ -214,6 +214,9 @@ func (t *quicTransportImpl) serverTLSConfig() *tls.Config { // A
 		ClientAuth:   tls.RequireAnyClientCert,
 		NextProtos:   []string{alpnProtocol},
 		MinVersion:   tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{
+			tls.X25519MLKEM768,
+		},
 	}
 }
 
@@ -227,6 +230,9 @@ func (t *quicTransportImpl) clientTLSConfig() *tls.Config { // A
 		InsecureSkipVerify: true,
 		NextProtos:         []string{alpnProtocol},
 		MinVersion:         tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{
+			tls.X25519MLKEM768,
+		},
 	}
 }
 

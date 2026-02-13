@@ -3,6 +3,7 @@ package auth
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewAdminCA(t *testing.T) { // A
@@ -80,7 +81,7 @@ func TestAdminCAVerifyNodeCert(t *testing.T) { // A
 		t.Fatalf("NewAdminCA: %v", err)
 	}
 
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(t, caPub, nodePub, ScopeAdmin)
 	sig := signCert(t, caAC, cert)
 
 	nodeID, err := admin.VerifyNodeCert(cert, sig)
@@ -106,7 +107,7 @@ func TestAdminCAVerifyNodeCertBadSig( // A
 	nodePub := pubKeyPtr(t, nodeAC)
 
 	admin, _ := NewAdminCA(caPub)
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(t, caPub, nodePub, ScopeAdmin)
 
 	_, err := admin.VerifyNodeCert(
 		cert, []byte("bad"),
@@ -130,7 +131,7 @@ func TestAdminCAVerifyNodeCertWrongCA( // A
 	admin, _ := NewAdminCA(
 		pubKeyPtr(t, otherAC),
 	)
-	cert := buildTestCert(t, caPub, nodePub)
+	cert := buildTestCert(t, caPub, nodePub, ScopeAdmin)
 	sig := signCert(t, caAC, cert)
 
 	_, err := admin.VerifyNodeCert(cert, sig)
@@ -162,7 +163,15 @@ func TestAdminCAVerifyNodeCertIssuerMismatch( // A
 		t.Fatalf("computeCAHash: %v", err)
 	}
 
-	cert, err := NewNodeCert(nodePub, wrongIssuerHash)
+	cert, err := NewNodeCert(NodeCertParams{
+		NodePubKey:   nodePub,
+		IssuerCAHash: wrongIssuerHash,
+		ValidFrom:    time.Now().Add(-time.Hour),
+		ValidUntil:   time.Now().Add(time.Hour),
+		Serial:       testSerial(t),
+		RoleClaims:   ScopeAdmin,
+		CertNonce:    testNonce(t),
+	})
 	if err != nil {
 		t.Fatalf("NewNodeCert: %v", err)
 	}

@@ -28,6 +28,14 @@ func (c *quicConnection) NodeID() keys.NodeID { // A
 	return c.nodeID
 }
 
+// setNodeID updates the node identity after auth
+// verification completes.
+func (c *quicConnection) setNodeID( // A
+	id keys.NodeID,
+) {
+	c.nodeID = id
+}
+
 func (c *quicConnection) OpenStream() ( // A
 	Stream,
 	error,
@@ -72,4 +80,16 @@ func (c *quicConnection) Close() error { // A
 		0,
 		"graceful close",
 	)
+}
+
+// PeerCertificatesDER returns the raw DER-encoded peer
+// certificates from the TLS handshake.
+func (c *quicConnection) PeerCertificatesDER() [][]byte { // A
+	state := c.inner.ConnectionState()
+	certs := state.TLS.PeerCertificates
+	out := make([][]byte, len(certs))
+	for i, cert := range certs {
+		out[i] = cert.Raw
+	}
+	return out
 }

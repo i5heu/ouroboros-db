@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
@@ -12,17 +13,49 @@ import (
 // CarrierAuth manages trust roots and authenticates
 // peers during QUIC/TLS handshakes.
 type CarrierAuth struct { // H
-	mu           sync.RWMutex
-	adminCAs     map[CaHash]*AdminCA
-	userCAs      map[CaHash]*UserCA
-	revokedNodes map[keys.NodeID]struct{}
-	revokedAdmin map[CaHash]struct{}
-	revokedUser  map[CaHash]struct{}
+	mu              sync.RWMutex
+	adminCAs        map[CaHash]*AdminCA
+	userCAs         map[CaHash]*UserCA
+	revokedNodes    map[keys.NodeID]struct{}
+	revokedAdmin    map[CaHash]struct{}
+	revokedUser     map[CaHash]struct{}
+	nonceCache      *NonceCache
+	clock           Clock
+	revocationFresh map[CaHash]time.Time
+	freshnessTTL    time.Duration
+	maxDelegTTL     time.Duration
 }
 
-// NewCarrierAuth creates an empty CarrierAuth with no
-// trusted CAs or revocations.
-func NewCarrierAuth() *CarrierAuth { // H
+// CarrierAuthConfig holds configuration for creating a
+// CarrierAuth.
+type CarrierAuthConfig struct { // A
+	Clock        Clock
+	NonceTTL     time.Duration
+	FreshnessTTL time.Duration
+	MaxDelegTTL  time.Duration
+}
+
+// NewCarrierAuth creates a CarrierAuth with the given
+// configuration.
+func NewCarrierAuth( // H
+	cfg CarrierAuthConfig,
+) *CarrierAuth {
+	clk := cfg.Clock
+	if clk == nil {
+		clk = realClock{}
+	}
+	nonceTTL := cfg.NonceTTL
+	if nonceTTL == 0 {
+		nonceTTL = 5 * time.Minute
+	}
+	freshnessTTL := cfg.FreshnessTTL
+	if freshnessTTL == 0 {
+		freshnessTTL = time.Hour
+	}
+	maxDelegTTL := cfg.MaxDelegTTL
+	if maxDelegTTL == 0 {
+		maxDelegTTL = 5 * time.Minute
+	}
 	return &CarrierAuth{
 		adminCAs: make(
 			map[CaHash]*AdminCA,
@@ -39,143 +72,368 @@ func NewCarrierAuth() *CarrierAuth { // H
 		revokedUser: make(
 			map[CaHash]struct{},
 		),
+		nonceCache: NewNonceCache(
+			nonceTTL, clk,
+		),
+		clock: clk,
+		revocationFresh: make(
+			map[CaHash]time.Time,
+		),
+		freshnessTTL: freshnessTTL,
+		maxDelegTTL:  maxDelegTTL,
 	}
 }
 
-// VerifyPeerCert authenticates a peer by checking
-// proof-of-possession, CA signature validity, and
-// revocation status. Returns the NodeID and TrustScope.
+// VerifyPeerCertParams holds all inputs for the 6-step
+// peer certificate verification pipeline.
+type VerifyPeerCertParams struct { // A
+	PeerCert           *NodeCert
+	CASignature        []byte
+	DelegationProof    *DelegationProof
+	DelegationSig      []byte
+	TLSSessionPubKey   *keys.PublicKey
+	TLSX509Fingerprint [32]byte
+	TLSTranscriptHash  []byte
+}
+
+// VerifyPeerCert authenticates a peer through a 6-step
+// pipeline: issuer discovery, validity/revocation,
+// CA signature, delegation binding, replay defense,
+// and role extraction.
 func (ca *CarrierAuth) VerifyPeerCert( // AP
-	peerCert *NodeCert,
-	caSignature []byte,
-	tlsPeerPubKey *keys.PublicKey,
+	params VerifyPeerCertParams,
 ) (keys.NodeID, TrustScope, error) {
-	if err := validateVerifyPeerInputs(
-		ca,
-		peerCert,
-		tlsPeerPubKey,
+	if err := validateVerifyInputs(
+		ca, params,
 	); err != nil {
 		return keys.NodeID{}, 0, err
-	}
-
-	if err := verifyProofOfPossession(
-		tlsPeerPubKey,
-		peerCert,
-	); err != nil {
-		return keys.NodeID{}, 0, err
-	}
-
-	nodeID, err := peerCert.NodeID()
-	if err != nil {
-		return keys.NodeID{}, 0, fmt.Errorf(
-			"derive node ID: %w", err,
-		)
 	}
 
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
 
-	if _, ok := ca.revokedNodes[nodeID]; ok {
-		return keys.NodeID{}, 0, errors.New(
-			"node is revoked",
-		)
+	caType, caPubKey, err := ca.step1IssuerDiscovery(
+		params.PeerCert.IssuerCAHash(),
+	)
+	if err != nil {
+		return keys.NodeID{}, 0, err
 	}
 
-	issuer := peerCert.IssuerCAHash()
+	if err := ca.step2ValidityRevocation(
+		params.PeerCert,
+	); err != nil {
+		return keys.NodeID{}, 0, err
+	}
 
-	scope, vErr := ca.tryVerify(
-		peerCert, caSignature, issuer,
+	nodeID, err := step3AuthorityVerify(
+		caPubKey, params.PeerCert, params.CASignature,
 	)
-	if vErr != nil {
-		return keys.NodeID{}, 0, vErr
+	if err != nil {
+		return keys.NodeID{}, 0, err
+	}
+
+	if err := step4DelegationBinding(
+		params,
+	); err != nil {
+		return keys.NodeID{}, 0, err
+	}
+
+	if err := ca.step5ReplayDefense(
+		params,
+	); err != nil {
+		return keys.NodeID{}, 0, err
+	}
+
+	scope, err := step6RoleExtraction(
+		params.PeerCert, caType,
+	)
+	if err != nil {
+		return keys.NodeID{}, 0, err
 	}
 
 	return nodeID, scope, nil
 }
 
-func validateVerifyPeerInputs( // A
+// caType distinguishes admin from user CAs during
+// verification.
+type caType int // A
+
+const ( // A
+	caTypeAdmin caType = iota
+	caTypeUser
+)
+
+// step1IssuerDiscovery looks up the issuer CA by hash.
+// Returns the CA type and public key. Must be called
+// with mu held.
+func (ca *CarrierAuth) step1IssuerDiscovery( // A
+	issuer CaHash,
+) (caType, *keys.PublicKey, error) {
+	if admin, ok := ca.adminCAs[issuer]; ok {
+		return caTypeAdmin, admin.PubKey(), nil
+	}
+	if user, ok := ca.userCAs[issuer]; ok {
+		return caTypeUser, user.PubKey(), nil
+	}
+	return 0, nil, errors.New(
+		"no trusted CA found for issuer",
+	)
+}
+
+// step2ValidityRevocation checks time validity,
+// node revocation, CA revocation, and revocation
+// freshness. Must be called with mu held.
+func (ca *CarrierAuth) step2ValidityRevocation( // A
+	cert *NodeCert,
+) error {
+	now := ca.clock.Now()
+	if now.Before(cert.ValidFrom()) {
+		return errors.New("cert is not yet valid")
+	}
+	if now.After(cert.ValidUntil()) {
+		return errors.New("cert has expired")
+	}
+
+	nodeID, err := cert.NodeID()
+	if err != nil {
+		return fmt.Errorf("derive node ID: %w", err)
+	}
+	if _, ok := ca.revokedNodes[nodeID]; ok {
+		return errors.New("node is revoked")
+	}
+
+	issuer := cert.IssuerCAHash()
+	if _, ok := ca.revokedAdmin[issuer]; ok {
+		return errors.New("issuer CA is revoked")
+	}
+	if _, ok := ca.revokedUser[issuer]; ok {
+		return errors.New("issuer CA is revoked")
+	}
+
+	return ca.checkRevocationFreshness(issuer)
+}
+
+// checkRevocationFreshness verifies that revocation
+// data for the given CA has been refreshed within
+// the freshness TTL. Must be called with mu held.
+func (ca *CarrierAuth) checkRevocationFreshness( // A
+	issuer CaHash,
+) error {
+	lastRefresh, ok := ca.revocationFresh[issuer]
+	if !ok {
+		return errors.New(
+			"revocation state not yet refreshed",
+		)
+	}
+	if ca.clock.Now().After(
+		lastRefresh.Add(ca.freshnessTTL),
+	) {
+		return errors.New(
+			"revocation state is stale",
+		)
+	}
+	return nil
+}
+
+// step3AuthorityVerify verifies the CA signature over
+// the NodeCert.
+func step3AuthorityVerify( // A
+	caPubKey *keys.PublicKey,
+	cert *NodeCert,
+	caSignature []byte,
+) (keys.NodeID, error) {
+	return verifyNodeCert(
+		caPubKey, cert, caSignature,
+	)
+}
+
+// step4DelegationBinding verifies that the delegation
+// proof is correctly bound to the NodeCert and TLS
+// session.
+func step4DelegationBinding( // A
+	params VerifyPeerCertParams,
+) error {
+	proof := params.DelegationProof
+	if proof == nil {
+		return errors.New(
+			"delegation proof must not be nil",
+		)
+	}
+
+	payload, err := delegationSigningPayload(proof)
+	if err != nil {
+		return fmt.Errorf(
+			"build delegation payload: %w", err,
+		)
+	}
+
+	certPub := params.PeerCert.NodePubKey()
+	if !certPub.Verify(payload, params.DelegationSig) {
+		return errors.New(
+			"delegation signature verification failed",
+		)
+	}
+
+	if err := matchSessionKey(
+		proof, params.TLSSessionPubKey,
+	); err != nil {
+		return err
+	}
+
+	if proof.X509Fingerprint() != params.TLSX509Fingerprint {
+		return errors.New(
+			"x509 fingerprint mismatch",
+		)
+	}
+
+	certHash, err := params.PeerCert.Hash()
+	if err != nil {
+		return fmt.Errorf(
+			"compute cert hash: %w", err,
+		)
+	}
+	if !proof.NodeCertHash().Equal(certHash) {
+		return errors.New(
+			"node cert hash mismatch",
+		)
+	}
+
+	return nil
+}
+
+// matchSessionKey compares the sign key bytes of the
+// delegation proof's session key with the TLS session
+// key.
+func matchSessionKey( // A
+	proof *DelegationProof,
+	tlsPub *keys.PublicKey,
+) error {
+	proofSign, err := proof.SessionPubKey().MarshalBinarySign()
+	if err != nil {
+		return fmt.Errorf(
+			"marshal proof session sign: %w", err,
+		)
+	}
+	tlsSign, err := tlsPub.MarshalBinarySign()
+	if err != nil {
+		return fmt.Errorf(
+			"marshal TLS session sign: %w", err,
+		)
+	}
+	if !bytes.Equal(proofSign, tlsSign) {
+		return errors.New(
+			"session key mismatch",
+		)
+	}
+	return nil
+}
+
+// step5ReplayDefense checks delegation lifetime,
+// validity window, nonce freshness, and transcript
+// hash binding.
+func (ca *CarrierAuth) step5ReplayDefense( // A
+	params VerifyPeerCertParams,
+) error {
+	proof := params.DelegationProof
+	delegTTL := proof.NotAfter().Sub(
+		proof.NotBefore(),
+	)
+	if delegTTL > ca.maxDelegTTL {
+		return errors.New(
+			"delegation TTL exceeds maximum",
+		)
+	}
+
+	now := ca.clock.Now()
+	if now.After(proof.NotAfter()) {
+		return errors.New(
+			"delegation proof has expired",
+		)
+	}
+	if now.Before(proof.NotBefore()) {
+		return errors.New(
+			"delegation proof not yet valid",
+		)
+	}
+
+	if !ca.nonceCache.RecordNonce(
+		proof.HandshakeNonce(),
+	) {
+		return errors.New("replayed handshake nonce")
+	}
+
+	if len(params.TLSTranscriptHash) == 0 {
+		return errors.New(
+			"TLS transcript hash must not be empty",
+		)
+	}
+
+	return nil
+}
+
+// step6RoleExtraction extracts and validates the role
+// claim, ensuring it matches the CA type.
+func step6RoleExtraction( // A
+	cert *NodeCert,
+	ct caType,
+) (TrustScope, error) {
+	role := cert.RoleClaims()
+	if err := validateRole(role); err != nil {
+		return 0, fmt.Errorf(
+			"invalid role claim: %w", err,
+		)
+	}
+
+	switch {
+	case ct == caTypeAdmin && role == ScopeAdmin:
+		return ScopeAdmin, nil
+	case ct == caTypeUser && role == ScopeUser:
+		return ScopeUser, nil
+	default:
+		return 0, errors.New(
+			"role claim does not match CA type",
+		)
+	}
+}
+
+// validateVerifyInputs performs nil checks on all
+// required VerifyPeerCert parameters.
+func validateVerifyInputs( // A
 	ca *CarrierAuth,
-	peerCert *NodeCert,
-	tlsPeerPubKey *keys.PublicKey,
+	params VerifyPeerCertParams,
 ) error {
 	if ca == nil {
-		return errors.New("carrier auth must not be nil")
+		return errors.New(
+			"carrier auth must not be nil",
+		)
 	}
-	if peerCert == nil {
-		return errors.New("peer cert must not be nil")
+	if params.PeerCert == nil {
+		return errors.New(
+			"peer cert must not be nil",
+		)
 	}
-	if tlsPeerPubKey == nil {
-		return errors.New("TLS peer public key must not be nil")
-	}
-	if peerCert.NodePubKey() == nil {
+	if params.PeerCert.NodePubKey() == nil {
 		return errors.New(
 			"peer cert node public key must not be nil",
 		)
 	}
-	return nil
-}
-
-func verifyProofOfPossession( // A
-	tlsPeerPubKey *keys.PublicKey,
-	peerCert *NodeCert,
-) error {
-	tlsSign, err := tlsPeerPubKey.MarshalBinarySign()
-	if err != nil {
-		return fmt.Errorf(
-			"marshal TLS peer sign key: %w", err,
-		)
-	}
-
-	certSign, err := peerCert.NodePubKey().MarshalBinarySign()
-	if err != nil {
-		return fmt.Errorf(
-			"marshal cert sign key: %w", err,
-		)
-	}
-
-	if !bytes.Equal(tlsSign, certSign) {
+	if params.TLSSessionPubKey == nil {
 		return errors.New(
-			"TLS peer sign key does not match cert",
+			"TLS session public key must not be nil",
 		)
 	}
-
 	return nil
 }
 
-// tryVerify attempts verification against admin CAs
-// first, then user CAs. Must be called with mu held.
-func (ca *CarrierAuth) tryVerify( // AP
-	cert *NodeCert,
-	sig []byte,
-	issuer CaHash,
-) (TrustScope, error) {
-	if admin, ok := ca.adminCAs[issuer]; ok {
-		if _, rev := ca.revokedAdmin[issuer]; !rev {
-			_, err := admin.VerifyNodeCert(
-				cert, sig,
-			)
-			if err != nil {
-				return 0, err
-			}
-			return ScopeAdmin, nil
-		}
-	}
-
-	if user, ok := ca.userCAs[issuer]; ok {
-		if _, rev := ca.revokedUser[issuer]; !rev {
-			_, err := user.VerifyNodeCert(
-				cert, sig,
-			)
-			if err != nil {
-				return 0, err
-			}
-			return ScopeUser, nil
-		}
-	}
-
-	return 0, errors.New(
-		"no trusted CA found for issuer",
-	)
+// RefreshRevocationState marks a CA's revocation data
+// as freshly synchronized. Called by external CRL/sync
+// mechanisms.
+func (ca *CarrierAuth) RefreshRevocationState( // A
+	caHash CaHash,
+) {
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+	ca.revocationFresh[caHash] = ca.clock.Now()
 }
 
 // AddAdminPubKey registers a new admin CA trust root.
