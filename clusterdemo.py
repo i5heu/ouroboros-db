@@ -92,10 +92,12 @@ class ClusterDemoApp(App[None]):
         super().__init__()
         self.repo_root = Path(__file__).resolve().parent
         self.binary_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo"
+        self.keygen_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo-keygen"
         self.nodes: dict[str, NodeProcess] = {}
         self.stream_tasks: list[asyncio.Task[Any]] = []
         self._stopping_cluster = False
         self._startup_task: asyncio.Task[Any] | None = None
+        self._auth_material: dict[str, Any] | None = None
 
         # auto-run options (used for reproducing Ctrl+C shutdown)
         self._auto = bool(auto)
@@ -148,6 +150,7 @@ class ClusterDemoApp(App[None]):
     async def start_cluster(self) -> None:
         try:
             await self._build_binary()
+            await self._generate_auth()
             await self._spawn_nodes()
             await self._wait_until_ready()
             await self._join_mesh()
@@ -175,7 +178,7 @@ class ClusterDemoApp(App[None]):
         self._broadcast("building cmd/clusterdemo-A")
         self.binary_path.parent.mkdir(parents=True, exist_ok=True)
 
-        proc = await asyncio.create_subprocess_exec(
+        build_main = asyncio.create_subprocess_exec(
             "go",
             "build",
             "-o",
@@ -185,13 +188,41 @@ class ClusterDemoApp(App[None]):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        build_keygen = asyncio.create_subprocess_exec(
+            "go",
+            "build",
+            "-o",
+            str(self.keygen_path),
+            "./cmd/clusterdemo-keygen",
+            cwd=str(self.repo_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        proc_main, proc_keygen = await asyncio.gather(
+            build_main, build_keygen
+        )
+        for label, proc in [("clusterdemo-A", proc_main), ("clusterdemo-keygen", proc_keygen)]:
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                msg = stderr.decode().strip() or stdout.decode().strip()
+                raise RuntimeError(f"go build {label} failed: {msg}")
+
+    async def _generate_auth(self) -> None:
+        self._broadcast("generating auth material")
+        proc = await asyncio.create_subprocess_exec(
+            str(self.keygen_path),
+            f"--nodes={len(NODE_NAMES)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            msg = stderr.decode().strip() or stdout.decode().strip()
-            raise RuntimeError(msg or "go build failed")
+            msg = stderr.decode().strip()
+            raise RuntimeError(f"keygen failed: {msg}")
+        self._auth_material = json.loads(stdout.decode())
 
     async def _spawn_nodes(self) -> None:
-        for name in NODE_NAMES:
+        for idx, name in enumerate(NODE_NAMES):
             data_dir = Path(
                 tempfile.mkdtemp(prefix=f"clusterdemo-A-{name}-")
             )
@@ -207,6 +238,16 @@ class ClusterDemoApp(App[None]):
             ]
             if name == "node1":
                 cmd.append("--send-on-stdin=true")
+
+            if self._auth_material is not None:
+                node_auth = self._auth_material["nodes"][idx]
+                cmd.extend([
+                    "--ca-pub-kem", self._auth_material["caPubKem"],
+                    "--ca-pub-sign", self._auth_material["caPubSign"],
+                    "--node-cert", node_auth["nodeCertB64"],
+                    "--ca-sig", node_auth["caSigB64"],
+                    "--node-key-json", node_auth["nodeKeyJSON"],
+                ])
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -420,15 +461,18 @@ class HeadlessAutoRunner:
     def __init__(self, auto_msg: str, auto_delay: float) -> None:
         self.repo_root = Path(__file__).resolve().parent
         self.binary_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo"
+        self.keygen_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo-keygen"
         self.nodes: dict[str, NodeProcess] = {}
         self.stream_tasks: list[asyncio.Task[Any]] = []
         self._stopping_cluster = False
         self._auto_msg = str(auto_msg)
         self._auto_delay = float(auto_delay)
+        self._auth_material: dict[str, Any] | None = None
 
     async def run(self) -> None:
         try:
             await self._build_binary()
+            await self._generate_auth()
             await self._spawn_nodes()
             await self._wait_until_ready()
             await self._join_mesh()
@@ -446,7 +490,7 @@ class HeadlessAutoRunner:
         self._broadcast("building cmd/clusterdemo-A")
         self.binary_path.parent.mkdir(parents=True, exist_ok=True)
 
-        proc = await asyncio.create_subprocess_exec(
+        build_main = asyncio.create_subprocess_exec(
             "go",
             "build",
             "-o",
@@ -456,13 +500,41 @@ class HeadlessAutoRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        build_keygen = asyncio.create_subprocess_exec(
+            "go",
+            "build",
+            "-o",
+            str(self.keygen_path),
+            "./cmd/clusterdemo-keygen",
+            cwd=str(self.repo_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        proc_main, proc_keygen = await asyncio.gather(
+            build_main, build_keygen
+        )
+        for label, proc in [("clusterdemo-A", proc_main), ("clusterdemo-keygen", proc_keygen)]:
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                msg = stderr.decode().strip() or stdout.decode().strip()
+                raise RuntimeError(f"go build {label} failed: {msg}")
+
+    async def _generate_auth(self) -> None:
+        self._broadcast("generating auth material")
+        proc = await asyncio.create_subprocess_exec(
+            str(self.keygen_path),
+            f"--nodes={len(NODE_NAMES)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            msg = stderr.decode().strip() or stdout.decode().strip()
-            raise RuntimeError(msg or "go build failed")
+            msg = stderr.decode().strip()
+            raise RuntimeError(f"keygen failed: {msg}")
+        self._auth_material = json.loads(stdout.decode())
 
     async def _spawn_nodes(self) -> None:
-        for name in NODE_NAMES:
+        for idx, name in enumerate(NODE_NAMES):
             data_dir = Path(tempfile.mkdtemp(prefix=f"clusterdemo-A-{name}-"))
             cmd = [
                 str(self.binary_path),
@@ -476,6 +548,16 @@ class HeadlessAutoRunner:
             ]
             if name == "node1":
                 cmd.append("--send-on-stdin=true")
+
+            if self._auth_material is not None:
+                node_auth = self._auth_material["nodes"][idx]
+                cmd.extend([
+                    "--ca-pub-kem", self._auth_material["caPubKem"],
+                    "--ca-pub-sign", self._auth_material["caPubSign"],
+                    "--node-cert", node_auth["nodeCertB64"],
+                    "--ca-sig", node_auth["caSigB64"],
+                    "--node-key-json", node_auth["nodeKeyJSON"],
+                ])
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

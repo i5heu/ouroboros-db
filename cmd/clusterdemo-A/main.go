@@ -52,6 +52,11 @@ type cliConfig struct { // A
 	enableStdIn   bool
 	sendOnPlainIn bool
 	joinPeers     peerSpecs
+	caPubKem      string
+	caPubSign     string
+	nodeCert      string
+	caSig         string
+	nodeKeyJSON   string
 }
 
 type peerSpecs []string
@@ -113,12 +118,23 @@ func run() error { // A
 		&slog.HandlerOptions{Level: slog.LevelInfo},
 	))
 
-	carrier, err := transport.NewCarrier(transport.CarrierConfig{
+	carrierCfg := transport.CarrierConfig{
 		ListenAddr:  cfg.listenAddr,
 		CarrierAuth: auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 		LocalNodeID: localNode.ID(),
 		Logger:      logger,
-	})
+	}
+
+	if cfg.caPubKem != "" {
+		if err := applyAuthFlags(
+			&carrierCfg,
+			cfg,
+		); err != nil {
+			return fmt.Errorf("apply auth: %w", err)
+		}
+	}
+
+	carrier, err := transport.NewCarrier(carrierCfg)
 	if err != nil {
 		return fmt.Errorf("create carrier: %w", err)
 	}
@@ -263,6 +279,36 @@ func parseFlags() cliConfig { // A
 		&cfg.joinPeers,
 		"peer",
 		"peer in format nodeID@host:port",
+	)
+	flag.StringVar(
+		&cfg.caPubKem,
+		"ca-pub-kem",
+		"",
+		"base64 CA public KEM key",
+	)
+	flag.StringVar(
+		&cfg.caPubSign,
+		"ca-pub-sign",
+		"",
+		"base64 CA public signing key",
+	)
+	flag.StringVar(
+		&cfg.nodeCert,
+		"node-cert",
+		"",
+		"base64 serialized NodeCert",
+	)
+	flag.StringVar(
+		&cfg.caSig,
+		"ca-sig",
+		"",
+		"base64 CA signature over NodeCert",
+	)
+	flag.StringVar(
+		&cfg.nodeKeyJSON,
+		"node-key-json",
+		"",
+		"OuroContainer JSON with node keys",
 	)
 
 	flag.Parse()
@@ -560,6 +606,116 @@ func parsePeerSpec(spec string) ( // A
 		)
 	}
 	return nodeID, addr, nil
+}
+
+func applyAuthFlags( // A
+	cc *transport.CarrierConfig,
+	cfg cliConfig,
+) error {
+	caPub, err := keys.NewPublicKeyFromBase64(
+		cfg.caPubKem,
+		cfg.caPubSign,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"reconstruct CA pub key: %w",
+			err,
+		)
+	}
+
+	if err := cc.CarrierAuth.AddAdminPubKey(
+		caPub,
+	); err != nil {
+		return fmt.Errorf(
+			"add admin pub key: %w",
+			err,
+		)
+	}
+
+	adminCA, err := auth.NewAdminCA(caPub)
+	if err != nil {
+		return fmt.Errorf(
+			"create admin CA: %w",
+			err,
+		)
+	}
+	cc.CarrierAuth.RefreshRevocationState(adminCA.Hash())
+
+	certBytes, err := base64.StdEncoding.DecodeString(
+		cfg.nodeCert,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"decode node cert: %w",
+			err,
+		)
+	}
+
+	cert, err := auth.UnmarshalNodeCert(certBytes)
+	if err != nil {
+		return fmt.Errorf(
+			"unmarshal node cert: %w",
+			err,
+		)
+	}
+	cc.LocalCert = cert
+
+	sigBytes, err := base64.StdEncoding.DecodeString(
+		cfg.caSig,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"decode CA signature: %w",
+			err,
+		)
+	}
+	cc.LocalCASignature = sigBytes
+
+	nodeKeys, err := loadKeysFromJSON(cfg.nodeKeyJSON)
+	if err != nil {
+		return fmt.Errorf(
+			"load node keys: %w",
+			err,
+		)
+	}
+	cc.LocalKeys = nodeKeys
+
+	return nil
+}
+
+func loadKeysFromJSON( // A
+	jsonStr string,
+) (*keys.AsyncCrypt, error) {
+	tmpFile, err := os.CreateTemp("", "nodekey-*.json")
+	if err != nil {
+		return nil, fmt.Errorf(
+			"create temp file: %w",
+			err,
+		)
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.WriteString(jsonStr); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf(
+			"write temp file: %w",
+			err,
+		)
+	}
+	_ = tmpFile.Close()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	ac, err := keys.NewCryptFromFile(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"load keys from temp: %w",
+			err,
+		)
+	}
+	return ac, nil
 }
 
 func encodeNodeID(id keys.NodeID) string { // A
