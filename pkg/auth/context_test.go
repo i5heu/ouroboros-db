@@ -122,6 +122,7 @@ func TestCanonicalSerializeEndsWithCertNonce( // A
 	}
 }
 
+//nolint:cyclop // exhaustive byte-order assertions are intentionally linear.
 func TestCanonicalSerializeFieldOrdering( // A
 	t *testing.T,
 ) {
@@ -176,10 +177,14 @@ func TestCanonicalSerializeFieldOrdering( // A
 	vfUnix := binary.BigEndian.Uint64(
 		b[offset : offset+8],
 	)
-	if int64(vfUnix) != cert.ValidFrom().Unix() {
+	expectedVF := cert.ValidFrom().Unix()
+	if expectedVF < 0 {
+		t.Fatalf("validFrom unix must be non-negative")
+	}
+	if vfUnix != uint64(expectedVF) {
 		t.Errorf(
 			"validFrom: got %d, want %d",
-			int64(vfUnix), cert.ValidFrom().Unix(),
+			vfUnix, expectedVF,
 		)
 	}
 	offset += 8
@@ -188,10 +193,14 @@ func TestCanonicalSerializeFieldOrdering( // A
 	vuUnix := binary.BigEndian.Uint64(
 		b[offset : offset+8],
 	)
-	if int64(vuUnix) != cert.ValidUntil().Unix() {
+	expectedVU := cert.ValidUntil().Unix()
+	if expectedVU < 0 {
+		t.Fatalf("validUntil unix must be non-negative")
+	}
+	if vuUnix != uint64(expectedVU) {
 		t.Errorf(
 			"validUntil: got %d, want %d",
-			int64(vuUnix), cert.ValidUntil().Unix(),
+			vuUnix, expectedVU,
 		)
 	}
 	offset += 8
@@ -204,10 +213,10 @@ func TestCanonicalSerializeFieldOrdering( // A
 	offset += 16
 
 	// RoleClaims(1)
-	if b[offset] != uint8(cert.RoleClaims()) {
+	if int(b[offset]) != int(cert.RoleClaims()) {
 		t.Errorf(
 			"roleClaims: got %d, want %d",
-			b[offset], uint8(cert.RoleClaims()),
+			b[offset], cert.RoleClaims(),
 		)
 	}
 	offset++

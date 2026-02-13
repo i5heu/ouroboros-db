@@ -163,16 +163,29 @@ func canonicalSerializeDelegation( // A
 	buf = append(buf, proof.x509Fingerprint[:]...)
 	buf = append(buf, proof.nodeCertHash[:]...)
 
+	notBeforeUnix := proof.notBefore.Unix()
+	if notBeforeUnix < 0 {
+		return nil, errors.New(
+			"notBefore must be unix epoch or later",
+		)
+	}
+	notAfterUnix := proof.notAfter.Unix()
+	if notAfterUnix < 0 {
+		return nil, errors.New(
+			"notAfter must be unix epoch or later",
+		)
+	}
+
 	var timeBuf [8]byte
 	binary.BigEndian.PutUint64(
 		timeBuf[:],
-		uint64(proof.notBefore.Unix()),
+		uint64(notBeforeUnix),
 	)
 	buf = append(buf, timeBuf[:]...)
 
 	binary.BigEndian.PutUint64(
 		timeBuf[:],
-		uint64(proof.notAfter.Unix()),
+		uint64(notAfterUnix),
 	)
 	buf = append(buf, timeBuf[:]...)
 

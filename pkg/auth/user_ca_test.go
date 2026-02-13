@@ -3,6 +3,7 @@ package auth
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewUserCA(t *testing.T) { // A
@@ -160,7 +161,16 @@ func TestUserCAVerifyNodeCertIssuerMismatch( // A
 		t.Fatalf("computeCAHash: %v", err)
 	}
 
-	cert, err := NewNodeCert(nodePub, wrongIssuerHash)
+	now := time.Now()
+	cert, err := NewNodeCert(NodeCertParams{
+		NodePubKey:   nodePub,
+		IssuerCAHash: wrongIssuerHash,
+		ValidFrom:    now.Add(-time.Hour),
+		ValidUntil:   now.Add(time.Hour),
+		Serial:       testSerial(t),
+		RoleClaims:   ScopeUser,
+		CertNonce:    testNonce(t),
+	})
 	if err != nil {
 		t.Fatalf("NewNodeCert: %v", err)
 	}

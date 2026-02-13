@@ -2,11 +2,15 @@ package transport
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
@@ -26,13 +30,13 @@ type MessageReceiver func( // A
 // CarrierConfig holds configuration for creating a
 // Carrier instance.
 type CarrierConfig struct { // A
-	ListenAddr      string
-	BootstrapConfig *BootstrapConfig
-	CarrierAuth     *auth.CarrierAuth
-	LocalNodeID     keys.NodeID
-	LocalCert       *auth.NodeCert
+	ListenAddr       string
+	BootstrapConfig  *BootstrapConfig
+	CarrierAuth      *auth.CarrierAuth
+	LocalNodeID      keys.NodeID
+	LocalCert        *auth.NodeCert
 	LocalCASignature []byte
-	LocalKeys       *keys.AsyncCrypt
+	LocalKeys        *keys.AsyncCrypt
 	// LOGGER: Using slog directly because Carrier
 	// is a dependency of ClusterLog. Using
 	// pkg/clusterlog here would create a
@@ -452,18 +456,46 @@ func (c *Carrier) receiveAuthHandshake( // A
 // For now this is a placeholder that delegates to
 // VerifyPeerCert once full serialization is wired.
 func (c *Carrier) verifyAuthPayload( // A
-	_ []byte,
-	_ [32]byte,
-	_ []byte,
+	payload []byte,
+	x509FP [32]byte,
+	transcriptHash []byte,
 ) (keys.NodeID, auth.TrustScope, error) {
-	// TODO: deserialize auth payload and call
-	// c.auth.VerifyPeerCert(params)
-	// For now, return a placeholder error indicating
-	// the auth handshake path is wired but payload
-	// serialization is not yet implemented.
-	return keys.NodeID{}, 0, fmt.Errorf(
-		"auth handshake payload not yet implemented",
-	)
+	if c.auth == nil {
+		return keys.NodeID{}, 0, errors.New(
+			"carrier auth must not be nil",
+		)
+	}
+
+	fields, err := decodeAuthHandshakePayload(payload)
+	if err != nil {
+		return keys.NodeID{}, 0, fmt.Errorf(
+			"decode auth payload: %w", err,
+		)
+	}
+
+	cert, err := auth.UnmarshalNodeCert(fields.nodeCert)
+	if err != nil {
+		return keys.NodeID{}, 0, fmt.Errorf(
+			"unmarshal node cert: %w", err,
+		)
+	}
+
+	proof, err := auth.UnmarshalDelegationProof(fields.delegationProof)
+	if err != nil {
+		return keys.NodeID{}, 0, fmt.Errorf(
+			"unmarshal delegation proof: %w", err,
+		)
+	}
+
+	return c.auth.VerifyPeerCert(auth.VerifyPeerCertParams{
+		PeerCert:           cert,
+		CASignature:        fields.caSignature,
+		DelegationProof:    proof,
+		DelegationSig:      fields.delegationSig,
+		TLSSessionPubKey:   proof.SessionPubKey(),
+		TLSX509Fingerprint: x509FP,
+		TLSTranscriptHash:  transcriptHash,
+	})
 }
 
 // sendAuthHandshake sends the local node's auth
@@ -471,8 +503,13 @@ func (c *Carrier) verifyAuthPayload( // A
 func (c *Carrier) sendAuthHandshake( // A
 	conn Connection,
 ) error {
-	if c.localCert == nil {
-		return nil
+	if err := c.validateLocalAuthMaterial(); err != nil {
+		return err
+	}
+
+	payload, err := c.buildLocalAuthPayload()
+	if err != nil {
+		return err
 	}
 
 	stream, err := conn.OpenStream()
@@ -485,7 +522,7 @@ func (c *Carrier) sendAuthHandshake( // A
 
 	msg := interfaces.Message{
 		Type:    interfaces.MessageTypeAuthHandshake,
-		Payload: []byte{},
+		Payload: payload,
 	}
 	if err := WriteMessage(stream, msg); err != nil {
 		return fmt.Errorf(
@@ -495,6 +532,195 @@ func (c *Carrier) sendAuthHandshake( // A
 
 	_, err = ReadResponse(stream)
 	return err
+}
+
+func (c *Carrier) validateLocalAuthMaterial() error { // A
+	if c.localCert == nil {
+		return errors.New("local cert must not be nil")
+	}
+	if c.localKeys == nil {
+		return errors.New("local keys must not be nil")
+	}
+	if len(c.localCASignature) == 0 {
+		return errors.New("local CA signature must not be empty")
+	}
+	if len(c.transport.tlsCert.Certificate) == 0 {
+		return errors.New("local TLS certificate is missing")
+	}
+	return nil
+}
+
+func (c *Carrier) buildLocalAuthPayload() ([]byte, error) { // A
+	proof, err := c.buildLocalDelegationProof()
+	if err != nil {
+		return nil, err
+	}
+
+	delegationSig, err := auth.SignDelegationProof(
+		c.localKeys,
+		proof,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sign delegation proof: %w", err)
+	}
+
+	certBytes, err := auth.MarshalNodeCert(c.localCert)
+	if err != nil {
+		return nil, fmt.Errorf("marshal node cert: %w", err)
+	}
+	proofBytes, err := auth.MarshalDelegationProof(proof)
+	if err != nil {
+		return nil, fmt.Errorf("marshal delegation proof: %w", err)
+	}
+
+	payload, err := encodeAuthHandshakePayload(authHandshakeFields{
+		nodeCert:        certBytes,
+		caSignature:     c.localCASignature,
+		delegationProof: proofBytes,
+		delegationSig:   delegationSig,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode auth payload: %w", err)
+	}
+	return payload, nil
+}
+
+func (c *Carrier) buildLocalDelegationProof() (*auth.DelegationProof, error) { // A
+	certHash, err := c.localCert.Hash()
+	if err != nil {
+		return nil, fmt.Errorf("hash local cert: %w", err)
+	}
+
+	sessionPubVal := c.localKeys.GetPublicKey()
+	sessionPub := &sessionPubVal
+	x509FP := sha256.Sum256(c.transport.tlsCert.Certificate[0])
+
+	handshakeNonce, err := randomNonce32()
+	if err != nil {
+		return nil, fmt.Errorf("generate handshake nonce: %w", err)
+	}
+	now := time.Now().UTC()
+	proof, err := auth.NewDelegationProof(auth.DelegationProofParams{
+		SessionPubKey:   sessionPub,
+		X509Fingerprint: x509FP,
+		NodeCertHash:    certHash,
+		NotBefore:       now.Add(-time.Minute),
+		NotAfter:        now.Add(2 * time.Minute),
+		HandshakeNonce:  handshakeNonce,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build delegation proof: %w", err)
+	}
+	return proof, nil
+}
+
+type authHandshakeFields struct { // A
+	nodeCert        []byte
+	caSignature     []byte
+	delegationProof []byte
+	delegationSig   []byte
+}
+
+func encodeAuthHandshakePayload( // A
+	fields authHandshakeFields,
+) ([]byte, error) {
+	parts := [][]byte{
+		fields.nodeCert,
+		fields.caSignature,
+		fields.delegationProof,
+		fields.delegationSig,
+	}
+	total := 0
+	for _, part := range parts {
+		total += 4 + len(part)
+	}
+	buf := make([]byte, 0, total)
+	for _, part := range parts {
+		if len(part) > int(^uint32(0)) {
+			return nil, errors.New(
+				"auth payload part too large",
+			)
+		}
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(
+			lenBuf[:],
+			uint32(len(part)), //#nosec G115
+		)
+		buf = append(buf, lenBuf[:]...)
+		buf = append(buf, part...)
+	}
+	return buf, nil
+}
+
+func decodeAuthHandshakePayload( // A
+	payload []byte,
+) (authHandshakeFields, error) {
+	offset := 0
+	certBytes, err := readAuthPayloadField(payload, &offset)
+	if err != nil {
+		return authHandshakeFields{}, err
+	}
+	caSig, err := readAuthPayloadField(payload, &offset)
+	if err != nil {
+		return authHandshakeFields{}, err
+	}
+	proofBytes, err := readAuthPayloadField(payload, &offset)
+	if err != nil {
+		return authHandshakeFields{}, err
+	}
+	delegSig, err := readAuthPayloadField(payload, &offset)
+	if err != nil {
+		return authHandshakeFields{}, err
+	}
+
+	if offset != len(payload) {
+		return authHandshakeFields{}, errors.New(
+			"auth payload has trailing bytes",
+		)
+	}
+
+	if len(certBytes) == 0 || len(caSig) == 0 ||
+		len(proofBytes) == 0 || len(delegSig) == 0 {
+		return authHandshakeFields{}, errors.New(
+			"auth payload fields must not be empty",
+		)
+	}
+
+	return authHandshakeFields{
+		nodeCert:        certBytes,
+		caSignature:     caSig,
+		delegationProof: proofBytes,
+		delegationSig:   delegSig,
+	}, nil
+}
+
+func readAuthPayloadField( // A
+	payload []byte,
+	offset *int,
+) ([]byte, error) {
+	if len(payload[*offset:]) < 4 {
+		return nil, errors.New("missing field length")
+	}
+	fieldLen := int(binary.BigEndian.Uint32(
+		payload[*offset : *offset+4],
+	))
+	*offset += 4
+	if fieldLen < 0 || len(payload[*offset:]) < fieldLen {
+		return nil, errors.New("invalid field length")
+	}
+	field := make([]byte, fieldLen)
+	copy(field, payload[*offset:*offset+fieldLen])
+	*offset += fieldLen
+	return field, nil
+}
+
+func randomNonce32() ([32]byte, error) { // A
+	var nonce [32]byte
+	_, err := rand.Read(nonce[:])
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return nonce, nil
 }
 
 // extractX509Fingerprint computes SHA-256 of the first

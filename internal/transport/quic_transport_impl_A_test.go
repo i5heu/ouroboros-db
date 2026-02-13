@@ -22,8 +22,8 @@ func TestQuicTransportDialAccept( // A
 	t *testing.T,
 ) {
 	t.Parallel()
-	authA := auth.NewCarrierAuth()
-	authB := auth.NewCarrierAuth()
+	authA := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
+	authB := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
 
 	tA, err := NewQuicTransport(
 		"127.0.0.1:0",
@@ -83,8 +83,8 @@ func TestQuicTransportStreamRoundTrip( // A
 	t *testing.T,
 ) {
 	t.Parallel()
-	authA := auth.NewCarrierAuth()
-	authB := auth.NewCarrierAuth()
+	authA := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
+	authB := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
 
 	tA, err := NewQuicTransport(
 		"127.0.0.1:0",
@@ -162,8 +162,8 @@ func TestQuicTransportDatagramRoundTrip( // A
 	t *testing.T,
 ) {
 	t.Parallel()
-	authA := auth.NewCarrierAuth()
-	authB := auth.NewCarrierAuth()
+	authA := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
+	authB := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
 
 	tA, err := NewQuicTransport(
 		"127.0.0.1:0",
@@ -230,7 +230,7 @@ func TestQuicTransportClose(t *testing.T) { // A
 	t.Parallel()
 	tr, err := NewQuicTransport(
 		"127.0.0.1:0",
-		auth.NewCarrierAuth(),
+		auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 		keys.NodeID{1},
 	)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestQuicTransportDialNoAddress( // A
 	t.Parallel()
 	tr, err := NewQuicTransport(
 		"127.0.0.1:0",
-		auth.NewCarrierAuth(),
+		auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 		keys.NodeID{1},
 	)
 	if err != nil {

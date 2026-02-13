@@ -76,22 +76,40 @@ func canonicalSerialize( // A
 
 	buf = append(buf, cert.issuerCAHash[:]...)
 
+	validFromUnix := cert.validFrom.Unix()
+	if validFromUnix < 0 {
+		return nil, errors.New(
+			"validFrom must be unix epoch or later",
+		)
+	}
+	validUntilUnix := cert.validUntil.Unix()
+	if validUntilUnix < 0 {
+		return nil, errors.New(
+			"validUntil must be unix epoch or later",
+		)
+	}
+	if cert.roleClaims < 0 || cert.roleClaims > 255 {
+		return nil, errors.New(
+			"roleClaims out of byte range",
+		)
+	}
+
 	var timeBuf [8]byte
 	binary.BigEndian.PutUint64(
 		timeBuf[:],
-		uint64(cert.validFrom.Unix()),
+		uint64(validFromUnix),
 	)
 	buf = append(buf, timeBuf[:]...)
 
 	binary.BigEndian.PutUint64(
 		timeBuf[:],
-		uint64(cert.validUntil.Unix()),
+		uint64(validUntilUnix),
 	)
 	buf = append(buf, timeBuf[:]...)
 
 	buf = append(buf, cert.serial[:]...)
 
-	buf = append(buf, uint8(cert.roleClaims))
+	buf = append(buf, byte(cert.roleClaims))
 
 	buf = append(buf, cert.certNonce[:]...)
 
@@ -153,6 +171,38 @@ func delegationSigningPayload( // A
 	payload = append(payload, ctx...)
 	payload = append(payload, canon...)
 	return payload, nil
+}
+
+// SignNodeCert signs the domain-separated NodeCert
+// payload with the provided CA signer.
+func SignNodeCert( // A
+	signer *keys.AsyncCrypt,
+	cert *NodeCert,
+) ([]byte, error) {
+	if signer == nil {
+		return nil, errors.New("signer must not be nil")
+	}
+	payload, err := signingPayload(cert)
+	if err != nil {
+		return nil, err
+	}
+	return signer.Sign(payload)
+}
+
+// SignDelegationProof signs the domain-separated
+// DelegationProof payload with the node signer.
+func SignDelegationProof( // A
+	signer *keys.AsyncCrypt,
+	proof *DelegationProof,
+) ([]byte, error) {
+	if signer == nil {
+		return nil, errors.New("signer must not be nil")
+	}
+	payload, err := delegationSigningPayload(proof)
+	if err != nil {
+		return nil, err
+	}
+	return signer.Sign(payload)
 }
 
 // computeCAHash derives the SHA-256 identifier for a CA

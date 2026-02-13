@@ -115,7 +115,7 @@ func run() error { // A
 
 	carrier, err := transport.NewCarrier(transport.CarrierConfig{
 		ListenAddr:  cfg.listenAddr,
-		CarrierAuth: auth.NewCarrierAuth(),
+		CarrierAuth: auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 		LocalNodeID: localNode.ID(),
 		Logger:      logger,
 	})

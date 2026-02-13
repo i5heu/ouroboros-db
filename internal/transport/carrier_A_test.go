@@ -1,8 +1,14 @@
 package transport
 
 import (
+	"bytes"
+	"crypto/rand"
+	"errors"
+	"io"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +16,90 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
+
+var (
+	testCAOnce sync.Once
+	testCA     *keys.AsyncCrypt
+	testCAErr  error
+)
+
+func testCASigner(t *testing.T) *keys.AsyncCrypt { // A
+	t.Helper()
+	testCAOnce.Do(func() {
+		testCA, testCAErr = keys.NewAsyncCrypt()
+	})
+	if testCAErr != nil {
+		t.Fatalf("create test CA signer: %v", testCAErr)
+	}
+	return testCA
+}
+
+func randomSerial16(t *testing.T) [16]byte { // A
+	t.Helper()
+	var serial [16]byte
+	if _, err := rand.Read(serial[:]); err != nil {
+		t.Fatalf("generate serial: %v", err)
+	}
+	return serial
+}
+
+func testRandomNonce32(t *testing.T) [32]byte { // A
+	t.Helper()
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatalf("generate nonce: %v", err)
+	}
+	return nonce
+}
+
+func buildCarrierAuthMaterial( // A
+	t *testing.T,
+) (*auth.CarrierAuth, *auth.NodeCert, []byte, *keys.AsyncCrypt) {
+	t.Helper()
+	caSigner := testCASigner(t)
+	caPubVal := caSigner.GetPublicKey()
+	caPub := &caPubVal
+
+	carrierAuth := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
+	if err := carrierAuth.AddAdminPubKey(caPub); err != nil {
+		t.Fatalf("AddAdminPubKey: %v", err)
+	}
+
+	adminCA, err := auth.NewAdminCA(caPub)
+	if err != nil {
+		t.Fatalf("NewAdminCA: %v", err)
+	}
+
+	nodeSigner, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("create node signer: %v", err)
+	}
+	nodePubVal := nodeSigner.GetPublicKey()
+	nodePub := &nodePubVal
+
+	now := time.Now().UTC()
+	cert, err := auth.NewNodeCert(auth.NodeCertParams{
+		NodePubKey:   nodePub,
+		IssuerCAHash: adminCA.Hash(),
+		ValidFrom:    now.Add(-time.Hour),
+		ValidUntil:   now.Add(time.Hour),
+		Serial:       randomSerial16(t),
+		RoleClaims:   auth.ScopeAdmin,
+		CertNonce:    testRandomNonce32(t),
+	})
+	if err != nil {
+		t.Fatalf("NewNodeCert: %v", err)
+	}
+
+	caSig, err := auth.SignNodeCert(caSigner, cert)
+	if err != nil {
+		t.Fatalf("SignNodeCert: %v", err)
+	}
+
+	carrierAuth.RefreshRevocationState(adminCA.Hash())
+
+	return carrierAuth, cert, caSig, nodeSigner
+}
 
 func testLogger() *slog.Logger { // A
 	return slog.New(slog.NewTextHandler(
@@ -23,11 +113,15 @@ func newTestCarrier( // A
 	nodeID keys.NodeID,
 ) *Carrier {
 	t.Helper()
+	carrierAuth, cert, caSig, nodeSigner := buildCarrierAuthMaterial(t)
 	c, err := NewCarrier(CarrierConfig{
-		ListenAddr:  "127.0.0.1:0",
-		CarrierAuth: auth.NewCarrierAuth(),
-		LocalNodeID: nodeID,
-		Logger:      testLogger(),
+		ListenAddr:       "127.0.0.1:0",
+		CarrierAuth:      carrierAuth,
+		LocalNodeID:      nodeID,
+		LocalCert:        cert,
+		LocalCASignature: caSig,
+		LocalKeys:        nodeSigner,
+		Logger:           testLogger(),
 	})
 	if err != nil {
 		t.Fatalf("NewCarrier: %v", err)
@@ -64,9 +158,10 @@ func TestCarrierNilAuth(t *testing.T) { // A
 
 func TestCarrierNilLogger(t *testing.T) { // A
 	t.Parallel()
+	carrierAuth, _, _, _ := buildCarrierAuthMaterial(t)
 	_, err := NewCarrier(CarrierConfig{
 		ListenAddr:  "127.0.0.1:0",
-		CarrierAuth: auth.NewCarrierAuth(),
+		CarrierAuth: carrierAuth,
 	})
 	if err == nil {
 		t.Fatal("expected error for nil logger")
@@ -565,7 +660,7 @@ func TestCarrierJoinClusterDialError( // A
 
 	badPeer := interfaces.PeerNode{
 		NodeID:    keys.NodeID{99},
-		Addresses: []string{"127.0.0.1:1"},
+		Addresses: []string{"bad-address"},
 	}
 	err := c.JoinCluster(badPeer, nil)
 	if err == nil {
@@ -595,5 +690,245 @@ func TestCarrierEnsureConnectionUnknownNode( // A
 		t.Fatal(
 			"expected error for unknown node",
 		)
+	}
+}
+
+type fakeAuthStream struct { // A
+	r        *bytes.Reader
+	w        bytes.Buffer
+	isClosed bool
+	writeErr error
+	closeErr error
+	readErr  error
+}
+
+func newFakeAuthStream( // A
+	input []byte,
+) *fakeAuthStream {
+	return &fakeAuthStream{r: bytes.NewReader(input)}
+}
+
+func (s *fakeAuthStream) Read(p []byte) (int, error) { // A
+	if s.readErr != nil {
+		return 0, s.readErr
+	}
+	n, err := s.r.Read(p)
+	if errors.Is(err, io.EOF) {
+		return n, io.EOF
+	}
+	return n, err
+}
+
+func (s *fakeAuthStream) Write(p []byte) (int, error) { // A
+	if s.writeErr != nil {
+		return 0, s.writeErr
+	}
+	return s.w.Write(p)
+}
+
+func (s *fakeAuthStream) Close() error { // A
+	s.isClosed = true
+	return s.closeErr
+}
+
+type fakeAuthConn struct { // A
+	nodeID      keys.NodeID
+	stream      Stream
+	certs       [][]byte
+	acceptErr   error
+	acceptCalls int
+	closed      bool
+}
+
+func (c *fakeAuthConn) NodeID() keys.NodeID { // A
+	return c.nodeID
+}
+
+func (c *fakeAuthConn) OpenStream() (Stream, error) { // A
+	return nil, errors.New("not implemented")
+}
+
+func (c *fakeAuthConn) AcceptStream() (Stream, error) { // A
+	c.acceptCalls++
+	if c.acceptErr != nil {
+		return nil, c.acceptErr
+	}
+	if c.stream == nil {
+		return nil, io.EOF
+	}
+	stream := c.stream
+	c.stream = nil
+	return stream, nil
+}
+
+func (c *fakeAuthConn) SendDatagram(_ []byte) error { // A
+	return errors.New("not implemented")
+}
+
+func (c *fakeAuthConn) ReceiveDatagram() ([]byte, error) { // A
+	return nil, errors.New("not implemented")
+}
+
+func (c *fakeAuthConn) Close() error { // A
+	c.closed = true
+	return nil
+}
+
+func (c *fakeAuthConn) PeerCertificatesDER() [][]byte { // A
+	return c.certs
+}
+
+func buildSerializedMessage( // A
+	t *testing.T,
+	msg interfaces.Message,
+) []byte {
+	t.Helper()
+	data, err := SerializeMessage(msg)
+	if err != nil {
+		t.Fatalf("SerializeMessage: %v", err)
+	}
+	return data
+}
+
+func TestCarrierReceiveAuthHandshakeRejectsWrongMessageType( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+
+	msg := interfaces.Message{
+		Type:    interfaces.MessageTypeHeartbeat,
+		Payload: []byte("not-auth"),
+	}
+	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	conn := &fakeAuthConn{
+		stream: stream,
+		certs:  [][]byte{[]byte("peer-cert")},
+	}
+
+	_, _, err := c.receiveAuthHandshake(conn)
+	if err == nil || !strings.Contains(err.Error(), "expected auth handshake") {
+		t.Fatalf("err = %v, want expected auth handshake", err)
+	}
+}
+
+func TestCarrierReceiveAuthHandshakeRejectsMalformedAuthPayload( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+
+	msg := interfaces.Message{
+		Type:    interfaces.MessageTypeAuthHandshake,
+		Payload: []byte{0x00, 0x01, 0x02},
+	}
+	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	conn := &fakeAuthConn{
+		stream: stream,
+		certs:  [][]byte{[]byte("peer-cert")},
+	}
+
+	_, _, err := c.receiveAuthHandshake(conn)
+	if err == nil || !strings.Contains(err.Error(), "decode auth payload") {
+		t.Fatalf("err = %v, want decode auth payload error", err)
+	}
+}
+
+func TestCarrierReceiveAuthHandshakeRejectsInvalidDelegationProof( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+
+	payload, err := c.buildLocalAuthPayload()
+	if err != nil {
+		t.Fatalf("buildLocalAuthPayload: %v", err)
+	}
+	fields, err := decodeAuthHandshakePayload(payload)
+	if err != nil {
+		t.Fatalf("decodeAuthHandshakePayload: %v", err)
+	}
+	fields.delegationProof = []byte{0x01, 0x02, 0x03}
+	badPayload, err := encodeAuthHandshakePayload(fields)
+	if err != nil {
+		t.Fatalf("encodeAuthHandshakePayload: %v", err)
+	}
+
+	msg := interfaces.Message{
+		Type:    interfaces.MessageTypeAuthHandshake,
+		Payload: badPayload,
+	}
+	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	conn := &fakeAuthConn{
+		stream: stream,
+		certs:  [][]byte{[]byte("peer-cert")},
+	}
+
+	_, _, err = c.receiveAuthHandshake(conn)
+	if err == nil || !strings.Contains(err.Error(), "unmarshal delegation proof") {
+		t.Fatalf("err = %v, want unmarshal delegation proof error", err)
+	}
+}
+
+func TestCarrierVerifyAuthPayloadRejectsMissingTLSBindingData( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+
+	payload, err := c.buildLocalAuthPayload()
+	if err != nil {
+		t.Fatalf("buildLocalAuthPayload: %v", err)
+	}
+	fields, err := decodeAuthHandshakePayload(payload)
+	if err != nil {
+		t.Fatalf("decodeAuthHandshakePayload: %v", err)
+	}
+	proof, err := auth.UnmarshalDelegationProof(fields.delegationProof)
+	if err != nil {
+		t.Fatalf("UnmarshalDelegationProof: %v", err)
+	}
+
+	_, _, err = c.verifyAuthPayload(
+		payload,
+		proof.X509Fingerprint(),
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "TLS transcript hash") {
+		t.Fatalf("err = %v, want TLS transcript hash error", err)
+	}
+
+	_, _, err = c.verifyAuthPayload(
+		payload,
+		[32]byte{},
+		[]byte("has-transcript"),
+	)
+	if err == nil || !strings.Contains(err.Error(), "x509 fingerprint mismatch") {
+		t.Fatalf("err = %v, want x509 fingerprint mismatch", err)
+	}
+}
+
+func TestCarrierJoinClusterFailsWhenPeerRejectsAuthHandshake( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+
+	if err := cA.auth.RevokeAdminCA(cB.localCert.IssuerCAHash()); err != nil {
+		t.Fatalf("RevokeAdminCA: %v", err)
+	}
+
+	peerA := interfaces.PeerNode{
+		NodeID:    keys.NodeID{1},
+		Addresses: []string{cA.ListenAddr()},
+	}
+	err := cB.JoinCluster(peerA, nil)
+	if err == nil {
+		t.Fatal("expected JoinCluster auth rejection error")
+	}
+
+	if cB.IsConnected(peerA.NodeID) {
+		t.Fatal("peer must not be connected after auth rejection")
 	}
 }

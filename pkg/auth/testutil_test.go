@@ -78,12 +78,16 @@ func buildTestCert( // A
 	t *testing.T,
 	caPub *keys.PublicKey,
 	nodePub *keys.PublicKey,
-	role TrustScope,
+	role ...TrustScope,
 ) *NodeCert {
 	t.Helper()
 	caHash, err := computeCAHash(caPub)
 	if err != nil {
 		t.Fatalf("compute CA hash: %v", err)
+	}
+	certRole := ScopeUser
+	if len(role) > 0 {
+		certRole = role[0]
 	}
 	now := time.Now()
 	cert, err := NewNodeCert(NodeCertParams{
@@ -92,7 +96,7 @@ func buildTestCert( // A
 		ValidFrom:    now.Add(-time.Hour),
 		ValidUntil:   now.Add(time.Hour),
 		Serial:       testSerial(t),
-		RoleClaims:   role,
+		RoleClaims:   certRole,
 		CertNonce:    testNonce(t),
 	})
 	if err != nil {
@@ -178,4 +182,8 @@ type fakeClock struct { // A
 
 func (c *fakeClock) Now() time.Time { // A
 	return c.now
+}
+
+func newTestCarrierAuth() *CarrierAuth { // A
+	return NewCarrierAuth(CarrierAuthConfig{})
 }

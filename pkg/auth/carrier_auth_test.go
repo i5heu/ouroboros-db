@@ -4,622 +4,571 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
 
+type verifyFixture struct { // A
+	carrier       *CarrierAuth
+	clock         *fakeClock
+	caAC          *keys.AsyncCrypt
+	caPub         *keys.PublicKey
+	nodeAC        *keys.AsyncCrypt
+	nodePub       *keys.PublicKey
+	sessionPub    *keys.PublicKey
+	cert          *NodeCert
+	caSig         []byte
+	x509FP        [32]byte
+	proof         *DelegationProof
+	delegationSig []byte
+}
+
+func newVerifyFixture( // A
+	t *testing.T,
+	caScope TrustScope,
+	certRole TrustScope,
+) verifyFixture {
+	t.Helper()
+	now := time.Now().UTC()
+	clk := &fakeClock{now: now}
+	carrier := NewCarrierAuth(CarrierAuthConfig{
+		Clock:        clk,
+		NonceTTL:     5 * time.Minute,
+		FreshnessTTL: 30 * time.Minute,
+		MaxDelegTTL:  5 * time.Minute,
+	})
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+	sessionAC := generateKeys(t)
+	sessionPub := pubKeyPtr(t, sessionAC)
+
+	switch caScope {
+	case ScopeAdmin:
+		if err := carrier.AddAdminPubKey(caPub); err != nil {
+			t.Fatalf("AddAdminPubKey: %v", err)
+		}
+	case ScopeUser:
+		if err := carrier.AddUserPubKey(caPub); err != nil {
+			t.Fatalf("AddUserPubKey: %v", err)
+		}
+	default:
+		t.Fatalf("invalid caScope: %v", caScope)
+	}
+
+	cert := buildTestCert(t, caPub, nodePub, certRole)
+	caSig := signCert(t, caAC, cert)
+	x509FP := testNonce(t)
+	proof := buildTestDelegation(t, sessionPub, cert, x509FP)
+	delegationSig := signDelegation(t, nodeAC, proof)
+
+	carrier.RefreshRevocationState(cert.IssuerCAHash())
+
+	return verifyFixture{
+		carrier:       carrier,
+		clock:         clk,
+		caAC:          caAC,
+		caPub:         caPub,
+		nodeAC:        nodeAC,
+		nodePub:       nodePub,
+		sessionPub:    sessionPub,
+		cert:          cert,
+		caSig:         caSig,
+		x509FP:        x509FP,
+		proof:         proof,
+		delegationSig: delegationSig,
+	}
+}
+
+func buildParams( // A
+	t *testing.T,
+	f verifyFixture,
+) VerifyPeerCertParams {
+	t.Helper()
+	return buildVerifyParams(
+		t,
+		f.cert,
+		f.caSig,
+		f.proof,
+		f.delegationSig,
+		f.sessionPub,
+		f.x509FP,
+	)
+}
+
+func rebuildProof( // A
+	t *testing.T,
+	f verifyFixture,
+	notBefore time.Time,
+	notAfter time.Time,
+	nonce [32]byte,
+	sessionPub *keys.PublicKey,
+	x509 [32]byte,
+	nodeHash CaHash,
+) (*DelegationProof, []byte) {
+	t.Helper()
+	proof, err := NewDelegationProof(DelegationProofParams{
+		SessionPubKey:   sessionPub,
+		X509Fingerprint: x509,
+		NodeCertHash:    nodeHash,
+		NotBefore:       notBefore,
+		NotAfter:        notAfter,
+		HandshakeNonce:  nonce,
+	})
+	if err != nil {
+		t.Fatalf("NewDelegationProof: %v", err)
+	}
+	sig := signDelegation(t, f.nodeAC, proof)
+	return proof, sig
+}
+
 func TestNewCarrierAuth(t *testing.T) { // A
-	ca := NewCarrierAuth()
+	ca := newTestCarrierAuth()
 	if ca == nil {
 		t.Fatal("expected non-nil CarrierAuth")
 	}
 }
 
-func TestVerifyPeerCertAdmin(t *testing.T) { // A
+func TestVerifyPeerCertHappyPath(t *testing.T) { // A
+	tests := []struct {
+		name     string
+		caScope  TrustScope
+		certRole TrustScope
+		want     TrustScope
+	}{
+		{name: "admin", caScope: ScopeAdmin, certRole: ScopeAdmin, want: ScopeAdmin},
+		{name: "user", caScope: ScopeUser, certRole: ScopeUser, want: ScopeUser},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newVerifyFixture(t, tc.caScope, tc.certRole)
+			params := buildParams(t, f)
+
+			nodeID, scope, err := f.carrier.VerifyPeerCert(params)
+			if err != nil {
+				t.Fatalf("VerifyPeerCert: %v", err)
+			}
+			if scope != tc.want {
+				t.Fatalf("scope = %v, want %v", scope, tc.want)
+			}
+			expected, _ := f.nodePub.NodeID()
+			if nodeID != expected {
+				t.Fatalf("nodeID = %v, want %v", nodeID, expected)
+			}
+		})
+	}
+}
+
+func TestVerifyPeerCertStep1UnknownCA(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	f.carrier = newTestCarrierAuth()
+	_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "no trusted CA") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyPeerCertStep2Failures(t *testing.T) { // A
+	t.Run("expired cert", testStep2ExpiredCert)
+	t.Run("not yet valid", testStep2NotYetValid)
+	t.Run("revoked node", testStep2RevokedNode)
+	t.Run("revoked CA", testStep2RevokedCA)
+	t.Run("stale revocation state", testStep2StaleRevocation)
+}
+
+func testStep2ExpiredCert(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	cert, err := NewNodeCert(NodeCertParams{
+		NodePubKey:   f.nodePub,
+		IssuerCAHash: f.cert.IssuerCAHash(),
+		ValidFrom:    f.clock.Now().Add(-2 * time.Hour),
+		ValidUntil:   f.clock.Now().Add(-time.Hour),
+		Serial:       testSerial(t),
+		RoleClaims:   ScopeAdmin,
+		CertNonce:    testNonce(t),
+	})
+	if err != nil {
+		t.Fatalf("NewNodeCert: %v", err)
+	}
+	f.cert = cert
+	f.caSig = signCert(t, f.caAC, cert)
+	_, _, err = f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testStep2NotYetValid(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	cert, err := NewNodeCert(NodeCertParams{
+		NodePubKey:   f.nodePub,
+		IssuerCAHash: f.cert.IssuerCAHash(),
+		ValidFrom:    f.clock.Now().Add(time.Hour),
+		ValidUntil:   f.clock.Now().Add(2 * time.Hour),
+		Serial:       testSerial(t),
+		RoleClaims:   ScopeAdmin,
+		CertNonce:    testNonce(t),
+	})
+	if err != nil {
+		t.Fatalf("NewNodeCert: %v", err)
+	}
+	f.cert = cert
+	f.caSig = signCert(t, f.caAC, cert)
+	_, _, err = f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "not yet valid") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testStep2RevokedNode(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	nodeID, _ := f.nodePub.NodeID()
+	_ = f.carrier.RevokeNode(nodeID)
+	_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "node is revoked") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testStep2RevokedCA(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	_ = f.carrier.RevokeAdminCA(f.cert.IssuerCAHash())
+	_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "issuer CA is revoked") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testStep2StaleRevocation(t *testing.T) { // A
+	clk := &fakeClock{now: time.Now().UTC()}
+	ca := NewCarrierAuth(CarrierAuthConfig{
+		Clock:        clk,
+		FreshnessTTL: time.Minute,
+	})
 	caAC := generateKeys(t)
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
 	if err := ca.AddAdminPubKey(caPub); err != nil {
 		t.Fatalf("AddAdminPubKey: %v", err)
 	}
+	cert := buildTestCert(t, caPub, nodePub, ScopeAdmin)
+	ca.RefreshRevocationState(cert.IssuerCAHash())
+	clk.now = clk.now.Add(2 * time.Minute)
 
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	nodeID, scope, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
+	sessionAC := generateKeys(t)
+	sessionPub := pubKeyPtr(t, sessionAC)
+	x509 := testNonce(t)
+	proof := buildTestDelegation(t, sessionPub, cert, x509)
+	params := buildVerifyParams(
+		t,
+		cert,
+		signCert(t, caAC, cert),
+		proof,
+		signDelegation(t, nodeAC, proof),
+		sessionPub,
+		x509,
 	)
-	if err != nil {
-		t.Fatalf("VerifyPeerCert: %v", err)
+	_, _, err := ca.VerifyPeerCert(params)
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("unexpected error: %v", err)
 	}
+}
 
-	if scope != ScopeAdmin {
-		t.Errorf(
-			"scope = %v, want ScopeAdmin",
-			scope,
+func TestVerifyPeerCertStep3BadCASignature(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	params := buildParams(t, f)
+	params.CASignature = []byte("bad")
+	_, _, err := f.carrier.VerifyPeerCert(params)
+	if err == nil {
+		t.Fatal("expected bad CA signature error")
+	}
+}
+
+func TestVerifyPeerCertStep4Failures(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+
+	t.Run("bad delegation signature", func(t *testing.T) {
+		params := buildParams(t, f)
+		params.DelegationSig = []byte("bad")
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "delegation signature") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("session mismatch", func(t *testing.T) {
+		params := buildParams(t, f)
+		other := generateKeys(t)
+		params.TLSSessionPubKey = pubKeyPtr(t, other)
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "session key mismatch") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("x509 mismatch", func(t *testing.T) {
+		params := buildParams(t, f)
+		params.TLSX509Fingerprint = testNonce(t)
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "x509 fingerprint mismatch") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("cert hash mismatch", func(t *testing.T) {
+		now := f.clock.Now()
+		proof, sig := rebuildProof(
+			t,
+			f,
+			now.Add(-time.Minute),
+			now.Add(time.Minute),
+			testNonce(t),
+			f.sessionPub,
+			f.x509FP,
+			testNonce(t),
 		)
-	}
+		params := buildParams(t, f)
+		params.DelegationProof = proof
+		params.DelegationSig = sig
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "node cert hash mismatch") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
 
-	expected, _ := nodePub.NodeID()
-	if nodeID != expected {
-		t.Errorf(
-			"nodeID = %v, want %v",
-			nodeID, expected,
+func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
+	t.Run("delegation too long", func(t *testing.T) {
+		f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+		certHash, _ := f.cert.Hash()
+		proof, sig := rebuildProof(
+			t,
+			f,
+			f.clock.Now().Add(-time.Minute),
+			f.clock.Now().Add(10*time.Minute),
+			testNonce(t),
+			f.sessionPub,
+			f.x509FP,
+			certHash,
 		)
-	}
-}
+		params := buildParams(t, f)
+		params.DelegationProof = proof
+		params.DelegationSig = sig
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 
-func TestVerifyPeerCertUser(t *testing.T) { // A
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	if err := ca.AddUserPubKey(caPub); err != nil {
-		t.Fatalf("AddUserPubKey: %v", err)
-	}
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	_, scope, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err != nil {
-		t.Fatalf("VerifyPeerCert: %v", err)
-	}
-
-	if scope != ScopeUser {
-		t.Errorf(
-			"scope = %v, want ScopeUser",
-			scope,
+	t.Run("delegation expired", func(t *testing.T) {
+		f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+		certHash, _ := f.cert.Hash()
+		proof, sig := rebuildProof(
+			t,
+			f,
+			f.clock.Now().Add(-2*time.Minute),
+			f.clock.Now().Add(-time.Minute),
+			testNonce(t),
+			f.sessionPub,
+			f.x509FP,
+			certHash,
 		)
-	}
+		params := buildParams(t, f)
+		params.DelegationProof = proof
+		params.DelegationSig = sig
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "has expired") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("replayed nonce", func(t *testing.T) {
+		f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+		params := buildParams(t, f)
+		if _, _, err := f.carrier.VerifyPeerCert(params); err != nil {
+			t.Fatalf("first verify: %v", err)
+		}
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "replayed handshake nonce") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty transcript", func(t *testing.T) {
+		f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+		params := buildParams(t, f)
+		params.TLSTranscriptHash = nil
+		_, _, err := f.carrier.VerifyPeerCert(params)
+		if err == nil || !strings.Contains(err.Error(), "TLS transcript hash") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
-func TestVerifyPeerCertPoPFailure( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-	otherAC := generateKeys(t)
-	otherPub := pubKeyPtr(t, otherAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, otherPub,
-	)
-	if err == nil {
-		t.Fatal("expected PoP failure")
-	}
-	if !strings.Contains(
-		err.Error(), "does not match",
-	) {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestVerifyPeerCertAcceptsSameSignDifferentKEM( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-	otherAC := generateKeys(t)
-	otherPub := pubKeyPtr(t, otherAC)
-
-	ca := NewCarrierAuth()
-	if err := ca.AddAdminPubKey(caPub); err != nil {
-		t.Fatalf("AddAdminPubKey: %v", err)
-	}
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	otherKEM, err := otherPub.MarshalBinaryKEM()
-	if err != nil {
-		t.Fatalf("marshal other KEM key: %v", err)
-	}
-	nodeSign, err := nodePub.MarshalBinarySign()
-	if err != nil {
-		t.Fatalf("marshal node sign key: %v", err)
-	}
-	tlsMixedPub, err := keys.NewPublicKeyFromBinary(
-		otherKEM, nodeSign,
-	)
-	if err != nil {
-		t.Fatalf("build mixed TLS public key: %v", err)
-	}
-
-	_, scope, err := ca.VerifyPeerCert(
-		cert, sig, tlsMixedPub,
-	)
-	if err != nil {
-		t.Fatalf("VerifyPeerCert: %v", err)
-	}
-	if scope != ScopeAdmin {
-		t.Errorf("scope = %v, want ScopeAdmin", scope)
-	}
-}
-
-func TestVerifyPeerCertRevokedNode( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	nodeID, _ := nodePub.NodeID()
-	_ = ca.RevokeNode(nodeID)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err == nil {
-		t.Fatal("expected revoked node error")
-	}
-	if !strings.Contains(
-		err.Error(), "revoked",
-	) {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestVerifyPeerCertRevokedAdminCA( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	caHash, _ := computeCAHash(caPub)
-	_ = ca.RevokeAdminCA(caHash)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err == nil {
-		t.Fatal("expected revoked CA error")
-	}
-}
-
-func TestVerifyPeerCertRevokedUserCA( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddUserPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	caHash, _ := computeCAHash(caPub)
-	_ = ca.RevokeUserCA(caHash)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err == nil {
-		t.Fatal("expected revoked CA error")
-	}
-}
-
-func TestVerifyPeerCertUnknownCA( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err == nil {
-		t.Fatal("expected unknown CA error")
-	}
-	if !strings.Contains(
-		err.Error(), "no trusted CA",
-	) {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestVerifyPeerCertBadSignature( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, []byte("bad"), nodePub,
-	)
-	if err == nil {
-		t.Fatal(
-			"expected error for bad signature",
+func TestVerifyPeerCertStep6Failures(t *testing.T) { // A
+	t.Run("invalid role claim", func(t *testing.T) {
+		f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+		cert := &NodeCert{
+			certVersion:  f.cert.CertVersion(),
+			nodePubKey:   f.nodePub,
+			issuerCAHash: f.cert.IssuerCAHash(),
+			validFrom:    f.clock.Now().Add(-time.Hour),
+			validUntil:   f.clock.Now().Add(time.Hour),
+			serial:       testSerial(t),
+			roleClaims:   TrustScope(99),
+			certNonce:    testNonce(t),
+		}
+		f.cert = cert
+		f.caSig = signCert(t, f.caAC, cert)
+		certHash, _ := cert.Hash()
+		proof, sig := rebuildProof(
+			t,
+			f,
+			f.clock.Now().Add(-time.Minute),
+			f.clock.Now().Add(time.Minute),
+			testNonce(t),
+			f.sessionPub,
+			f.x509FP,
+			certHash,
 		)
-	}
+		f.proof = proof
+		f.delegationSig = sig
+		_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
+		if err == nil || !strings.Contains(err.Error(), "role") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("role mismatch with CA", func(t *testing.T) {
+		f := newVerifyFixture(t, ScopeAdmin, ScopeUser)
+		_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
+		if err == nil || !strings.Contains(err.Error(), "does not match CA type") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestVerifyPeerCertNilGuards(t *testing.T) { // A
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	carrier := NewCarrierAuth()
-	_ = carrier.AddAdminPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+	params := buildParams(t, f)
 
 	tests := []struct {
-		name      string
-		carrier   *CarrierAuth
-		peerCert  *NodeCert
-		tlsPubKey *keys.PublicKey
-		wantErr   string
+		name    string
+		carrier *CarrierAuth
+		params  VerifyPeerCertParams
+		wantErr string
 	}{
 		{
-			name:      "nil carrier",
-			carrier:   nil,
-			peerCert:  cert,
-			tlsPubKey: nodePub,
-			wantErr:   "carrier auth must not be nil",
+			name:    "nil carrier",
+			carrier: nil,
+			params:  params,
+			wantErr: "carrier auth must not be nil",
 		},
 		{
-			name:      "nil peer cert",
-			carrier:   carrier,
-			peerCert:  nil,
-			tlsPubKey: nodePub,
-			wantErr:   "peer cert must not be nil",
+			name:    "nil peer cert",
+			carrier: f.carrier,
+			params: func() VerifyPeerCertParams {
+				cp := params
+				cp.PeerCert = nil
+				return cp
+			}(),
+			wantErr: "peer cert must not be nil",
 		},
 		{
-			name:      "nil tls key",
-			carrier:   carrier,
-			peerCert:  cert,
-			tlsPubKey: nil,
-			wantErr:   "TLS peer public key must not be nil",
+			name:    "nil tls session key",
+			carrier: f.carrier,
+			params: func() VerifyPeerCertParams {
+				cp := params
+				cp.TLSSessionPubKey = nil
+				return cp
+			}(),
+			wantErr: "TLS session public key must not be nil",
 		},
 		{
-			name:    "malformed cert nil node key",
-			carrier: carrier,
-			peerCert: &NodeCert{
-				nodePubKey:   nil,
-				issuerCAHash: cert.IssuerCAHash(),
-			},
-			tlsPubKey: nodePub,
-			wantErr:   "peer cert node public key must not be nil",
+			name:    "malformed cert",
+			carrier: f.carrier,
+			params: func() VerifyPeerCertParams {
+				cp := params
+				cp.PeerCert = &NodeCert{issuerCAHash: f.cert.IssuerCAHash()}
+				return cp
+			}(),
+			wantErr: "peer cert node public key must not be nil",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := tc.carrier.VerifyPeerCert(
-				tc.peerCert, sig, tc.tlsPubKey,
-			)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-			if !strings.Contains(
-				err.Error(), tc.wantErr,
-			) {
-				t.Fatalf(
-					"error = %q, want contains %q",
-					err.Error(), tc.wantErr,
-				)
+			_, _, err := tc.carrier.VerifyPeerCert(tc.params)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
 }
 
-func TestAdminPreferredOverUser( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-	_ = ca.AddUserPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	_, scope, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err != nil {
-		t.Fatalf("VerifyPeerCert: %v", err)
-	}
-	if scope != ScopeAdmin {
-		t.Errorf(
-			"scope = %v, want ScopeAdmin "+
-				"(admin should take precedence)",
-			scope,
-		)
-	}
-}
-
-func TestRemoveAdminPubKey(t *testing.T) { // A
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-
-	caHash, _ := computeCAHash(caPub)
-	_ = ca.RemoveAdminPubKey(caHash)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err == nil {
-		t.Fatal(
-			"expected error after removing " +
-				"admin CA",
-		)
-	}
-}
-
-func TestRemoveUserPubKey(t *testing.T) { // A
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddUserPubKey(caPub)
-
-	caHash, _ := computeCAHash(caPub)
-	_ = ca.RemoveUserPubKey(caHash)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
-	_, _, err := ca.VerifyPeerCert(
-		cert, sig, nodePub,
-	)
-	if err == nil {
-		t.Fatal(
-			"expected error after removing " +
-				"user CA",
-		)
-	}
-}
-
-func TestConcurrentVerifyPeerCert( // A
-	t *testing.T,
-) {
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(caPub)
-
-	cert := buildTestCert(t, caPub, nodePub)
-	sig := signCert(t, caAC, cert)
-
+func TestConcurrentVerifyPeerCert(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, err := ca.VerifyPeerCert(
-				cert, sig, nodePub,
-			)
+			local := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
+			_, _, err := local.carrier.VerifyPeerCert(buildParams(t, local))
 			if err != nil {
-				t.Errorf(
-					"concurrent verify: %v",
-					err,
-				)
+				t.Errorf("concurrent verify: %v", err)
 			}
 		}()
 	}
 	wg.Wait()
+	_ = f
 }
 
-func TestRevokeNodeAppliesToBothScopes( // A
-	t *testing.T,
-) {
+func TestCarrierAuthKeyManagement(t *testing.T) { // A
+	ca := newTestCarrierAuth()
 	adminAC := generateKeys(t)
 	adminPub := pubKeyPtr(t, adminAC)
 	userAC := generateKeys(t)
 	userPub := pubKeyPtr(t, userAC)
-	nodeAC := generateKeys(t)
-	nodePub := pubKeyPtr(t, nodeAC)
 
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(adminPub)
-	_ = ca.AddUserPubKey(userPub)
+	mustErr(t, ca.AddAdminPubKey(nil), "nil admin pubkey")
+	mustErr(t, ca.AddUserPubKey(nil), "nil user pubkey")
+	mustNoErr(t, ca.AddAdminPubKey(adminPub), "AddAdminPubKey")
+	mustNoErr(t, ca.AddUserPubKey(userPub), "AddUserPubKey")
 
-	nodeID, _ := nodePub.NodeID()
-	_ = ca.RevokeNode(nodeID)
-
-	adminCert := buildTestCert(
-		t, adminPub, nodePub,
-	)
-	adminSig := signCert(t, adminAC, adminCert)
-	_, _, err := ca.VerifyPeerCert(
-		adminCert, adminSig, nodePub,
-	)
-	if err == nil {
-		t.Fatal(
-			"revoked node should fail admin " +
-				"verify",
-		)
-	}
-
-	userCert := buildTestCert(
-		t, userPub, nodePub,
-	)
-	userSig := signCert(t, userAC, userCert)
-	_, _, err = ca.VerifyPeerCert(
-		userCert, userSig, nodePub,
-	)
-	if err == nil {
-		t.Fatal(
-			"revoked node should fail user " +
-				"verify",
-		)
-	}
+	adminHash, _ := computeCAHash(adminPub)
+	userHash, _ := computeCAHash(userPub)
+	mustNoErr(t, ca.RemoveAdminPubKey(adminHash), "RemoveAdminPubKey")
+	mustNoErr(t, ca.RemoveUserPubKey(userHash), "RemoveUserPubKey")
+	mustNoErr(t, ca.RevokeAdminCA(adminHash), "RevokeAdminCA")
+	mustNoErr(t, ca.RevokeUserCA(userHash), "RevokeUserCA")
+	mustErr(t, ca.AddAdminPubKey(adminPub), "revoked admin CA")
+	mustErr(t, ca.AddUserPubKey(userPub), "revoked user CA")
 }
 
-func TestAddAdminPubKeyNil(t *testing.T) { // A
-	ca := NewCarrierAuth()
-	err := ca.AddAdminPubKey(nil)
-	if err == nil {
-		t.Fatal("expected error for nil pubkey")
-	}
-}
-
-func TestAddAdminPubKeyRejectsRevokedHash( // A
+func mustNoErr( // A
 	t *testing.T,
+	err error,
+	label string,
 ) {
-	adminAC := generateKeys(t)
-	adminPub := pubKeyPtr(t, adminAC)
-	adminHash, err := computeCAHash(adminPub)
+	t.Helper()
 	if err != nil {
-		t.Fatalf("computeCAHash: %v", err)
-	}
-
-	ca := NewCarrierAuth()
-	if err := ca.RevokeAdminCA(adminHash); err != nil {
-		t.Fatalf("RevokeAdminCA: %v", err)
-	}
-
-	err = ca.AddAdminPubKey(adminPub)
-	if err == nil {
-		t.Fatal("expected error for revoked admin CA hash")
-	}
-	if !strings.Contains(err.Error(), "revoked") {
-		t.Fatalf("error = %q, want contains revoked", err)
+		t.Fatalf("%s: %v", label, err)
 	}
 }
 
-func TestAddUserPubKeyNil(t *testing.T) { // A
-	ca := NewCarrierAuth()
-	err := ca.AddUserPubKey(nil)
-	if err == nil {
-		t.Fatal("expected error for nil pubkey")
-	}
-}
-
-func TestAddUserPubKeyRejectsRevokedHash( // A
+func mustErr( // A
 	t *testing.T,
+	err error,
+	label string,
 ) {
-	userAC := generateKeys(t)
-	userPub := pubKeyPtr(t, userAC)
-	userHash, err := computeCAHash(userPub)
-	if err != nil {
-		t.Fatalf("computeCAHash: %v", err)
-	}
-
-	ca := NewCarrierAuth()
-	if err := ca.RevokeUserCA(userHash); err != nil {
-		t.Fatalf("RevokeUserCA: %v", err)
-	}
-
-	err = ca.AddUserPubKey(userPub)
+	t.Helper()
 	if err == nil {
-		t.Fatal("expected error for revoked user CA hash")
-	}
-	if !strings.Contains(err.Error(), "revoked") {
-		t.Fatalf("error = %q, want contains revoked", err)
-	}
-}
-
-func TestMultipleAdminCAs(t *testing.T) { // A
-	ca1AC := generateKeys(t)
-	ca1Pub := pubKeyPtr(t, ca1AC)
-	ca2AC := generateKeys(t)
-	ca2Pub := pubKeyPtr(t, ca2AC)
-
-	ca := NewCarrierAuth()
-	_ = ca.AddAdminPubKey(ca1Pub)
-	_ = ca.AddAdminPubKey(ca2Pub)
-
-	for _, tc := range []struct {
-		name  string
-		caAC  *keys.AsyncCrypt
-		caPub *keys.PublicKey
-	}{
-		{"ca1", ca1AC, ca1Pub},
-		{"ca2", ca2AC, ca2Pub},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			nodeAC := generateKeys(t)
-			nodePub := pubKeyPtr(t, nodeAC)
-			cert := buildTestCert(
-				t, tc.caPub, nodePub,
-			)
-			sig := signCert(t, tc.caAC, cert)
-
-			_, scope, err := ca.VerifyPeerCert(
-				cert, sig, nodePub,
-			)
-			if err != nil {
-				t.Fatalf(
-					"VerifyPeerCert: %v", err,
-				)
-			}
-			if scope != ScopeAdmin {
-				t.Errorf(
-					"scope = %v, want admin",
-					scope,
-				)
-			}
-		})
+		t.Fatalf("expected error: %s", label)
 	}
 }

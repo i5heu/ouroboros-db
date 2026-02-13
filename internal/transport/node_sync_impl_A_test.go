@@ -33,7 +33,7 @@ func TestNodeSyncHandleNodeListUpdate( // A
 	ns := NewNodeSync(
 		reg,
 		nil,
-		auth.NewCarrierAuth(),
+		auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 	)
 
 	update := []interfaces.NodeInfo{
@@ -95,7 +95,7 @@ func TestNodeSyncTriggerNoConnections( // A
 	// connections list.
 	tr, err := NewQuicTransport(
 		"127.0.0.1:0",
-		auth.NewCarrierAuth(),
+		auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 		keys.NodeID{99},
 	)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestNodeSyncTriggerNoConnections( // A
 	ns := NewNodeSync(
 		reg,
 		tr,
-		auth.NewCarrierAuth(),
+		auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
 	)
 
 	// TriggerFullSync should fail because there
