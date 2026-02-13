@@ -2,6 +2,10 @@ package transport
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -361,4 +365,144 @@ func TestQuicTransportAllowAttemptRateLimit( // A
 	if tpt.allowDialAttempt(addr) {
 		t.Fatal("expected dial attempt to be throttled")
 	}
+}
+
+func TestGenerateSelfSignedCertUsesEd25519( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	cert, err := generateSelfSignedCert()
+	if err != nil {
+		t.Fatalf("generate cert: %v", err)
+	}
+	if len(cert.Certificate) == 0 {
+		t.Fatal("expected certificate leaf")
+	}
+
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+	if leaf.PublicKeyAlgorithm != x509.Ed25519 {
+		t.Fatalf(
+			"public key algorithm = %v, want %v",
+			leaf.PublicKeyAlgorithm,
+			x509.Ed25519,
+		)
+	}
+}
+
+func TestQuicTransportNegotiatesStrictTLSProfile( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	tA := mustNewQuicTransport(t, keys.NodeID{1})
+	defer deferCloseNoError(t, tA.Close)
+	tB := mustNewQuicTransport(t, keys.NodeID{2})
+	defer deferCloseNoError(t, tB.Close)
+
+	connA, connB := mustConnectTransports(t, tA, tB)
+	defer deferCloseNoError(t, connA.Close)
+	defer deferCloseNoError(t, connB.Close)
+
+	qcA := connA.(*quicConnection)
+	stateA := qcA.inner.ConnectionState().TLS
+	assertStrictTLSState(t, "server", stateA)
+
+	qcB := connB.(*quicConnection)
+	stateB := qcB.inner.ConnectionState().TLS
+	assertStrictTLSState(t, "client", stateB)
+}
+
+func mustNewQuicTransport( // A
+	t *testing.T,
+	nodeID keys.NodeID,
+) QuicTransport {
+	t.Helper()
+
+	tpt, err := NewQuicTransport(
+		"127.0.0.1:0",
+		auth.NewCarrierAuth(auth.CarrierAuthConfig{}),
+		nodeID,
+	)
+	if err != nil {
+		t.Fatalf("new transport: %v", err)
+	}
+	return tpt
+}
+
+type acceptResult struct { // A
+	conn Connection
+	err  error
+}
+
+func mustConnectTransports( // A
+	t *testing.T,
+	tA QuicTransport,
+	tB QuicTransport,
+) (Connection, Connection) {
+	t.Helper()
+
+	addrA := tA.(*quicTransportImpl).ListenAddr()
+	acceptResultCh := make(chan acceptResult, 1)
+	go func() {
+		conn, err := tA.Accept()
+		acceptResultCh <- acceptResult{conn: conn, err: err}
+	}()
+
+	peer := interfaces.PeerNode{
+		NodeID:    keys.NodeID{1},
+		Addresses: []string{addrA},
+	}
+	connB, err := tB.Dial(peer)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	result := <-acceptResultCh
+	if result.err != nil {
+		t.Fatalf("accept: %v", result.err)
+	}
+
+	return result.conn, connB
+}
+
+func assertStrictTLSState( // A
+	t *testing.T,
+	side string,
+	state tls.ConnectionState,
+) {
+	t.Helper()
+
+	if state.Version != tls.VersionTLS13 {
+		t.Fatalf("%s TLS version = %x, want TLS1.3", side, state.Version)
+	}
+	curve, ok, err := curveIDFromStateForTest(state)
+	if err != nil {
+		t.Fatalf("%s curve read: %v", side, err)
+	}
+	if !ok || curve != uint64(tls.X25519MLKEM768) {
+		t.Fatalf(
+			"%s curve = %v, want %v",
+			side,
+			curve,
+			tls.X25519MLKEM768,
+		)
+	}
+}
+
+func curveIDFromStateForTest( // A
+	state tls.ConnectionState,
+) (uint64, bool, error) {
+	v := reflect.ValueOf(state)
+	field := v.FieldByName("CurveID")
+	if !field.IsValid() {
+		return 0, false, nil
+	}
+	if !field.CanUint() {
+		return 0, false, fmt.Errorf("invalid curve field type")
+	}
+	return field.Uint(), true, nil
 }

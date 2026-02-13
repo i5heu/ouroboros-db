@@ -2,8 +2,7 @@ package transport
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -11,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"fmt"
 	"math/big"
+	"reflect"
 	"sync"
 	"time"
 
@@ -29,6 +29,10 @@ const (
 	maxAttempts      = 30
 )
 
+var errStrictTLSProfile = fmt.Errorf( // A
+	"strict TLS profile required: tls1.3 + x25519mlkem768",
+)
+
 type attemptCounter struct { // A
 	windowStart time.Time
 	count       int
@@ -36,17 +40,17 @@ type attemptCounter struct { // A
 
 // quicTransportImpl is the concrete QUIC transport.
 type quicTransportImpl struct { // A
-	mu          sync.RWMutex
-	listener    *quic.Listener
-	connections map[keys.NodeID]*quicConnection
-	carrierAuth *auth.CarrierAuth
-	localNodeID keys.NodeID
-	tlsCert     tls.Certificate
-	listenAddr  string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	rateMu      sync.Mutex
-	dialAttempts map[string]attemptCounter
+	mu             sync.RWMutex
+	listener       *quic.Listener
+	connections    map[keys.NodeID]*quicConnection
+	carrierAuth    *auth.CarrierAuth
+	localNodeID    keys.NodeID
+	tlsCert        tls.Certificate
+	listenAddr     string
+	ctx            context.Context
+	cancel         context.CancelFunc
+	rateMu         sync.Mutex
+	dialAttempts   map[string]attemptCounter
 	acceptAttempts map[string]attemptCounter
 }
 
@@ -146,6 +150,16 @@ func (t *quicTransportImpl) Dial( // A
 			err,
 		)
 	}
+	if err := verifyStrictTLSProfile(conn); err != nil {
+		_ = conn.CloseWithError(
+			0x101,
+			err.Error(),
+		)
+		return nil, fmt.Errorf(
+			"dial strict TLS profile: %w",
+			err,
+		)
+	}
 
 	qc := newQuicConnection(
 		conn,
@@ -167,6 +181,16 @@ func (t *quicTransportImpl) Accept() ( // A
 	conn, err := t.listener.Accept(t.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("accept: %w", err)
+	}
+	if err := verifyStrictTLSProfile(conn); err != nil {
+		_ = conn.CloseWithError(
+			0x101,
+			err.Error(),
+		)
+		return nil, fmt.Errorf(
+			"accept strict TLS profile: %w",
+			err,
+		)
 	}
 
 	remoteAddr := conn.RemoteAddr().String()
@@ -268,6 +292,7 @@ func (t *quicTransportImpl) serverTLSConfig() *tls.Config { // A
 		CurvePreferences: []tls.CurveID{
 			tls.X25519MLKEM768,
 		},
+		VerifyConnection: verifyStrictTLSConnState,
 	}
 }
 
@@ -286,6 +311,7 @@ func (t *quicTransportImpl) clientTLSConfig( // A
 		CurvePreferences: []tls.CurveID{
 			tls.X25519MLKEM768,
 		},
+		VerifyConnection: verifyStrictTLSConnState,
 	}
 }
 
@@ -325,8 +351,7 @@ func generateSelfSignedCert() ( // A
 	tls.Certificate,
 	error,
 ) {
-	key, err := ecdsa.GenerateKey(
-		elliptic.P256(),
+	pub, priv, err := ed25519.GenerateKey(
 		rand.Reader,
 	)
 	if err != nil {
@@ -354,8 +379,7 @@ func generateSelfSignedCert() ( // A
 		NotAfter: time.Now().Add(
 			certValidityDays * 24 * time.Hour,
 		),
-		KeyUsage: x509.KeyUsageDigitalSignature |
-			x509.KeyUsageKeyEncipherment,
+		KeyUsage: x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageServerAuth,
 			x509.ExtKeyUsageClientAuth,
@@ -366,8 +390,8 @@ func generateSelfSignedCert() ( // A
 		rand.Reader,
 		tmpl,
 		tmpl,
-		&key.PublicKey,
-		key,
+		pub,
+		priv,
 	)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf(
@@ -377,8 +401,54 @@ func generateSelfSignedCert() ( // A
 
 	return tls.Certificate{
 		Certificate: [][]byte{certDER},
-		PrivateKey:  key,
+		PrivateKey:  priv,
 	}, nil
+}
+
+func verifyStrictTLSProfile(conn *quic.Conn) error { // A
+	state := conn.ConnectionState().TLS
+	return verifyStrictTLSConnState(state)
+}
+
+func verifyStrictTLSConnState( // A
+	state tls.ConnectionState,
+) error {
+	if state.Version != tls.VersionTLS13 {
+		return errStrictTLSProfile
+	}
+	curveID, ok, err := getNegotiatedCurveID(state)
+	if err != nil {
+		return errStrictTLSProfile
+	}
+	if !ok || curveID != tls.X25519MLKEM768 {
+		return errStrictTLSProfile
+	}
+	if state.NegotiatedProtocol != alpnProtocol {
+		return fmt.Errorf("invalid ALPN protocol")
+	}
+	return nil
+}
+
+func getNegotiatedCurveID( // A
+	state tls.ConnectionState,
+) (tls.CurveID, bool, error) {
+	v := reflect.ValueOf(state)
+	field := v.FieldByName("CurveID")
+	if !field.IsValid() {
+		return 0, false, nil
+	}
+	if !field.CanUint() {
+		return 0, false, fmt.Errorf(
+			"invalid curve field type",
+		)
+	}
+	raw := field.Uint()
+	if raw > uint64(^uint16(0)) {
+		return 0, false, fmt.Errorf(
+			"curve id overflow",
+		)
+	}
+	return tls.CurveID(uint16(raw)), true, nil
 }
 
 func (t *quicTransportImpl) allowDialAttempt( // A
