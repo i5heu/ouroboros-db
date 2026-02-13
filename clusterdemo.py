@@ -6,6 +6,9 @@ import contextlib
 import json
 import shutil
 import tempfile
+import argparse
+import os
+import signal
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -80,12 +83,22 @@ class ClusterDemoApp(App[None]):
 
     BINDINGS = [("ctrl+c", "quit", "Quit")]
 
-    def __init__(self) -> None:
+    def __init__(self, auto: bool = False, auto_msg: str = "hello-from-auto", auto_kill_delay: float = 0.5) -> None:
+        """auto: if True send a message and trigger SIGINT after cluster is ready
+
+        auto_msg: message text to send to `node1`
+        auto_kill_delay: seconds to wait after sending before raising SIGINT
+        """
         super().__init__()
         self.repo_root = Path(__file__).resolve().parent
         self.binary_path = self.repo_root / "clusterdemo" / "bin" / "clusterdemo"
         self.nodes: dict[str, NodeProcess] = {}
         self.stream_tasks: list[asyncio.Task[Any]] = []
+
+        # auto-run options (used for reproducing Ctrl+C shutdown)
+        self._auto = bool(auto)
+        self._auto_msg = str(auto_msg)
+        self._auto_kill_delay = float(auto_kill_delay)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -117,6 +130,20 @@ class ClusterDemoApp(App[None]):
             self._write_log("node1", "cluster ready")
             self._write_log("node2", "cluster ready")
             self._write_log("node3", "cluster ready")
+
+            # if auto mode is enabled: send a message and schedule a SIGINT
+            if getattr(self, "_auto", False):
+                node1 = self.nodes.get("node1")
+                if node1 is not None:
+                    try:
+                        await self._write_stdin(node1, f"/send {self._auto_msg}\n")
+                    except Exception:
+                        # best-effort; continue to schedule SIGINT
+                        pass
+                loop = asyncio.get_running_loop()
+                loop.call_later(
+                    float(self._auto_kill_delay), lambda: os.kill(os.getpid(), signal.SIGINT)
+                )
         except Exception as exc:
             self._broadcast(f"startup error: {exc}")
 
@@ -322,4 +349,10 @@ class ClusterDemoApp(App[None]):
 
 
 if __name__ == "__main__":
-    ClusterDemoApp().run()
+    parser = argparse.ArgumentParser(description="Run clusterdemo UI (with optional auto-send)")
+    parser.add_argument("--auto", action="store_true", help="send message automatically and trigger Ctrl+C")
+    parser.add_argument("--auto-msg", default="hello-from-auto", help="message text to send in --auto mode")
+    parser.add_argument("--auto-delay", type=float, default=0.5, help="seconds to wait after sending before SIGINT")
+    args = parser.parse_args()
+
+    ClusterDemoApp(auto=args.auto, auto_msg=args.auto_msg, auto_kill_delay=args.auto_delay).run()
