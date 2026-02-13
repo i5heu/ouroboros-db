@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1000,3 +1001,242 @@ func TestCarrierJoinClusterFailsWhenPeerRejectsAuthHandshake( // A
 		t.Fatal("peer must not be connected after auth rejection")
 	}
 }
+
+func TestAuthHandshakeReplayAttack(t *testing.T) { // A
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+	localCert := c.transport.tlsCert.Certificate[0]
+
+	// Capture auth payload from session 1
+	conn1 := &fakeAuthConn{
+		localCert: localCert,
+		exporter:  testExporterBinding(),
+	}
+	payload, _ := c.buildLocalAuthPayload(conn1)
+
+	// Replay on session 2 with different TLS exporter binding
+	conn2 := &fakeAuthConn{
+		stream:    newFakeAuthStream(buildSerializedMessage(t, interfaces.Message{Type: interfaces.MessageTypeAuthHandshake, Payload: payload})),
+		certs:     [][]byte{mustTestCertDER(t)},
+		localCert: localCert,
+		exporter:  bytes.Repeat([]byte{0xCC}, 32), // Different
+	}
+
+	_, _, err := c.receiveAuthHandshake(conn2)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("replay attack must fail: %v", err)
+	}
+}
+
+func TestAuthHandshakeMissingPeerCert(t *testing.T) { // A
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+	msg := interfaces.Message{Type: interfaces.MessageTypeAuthHandshake, Payload: []byte("dummy")}
+	conn := &fakeAuthConn{
+		stream: newFakeAuthStream(buildSerializedMessage(t, msg)),
+		certs:  nil, // Missing
+	}
+	_, _, err := c.receiveAuthHandshake(conn)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("missing peer cert must fail: %v", err)
+	}
+}
+
+func TestAuthHandshakeExporterFailure(t *testing.T) { // A
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+	msg := interfaces.Message{Type: interfaces.MessageTypeAuthHandshake, Payload: []byte("dummy")}
+	conn := &fakeAuthConn{
+		stream:      newFakeAuthStream(buildSerializedMessage(t, msg)),
+		exporterErr: errors.New("exporter failed"),
+		certs:       [][]byte{mustTestCertDER(t)},
+	}
+	_, _, err := c.receiveAuthHandshake(conn)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("exporter failure must fail handshake: %v", err)
+	}
+}
+
+func TestAuthHandshakePayloadTruncation(t *testing.T) { // A
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+	localCert := c.transport.tlsCert.Certificate[0]
+	conn := &fakeAuthConn{localCert: localCert, exporter: testExporterBinding()}
+	payload, _ := c.buildLocalAuthPayload(conn)
+
+	truncated := payload[:len(payload)/2]
+	msg := interfaces.Message{Type: interfaces.MessageTypeAuthHandshake, Payload: truncated}
+	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	conn2 := &fakeAuthConn{
+		stream:    stream,
+		certs:     [][]byte{mustTestCertDER(t)},
+		localCert: localCert,
+		exporter:  testExporterBinding(),
+	}
+
+	_, _, err := c.receiveAuthHandshake(conn2)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("truncated payload must fail: %v", err)
+	}
+}
+
+func TestAuthHandshakePayloadTrailingBytes(t *testing.T) { // A
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+	localCert := c.transport.tlsCert.Certificate[0]
+	conn := &fakeAuthConn{localCert: localCert, exporter: testExporterBinding()}
+	payload, _ := c.buildLocalAuthPayload(conn)
+
+	corrupt := append(payload, 0xDE, 0xAD, 0xBE, 0xEF)
+	msg := interfaces.Message{Type: interfaces.MessageTypeAuthHandshake, Payload: corrupt}
+	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	conn2 := &fakeAuthConn{
+		stream:    stream,
+		certs:     [][]byte{mustTestCertDER(t)},
+		localCert: localCert,
+		exporter:  testExporterBinding(),
+	}
+
+	_, _, err := c.receiveAuthHandshake(conn2)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("trailing bytes must fail: %v", err)
+	}
+}
+
+func TestAuthHandshakeEmptyFields(t *testing.T) { // A
+	t.Parallel()
+	c := newTestCarrier(t, keys.NodeID{1})
+
+	// Payload with zero-length fields
+	payload, _ := encodeAuthHandshakePayload(authHandshakeFields{})
+	msg := interfaces.Message{Type: interfaces.MessageTypeAuthHandshake, Payload: payload}
+	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	conn := &fakeAuthConn{
+		stream:    stream,
+		certs:     [][]byte{mustTestCertDER(t)},
+		localCert: mustTestCertDER(t),
+		exporter:  testExporterBinding(),
+	}
+
+	_, _, err := c.receiveAuthHandshake(conn)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("empty fields must fail: %v", err)
+	}
+}
+
+func TestJoinClusterNilLocalCert(t *testing.T) { // A
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+	cB.localCert = nil
+	err := cB.JoinCluster(interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "local cert must not be nil") {
+		t.Fatalf("nil local cert must fail JoinCluster: %v", err)
+	}
+}
+
+func TestJoinClusterNilLocalKeys(t *testing.T) { // A
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+	cB.localKeys = nil
+	err := cB.JoinCluster(interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "local keys must not be nil") {
+		t.Fatalf("nil local keys must fail JoinCluster: %v", err)
+	}
+}
+
+func TestJoinClusterEmptyCASignature(t *testing.T) { // A
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+	cB.localCASignature = nil
+	err := cB.JoinCluster(interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "local CA signature must not be empty") {
+		t.Fatalf("empty CA signature must fail JoinCluster: %v", err)
+	}
+}
+
+
+
+func TestJoinClusterRegistersWithZeroScope(t *testing.T) { // A
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+
+	peerA := interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}
+	_ = cB.JoinCluster(peerA, nil)
+
+	// Documents current mutual auth gap
+	node, _ := cB.registry.GetNode(peerA.NodeID)
+	if node.TrustScope != 0 {
+		t.Errorf("expected 0 scope for dial-out peer, got %v", node.TrustScope)
+	}
+}
+
+func TestTranscriptHashEqualsExporterBinding(t *testing.T) { // A
+	t.Parallel()
+	_ = newTestCarrier(t, keys.NodeID{1})
+	conn := &fakeAuthConn{exporter: testExporterBinding()}
+
+	// Documents known limitation
+	th := computeTranscriptHash(conn)
+	eb, _ := extractTLSExporterBinding(conn)
+	if !bytes.Equal(th, eb[:]) {
+		t.Fatal("transcript hash should match exporter binding per current implementation")
+	}
+}
+
+func TestAcceptedPeerScopeInRegistry(t *testing.T) { // A
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+
+	nodeIDB, _ := cB.localCert.NodeID()
+	peerA := interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}
+	_ = cB.JoinCluster(peerA, nil)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// A accepted B's connection and verified B's ScopeAdmin cert.
+	nodeB, err := cA.registry.GetNode(nodeIDB)
+	if err != nil {
+		t.Fatalf("B not found in A's registry: %v", err)
+	}
+	if nodeB.TrustScope != auth.ScopeAdmin {
+		t.Errorf("TrustScope = %v, want ScopeAdmin", nodeB.TrustScope)
+	}
+}
+
+func TestDispatchMessageIncludesCorrectScope( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+
+	var gotScope atomic.Value
+	recv := MessageReceiver(func(_ interfaces.Message, _ keys.NodeID, scope auth.TrustScope) (interfaces.Response, error) {
+		gotScope.Store(scope)
+		return interfaces.Response{}, nil
+	})
+	cA.SetMessageReceiver(recv)
+
+	peerA := interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}
+	_ = cB.JoinCluster(peerA, nil)
+
+	time.Sleep(100 * time.Millisecond)
+
+	_ = cB.SendMessageToNode(keys.NodeID{1}, interfaces.Message{Type: interfaces.MessageTypeHeartbeat})
+
+	time.Sleep(100 * time.Millisecond)
+
+	val := gotScope.Load()
+	if val == nil {
+		t.Fatal("gotScope is nil")
+	}
+	if val.(auth.TrustScope) != auth.ScopeAdmin {
+		t.Errorf("gotScope = %v, want ScopeAdmin", val)
+	}
+}
+

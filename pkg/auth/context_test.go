@@ -736,3 +736,25 @@ func TestVerifyNodeCertNilNodePubKey( // A
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestCrossContextPoPSigAsAdmission(t *testing.T) { // A
+	t.Parallel()
+
+	caAC := generateKeys(t)
+	caPub := pubKeyPtr(t, caAC)
+	nodeAC := generateKeys(t)
+	nodePub := pubKeyPtr(t, nodeAC)
+
+	cert := buildTestCert(t, caPub, nodePub, ScopeAdmin)
+
+	// Build a PoP signature instead of an admission signature
+	canon, _ := canonicalSerialize(cert)
+	popPayload := popSigningPayload(canon)
+	popSig, _ := caAC.Sign(popPayload)
+
+	// Use PoP signature as CA admission signature
+	_, err := verifyNodeCert(caPub, cert, popSig)
+	if err == nil || !strings.Contains(err.Error(), "verification failed") {
+		t.Fatalf("PoP signature should not work as admission signature: %v", err)
+	}
+}

@@ -251,3 +251,35 @@ func TestRegistryPropertyAddRemove( // A
 		}
 	})
 }
+
+func TestRegistryAdminVsUserFilterCorrectness(t *testing.T) { // A
+	t.Parallel()
+	reg := NewNodeRegistry()
+
+	// Add 3 admin + 2 user nodes
+	for i := byte(1); i <= 3; i++ {
+		_ = reg.AddNode(testPeer(i), nil, auth.ScopeAdmin)
+	}
+	for i := byte(4); i <= 5; i++ {
+		_ = reg.AddNode(testPeer(i), nil, auth.ScopeUser)
+	}
+
+	admins := reg.GetAdminNodes()
+	users := reg.GetUserNodes()
+
+	if len(admins) != 3 {
+		t.Errorf("expected 3 admins, got %d", len(admins))
+	}
+	if len(users) != 2 {
+		t.Errorf("expected 2 users, got %d", len(users))
+	}
+
+	// Verify no overlap
+	for _, a := range admins {
+		for _, u := range users {
+			if a.NodeID == u.NodeID {
+				t.Errorf("node %s found in both admin and user lists", a.NodeID)
+			}
+		}
+	}
+}
