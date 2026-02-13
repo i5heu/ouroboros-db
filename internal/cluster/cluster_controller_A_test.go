@@ -869,7 +869,7 @@ func TestPropertyRegisterUnregister( // A
 		ops := rapid.IntRange(1, 50).Draw(t, "ops")
 		for i := 0; i < ops; i++ {
 			mt := interfaces.MessageType(
-				rapid.IntRange(0, 13).Draw(t, "msgType"),
+				rapid.IntRange(0, 14).Draw(t, "msgType"),
 			)
 
 			if registered[mt] {

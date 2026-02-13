@@ -153,7 +153,7 @@ func TestPropertyRoundTrip(t *testing.T) { // A
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		msgType := interfaces.MessageType(
-			rapid.IntRange(0, 13).Draw(t, "type"),
+			rapid.IntRange(0, 14).Draw(t, "type"),
 		)
 		payloadLen := rapid.IntRange(
 			0, 4096,

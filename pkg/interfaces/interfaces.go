@@ -20,6 +20,7 @@ const ( // AC
 	MessageTypeChunkMetaRequest
 	MessageTypeVertexMetaRequest
 	MessageTypeHeartbeat
+	MessageTypeUserMessage
 	MessageTypeNodeJoinRequest
 	MessageTypeNodeLeaveNotification
 	MessageTypeUserAuthDecision
@@ -30,6 +31,13 @@ const ( // AC
 	MessageTypeLogPush
 	MessageTypeLogSendResponse
 )
+
+// UserMessagePayload is the payload for
+// MessageTypeUserMessage.
+type UserMessagePayload struct { // A
+	From string `json:"from"`
+	Text string `json:"text"`
+}
 
 // Message is the envelope sent over the Carrier
 // transport.
