@@ -113,3 +113,42 @@ func TestNonceCacheConcurrentRecordNonce( // A
 		t.Fatalf("freshCount = %d, want 1", freshCount)
 	}
 }
+
+func TestNonceCacheEvictsOldestWhenFull( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	base := time.Now().UTC()
+	clk := &fakeClock{now: base}
+	nc := NewNonceCacheWithMaxEntries(
+		10*time.Minute,
+		clk,
+		2,
+	)
+
+	nonceA := testNonce(t)
+	nonceB := testNonce(t)
+	nonceC := testNonce(t)
+
+	if !nc.RecordNonce(nonceA) {
+		t.Fatal("nonceA should be accepted")
+	}
+	clk.now = clk.now.Add(time.Second)
+	if !nc.RecordNonce(nonceB) {
+		t.Fatal("nonceB should be accepted")
+	}
+	clk.now = clk.now.Add(time.Second)
+	if !nc.RecordNonce(nonceC) {
+		t.Fatal("nonceC should be accepted")
+	}
+
+	if !nc.RecordNonce(nonceA) {
+		t.Fatal("oldest nonce should be evicted and reusable")
+	}
+
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	if len(nc.entries) > 2 {
+		t.Fatalf("entries = %d, want <= 2", len(nc.entries))
+	}
+}

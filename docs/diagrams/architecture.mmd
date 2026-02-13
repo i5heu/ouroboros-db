@@ -43,7 +43,8 @@ classDiagram
     %% - The peer is ONLY authenticated if transport proof includes an explicit delegation
     %%   signed by NodePubKey().publicSign:
     %%   DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof)).
-    %% - DelegationProof MUST bind SessionPubKey + X509Fingerprint + NodeCertHash.
+    %% - DelegationProof MUST bind TLSCertPubKeyHash + TLSExporterBinding +
+    %%   X509Fingerprint + NodeCertHash.
     %% - Replay/UKS defense requires short delegation TTL, single-use handshake nonce, and
     %%   identity binding to the TLS transcript.
     class NodeCert {
@@ -60,7 +61,8 @@ classDiagram
     %% DelegationProof: Session delegation envelope signed by Node identity key.
     %% Must be tightly bound to the active transport handshake.
     class DelegationProof {
-        +SessionPubKey() keys.PublicKey
+        +TLSCertPubKeyHash() []byte
+        +TLSExporterBinding() []byte
         +X509Fingerprint() []byte
         +NodeCertHash() []byte
         +NotBefore() time.Time
@@ -453,10 +455,12 @@ classDiagram
     %% - Carrier extracts identity material from handshake/auth exchange:
     %%   - peerCert: NodeCert
     %%   - caSignature: detached CA signature over CTX_NODE_ADMISSION_V1 || canonical(NodeCert)
-    %%   - delegationProof: includes SessionPubKey, X509Fingerprint, NodeCertHash,
+    %%   - delegationProof: includes TLSCertPubKeyHash, TLSExporterBinding,
+    %%     X509Fingerprint, NodeCertHash,
     %%     NotBefore, NotAfter, HandshakeNonce
     %%   - delegationSig: signature over CTX_NODE_DELEGATION_V1 || canonical(delegationProof)
-    %%   - tlsSessionPubKey: QUIC/TLS authenticated session key
+    %%   - tlsCertPubKeyHash: hash of QUIC/TLS peer leaf SubjectPublicKeyInfo
+    %%   - tlsExporterBinding: exporter bytes bound to TLS transcript
     %%   - tlsX509Fingerprint: fingerprint of presented TLS cert
     %%   - tlsTranscriptHash: handshake transcript hash for binding checks
     %% Decision:
@@ -471,7 +475,8 @@ classDiagram
     %% - Node/issuer revocation status MUST be fresh (TTL-bounded), else reject.
     %% - VerifyNodeCert MUST succeed under exactly one trusted issuer path.
     %% - delegationSig MUST verify under peerCert.NodePubKey().publicSign.
-    %% - delegationProof.SessionPubKey MUST equal tlsSessionPubKey.
+    %% - delegationProof.TLSCertPubKeyHash MUST equal tlsCertPubKeyHash.
+    %% - delegationProof.TLSExporterBinding MUST equal tlsExporterBinding.
     %% - delegationProof.X509Fingerprint MUST equal tlsX509Fingerprint.
     %% - delegationProof.NodeCertHash MUST equal hash(peerCert).
     %% - HandshakeNonce MUST be unused and recorded as single-use.
@@ -497,7 +502,7 @@ classDiagram
     %% - Authorization answers "what may it do?" and must be enforced by higher-level
     %%   components (e.g., routing/ACL), especially for user-scoped nodes.
     class CarrierAuth {
-        +VerifyPeerCert(peerCert NodeCert, caSignature []byte, delegationProof DelegationProof, delegationSig []byte, tlsSessionPubKey keys.PublicKey, tlsX509Fingerprint []byte, tlsTranscriptHash []byte) (nodeID NodeID, scope TrustScope, error)
+        +VerifyPeerCert(peerCert NodeCert, caSignature []byte, delegationProof DelegationProof, delegationSig []byte, tlsCertPubKeyHash []byte, tlsExporterBinding []byte, tlsX509Fingerprint []byte, tlsTranscriptHash []byte) (nodeID NodeID, scope TrustScope, error)
         +AddAdminPubKey(pubKey sign.PublicKey) error
         +RemoveAdminPubKey(pubKeyHash CaHash.Hash) error
         +RevokeAdminCA(adminCAHash CaHash.Hash) error

@@ -735,9 +735,30 @@ type fakeAuthConn struct { // A
 	nodeID      keys.NodeID
 	stream      Stream
 	certs       [][]byte
+	localCert   []byte
+	exporter    []byte
+	exporterErr error
 	acceptErr   error
 	acceptCalls int
 	closed      bool
+}
+
+func testExporterBinding() []byte { // A
+	return bytes.Repeat([]byte{0xAB}, 32)
+}
+
+func mustTestCertDER(t *testing.T) []byte { // A
+	t.Helper()
+	cert, err := generateSelfSignedCert()
+	if err != nil {
+		t.Fatalf("generateSelfSignedCert: %v", err)
+	}
+	if len(cert.Certificate) == 0 {
+		t.Fatal("generated cert has no leaf")
+	}
+	out := make([]byte, len(cert.Certificate[0]))
+	copy(out, cert.Certificate[0])
+	return out
 }
 
 func (c *fakeAuthConn) NodeID() keys.NodeID { // A
@@ -778,6 +799,30 @@ func (c *fakeAuthConn) PeerCertificatesDER() [][]byte { // A
 	return c.certs
 }
 
+func (c *fakeAuthConn) LocalCertificateDER() []byte { // A
+	out := make([]byte, len(c.localCert))
+	copy(out, c.localCert)
+	return out
+}
+
+func (c *fakeAuthConn) ExportKeyingMaterial( // A
+	_ string,
+	_ []byte,
+	length int,
+) ([]byte, error) {
+	if c.exporterErr != nil {
+		return nil, c.exporterErr
+	}
+	if len(c.exporter) == length {
+		out := make([]byte, len(c.exporter))
+		copy(out, c.exporter)
+		return out, nil
+	}
+	out := make([]byte, length)
+	copy(out, c.exporter)
+	return out, nil
+}
+
 func buildSerializedMessage( // A
 	t *testing.T,
 	msg interfaces.Message,
@@ -801,9 +846,12 @@ func TestCarrierReceiveAuthHandshakeRejectsWrongMessageType( // A
 		Payload: []byte("not-auth"),
 	}
 	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	peerCert := mustTestCertDER(t)
 	conn := &fakeAuthConn{
-		stream: stream,
-		certs:  [][]byte{[]byte("peer-cert")},
+		stream:    stream,
+		certs:     [][]byte{peerCert},
+		localCert: peerCert,
+		exporter:  testExporterBinding(),
 	}
 
 	_, _, err := c.receiveAuthHandshake(conn)
@@ -823,14 +871,17 @@ func TestCarrierReceiveAuthHandshakeRejectsMalformedAuthPayload( // A
 		Payload: []byte{0x00, 0x01, 0x02},
 	}
 	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	peerCert := mustTestCertDER(t)
 	conn := &fakeAuthConn{
-		stream: stream,
-		certs:  [][]byte{[]byte("peer-cert")},
+		stream:    stream,
+		certs:     [][]byte{peerCert},
+		localCert: peerCert,
+		exporter:  testExporterBinding(),
 	}
 
 	_, _, err := c.receiveAuthHandshake(conn)
-	if err == nil || !strings.Contains(err.Error(), "decode auth payload") {
-		t.Fatalf("err = %v, want decode auth payload error", err)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("err = %v, want authentication failed error", err)
 	}
 }
 
@@ -839,8 +890,13 @@ func TestCarrierReceiveAuthHandshakeRejectsInvalidDelegationProof( // A
 ) {
 	t.Parallel()
 	c := newTestCarrier(t, keys.NodeID{1})
+	localCert := c.transport.tlsCert.Certificate[0]
+	buildConn := &fakeAuthConn{
+		localCert: localCert,
+		exporter:  testExporterBinding(),
+	}
 
-	payload, err := c.buildLocalAuthPayload()
+	payload, err := c.buildLocalAuthPayload(buildConn)
 	if err != nil {
 		t.Fatalf("buildLocalAuthPayload: %v", err)
 	}
@@ -859,14 +915,17 @@ func TestCarrierReceiveAuthHandshakeRejectsInvalidDelegationProof( // A
 		Payload: badPayload,
 	}
 	stream := newFakeAuthStream(buildSerializedMessage(t, msg))
+	peerCert := mustTestCertDER(t)
 	conn := &fakeAuthConn{
-		stream: stream,
-		certs:  [][]byte{[]byte("peer-cert")},
+		stream:    stream,
+		certs:     [][]byte{peerCert},
+		localCert: peerCert,
+		exporter:  testExporterBinding(),
 	}
 
 	_, _, err = c.receiveAuthHandshake(conn)
-	if err == nil || !strings.Contains(err.Error(), "unmarshal delegation proof") {
-		t.Fatalf("err = %v, want unmarshal delegation proof error", err)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("err = %v, want authentication failed error", err)
 	}
 }
 
@@ -875,8 +934,13 @@ func TestCarrierVerifyAuthPayloadRejectsMissingTLSBindingData( // A
 ) {
 	t.Parallel()
 	c := newTestCarrier(t, keys.NodeID{1})
+	localCert := c.transport.tlsCert.Certificate[0]
+	buildConn := &fakeAuthConn{
+		localCert: localCert,
+		exporter:  testExporterBinding(),
+	}
 
-	payload, err := c.buildLocalAuthPayload()
+	payload, err := c.buildLocalAuthPayload(buildConn)
 	if err != nil {
 		t.Fatalf("buildLocalAuthPayload: %v", err)
 	}
@@ -892,19 +956,23 @@ func TestCarrierVerifyAuthPayloadRejectsMissingTLSBindingData( // A
 	_, _, err = c.verifyAuthPayload(
 		payload,
 		proof.X509Fingerprint(),
+		proof.TLSCertPubKeyHash(),
+		[32]byte{},
 		nil,
 	)
-	if err == nil || !strings.Contains(err.Error(), "TLS transcript hash") {
-		t.Fatalf("err = %v, want TLS transcript hash error", err)
+	if err == nil || !strings.Contains(err.Error(), "TLS exporter") {
+		t.Fatalf("err = %v, want TLS exporter error", err)
 	}
 
 	_, _, err = c.verifyAuthPayload(
 		payload,
 		[32]byte{},
+		proof.TLSCertPubKeyHash(),
+		proof.TLSExporterBinding(),
 		[]byte("has-transcript"),
 	)
-	if err == nil || !strings.Contains(err.Error(), "x509 fingerprint mismatch") {
-		t.Fatalf("err = %v, want x509 fingerprint mismatch", err)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("err = %v, want authentication failed", err)
 	}
 }
 

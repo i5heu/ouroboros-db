@@ -153,22 +153,18 @@ func MarshalDelegationProof( // A
 func UnmarshalDelegationProof( // A
 	data []byte,
 ) (*DelegationProof, error) {
-	if len(data) < 4+4+32+32+8+8+32 {
+	if len(data) < 32+32+32+32+8+8+32 {
 		return nil, errors.New("delegation proof payload too short")
 	}
 	offset := 0
 
-	kem, next, err := readSizedField(data, offset)
-	if err != nil {
-		return nil, fmt.Errorf("read session KEM key: %w", err)
-	}
-	offset = next
+	var certPubKeyHash [32]byte
+	copy(certPubKeyHash[:], data[offset:offset+32])
+	offset += 32
 
-	sign, next, err := readSizedField(data, offset)
-	if err != nil {
-		return nil, fmt.Errorf("read session sign key: %w", err)
-	}
-	offset = next
+	var tlsExporter [32]byte
+	copy(tlsExporter[:], data[offset:offset+32])
+	offset += 32
 
 	if len(data[offset:]) < 32+32+8+8+32 {
 		return nil, errors.New("delegation trailing fields too short")
@@ -203,13 +199,9 @@ func UnmarshalDelegationProof( // A
 		return nil, errors.New("delegation proof has trailing bytes")
 	}
 
-	sessionPub, err := keys.NewPublicKeyFromBinary(kem, sign)
-	if err != nil {
-		return nil, fmt.Errorf("build session public key: %w", err)
-	}
-
 	return NewDelegationProof(DelegationProofParams{
-		SessionPubKey:   sessionPub,
+		TLSCertPubKeyHash: certPubKeyHash,
+		TLSExporterBinding: tlsExporter,
 		X509Fingerprint: x509FP,
 		NodeCertHash:    nodeHash,
 		NotBefore:       time.Unix(notBeforeUnix, 0).UTC(),

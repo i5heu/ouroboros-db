@@ -106,10 +106,12 @@ func buildTestCert( // A
 }
 
 // buildTestDelegation creates a DelegationProof for
-// tests. It binds the given session key and cert hash.
+// tests. It binds the TLS cert key hash and exporter
+// bytes with the cert hash.
 func buildTestDelegation( // A
 	t *testing.T,
-	sessionPub *keys.PublicKey,
+	tlsCertPubKeyHash [32]byte,
+	tlsExporterBinding [32]byte,
 	cert *NodeCert,
 	x509FP [32]byte,
 ) *DelegationProof {
@@ -120,7 +122,8 @@ func buildTestDelegation( // A
 	}
 	now := time.Now()
 	proof, err := NewDelegationProof(DelegationProofParams{
-		SessionPubKey:   sessionPub,
+		TLSCertPubKeyHash: tlsCertPubKeyHash,
+		TLSExporterBinding: tlsExporterBinding,
 		X509Fingerprint: x509FP,
 		NodeCertHash:    certHash,
 		NotBefore:       now.Add(-time.Minute),
@@ -160,7 +163,8 @@ func buildVerifyParams( // A
 	caSig []byte,
 	proof *DelegationProof,
 	delegSig []byte,
-	sessionPub *keys.PublicKey,
+	tlsCertPubKeyHash [32]byte,
+	tlsExporterBinding [32]byte,
 	x509FP [32]byte,
 ) VerifyPeerCertParams {
 	t.Helper()
@@ -169,7 +173,8 @@ func buildVerifyParams( // A
 		CASignature:        caSig,
 		DelegationProof:    proof,
 		DelegationSig:      delegSig,
-		TLSSessionPubKey:   sessionPub,
+		TLSCertPubKeyHash:  tlsCertPubKeyHash,
+		TLSExporterBinding: tlsExporterBinding,
 		TLSX509Fingerprint: x509FP,
 		TLSTranscriptHash:  []byte("test-transcript"),
 	}

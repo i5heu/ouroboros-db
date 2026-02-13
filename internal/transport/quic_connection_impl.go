@@ -10,17 +10,22 @@ import (
 // quicConnection wraps a quic-go Conn to implement
 // the Connection interface.
 type quicConnection struct { // A
-	inner  *quic.Conn
-	nodeID keys.NodeID
+	inner        *quic.Conn
+	nodeID       keys.NodeID
+	localCertDER []byte
 }
 
 func newQuicConnection( // A
 	conn *quic.Conn,
 	nodeID keys.NodeID,
+	localCertDER []byte,
 ) *quicConnection {
+	localCertCopy := make([]byte, len(localCertDER))
+	copy(localCertCopy, localCertDER)
 	return &quicConnection{
-		inner:  conn,
-		nodeID: nodeID,
+		inner:        conn,
+		nodeID:       nodeID,
+		localCertDER: localCertCopy,
 	}
 }
 
@@ -92,4 +97,23 @@ func (c *quicConnection) PeerCertificatesDER() [][]byte { // A
 		out[i] = cert.Raw
 	}
 	return out
+}
+
+func (c *quicConnection) LocalCertificateDER() []byte { // A
+	out := make([]byte, len(c.localCertDER))
+	copy(out, c.localCertDER)
+	return out
+}
+
+func (c *quicConnection) ExportKeyingMaterial( // A
+	label string,
+	context []byte,
+	length int,
+) ([]byte, error) {
+	state := c.inner.ConnectionState()
+	return state.TLS.ExportKeyingMaterial(
+		label,
+		context,
+		length,
+	)
 }

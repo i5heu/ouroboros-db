@@ -16,7 +16,8 @@ type verifyFixture struct { // A
 	caPub         *keys.PublicKey
 	nodeAC        *keys.AsyncCrypt
 	nodePub       *keys.PublicKey
-	sessionPub    *keys.PublicKey
+	tlsCertPubKeyHash [32]byte
+	tlsExporterBinding [32]byte
 	cert          *NodeCert
 	caSig         []byte
 	x509FP        [32]byte
@@ -43,8 +44,8 @@ func newVerifyFixture( // A
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
-	sessionAC := generateKeys(t)
-	sessionPub := pubKeyPtr(t, sessionAC)
+	tlsCertPubKeyHash := testNonce(t)
+	tlsExporterBinding := testNonce(t)
 
 	switch caScope {
 	case ScopeAdmin:
@@ -62,7 +63,13 @@ func newVerifyFixture( // A
 	cert := buildTestCert(t, caPub, nodePub, certRole)
 	caSig := signCert(t, caAC, cert)
 	x509FP := testNonce(t)
-	proof := buildTestDelegation(t, sessionPub, cert, x509FP)
+	proof := buildTestDelegation(
+		t,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
+		cert,
+		x509FP,
+	)
 	delegationSig := signDelegation(t, nodeAC, proof)
 
 	carrier.RefreshRevocationState(cert.IssuerCAHash())
@@ -74,7 +81,8 @@ func newVerifyFixture( // A
 		caPub:         caPub,
 		nodeAC:        nodeAC,
 		nodePub:       nodePub,
-		sessionPub:    sessionPub,
+		tlsCertPubKeyHash: tlsCertPubKeyHash,
+		tlsExporterBinding: tlsExporterBinding,
 		cert:          cert,
 		caSig:         caSig,
 		x509FP:        x509FP,
@@ -94,7 +102,8 @@ func buildParams( // A
 		f.caSig,
 		f.proof,
 		f.delegationSig,
-		f.sessionPub,
+		f.tlsCertPubKeyHash,
+		f.tlsExporterBinding,
 		f.x509FP,
 	)
 }
@@ -105,13 +114,15 @@ func rebuildProof( // A
 	notBefore time.Time,
 	notAfter time.Time,
 	nonce [32]byte,
-	sessionPub *keys.PublicKey,
+	tlsCertPubKeyHash [32]byte,
+	tlsExporterBinding [32]byte,
 	x509 [32]byte,
 	nodeHash CaHash,
 ) (*DelegationProof, []byte) {
 	t.Helper()
 	proof, err := NewDelegationProof(DelegationProofParams{
-		SessionPubKey:   sessionPub,
+		TLSCertPubKeyHash: tlsCertPubKeyHash,
+		TLSExporterBinding: tlsExporterBinding,
 		X509Fingerprint: x509,
 		NodeCertHash:    nodeHash,
 		NotBefore:       notBefore,
@@ -167,7 +178,7 @@ func TestVerifyPeerCertStep1UnknownCA(t *testing.T) { // A
 	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
 	f.carrier = newTestCarrierAuth()
 	_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
-	if err == nil || !strings.Contains(err.Error(), "no trusted CA") {
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -197,7 +208,7 @@ func testStep2ExpiredCert(t *testing.T) { // A
 	f.cert = cert
 	f.caSig = signCert(t, f.caAC, cert)
 	_, _, err = f.carrier.VerifyPeerCert(buildParams(t, f))
-	if err == nil || !strings.Contains(err.Error(), "expired") {
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -219,7 +230,7 @@ func testStep2NotYetValid(t *testing.T) { // A
 	f.cert = cert
 	f.caSig = signCert(t, f.caAC, cert)
 	_, _, err = f.carrier.VerifyPeerCert(buildParams(t, f))
-	if err == nil || !strings.Contains(err.Error(), "not yet valid") {
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -229,7 +240,7 @@ func testStep2RevokedNode(t *testing.T) { // A
 	nodeID, _ := f.nodePub.NodeID()
 	_ = f.carrier.RevokeNode(nodeID)
 	_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
-	if err == nil || !strings.Contains(err.Error(), "node is revoked") {
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -238,7 +249,7 @@ func testStep2RevokedCA(t *testing.T) { // A
 	f := newVerifyFixture(t, ScopeAdmin, ScopeAdmin)
 	_ = f.carrier.RevokeAdminCA(f.cert.IssuerCAHash())
 	_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
-	if err == nil || !strings.Contains(err.Error(), "issuer CA is revoked") {
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -260,21 +271,28 @@ func testStep2StaleRevocation(t *testing.T) { // A
 	ca.RefreshRevocationState(cert.IssuerCAHash())
 	clk.now = clk.now.Add(2 * time.Minute)
 
-	sessionAC := generateKeys(t)
-	sessionPub := pubKeyPtr(t, sessionAC)
 	x509 := testNonce(t)
-	proof := buildTestDelegation(t, sessionPub, cert, x509)
+	tlsCertPubKeyHash := testNonce(t)
+	tlsExporterBinding := testNonce(t)
+	proof := buildTestDelegation(
+		t,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
+		cert,
+		x509,
+	)
 	params := buildVerifyParams(
 		t,
 		cert,
 		signCert(t, caAC, cert),
 		proof,
 		signDelegation(t, nodeAC, proof),
-		sessionPub,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
 		x509,
 	)
 	_, _, err := ca.VerifyPeerCert(params)
-	if err == nil || !strings.Contains(err.Error(), "stale") {
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -284,8 +302,8 @@ func TestVerifyPeerCertStep3BadCASignature(t *testing.T) { // A
 	params := buildParams(t, f)
 	params.CASignature = []byte("bad")
 	_, _, err := f.carrier.VerifyPeerCert(params)
-	if err == nil {
-		t.Fatal("expected bad CA signature error")
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -296,17 +314,16 @@ func TestVerifyPeerCertStep4Failures(t *testing.T) { // A
 		params := buildParams(t, f)
 		params.DelegationSig = []byte("bad")
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "delegation signature") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("session mismatch", func(t *testing.T) {
 		params := buildParams(t, f)
-		other := generateKeys(t)
-		params.TLSSessionPubKey = pubKeyPtr(t, other)
+		params.TLSCertPubKeyHash = testNonce(t)
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "session key mismatch") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -315,7 +332,7 @@ func TestVerifyPeerCertStep4Failures(t *testing.T) { // A
 		params := buildParams(t, f)
 		params.TLSX509Fingerprint = testNonce(t)
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "x509 fingerprint mismatch") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -328,7 +345,8 @@ func TestVerifyPeerCertStep4Failures(t *testing.T) { // A
 			now.Add(-time.Minute),
 			now.Add(time.Minute),
 			testNonce(t),
-			f.sessionPub,
+			f.tlsCertPubKeyHash,
+			f.tlsExporterBinding,
 			f.x509FP,
 			testNonce(t),
 		)
@@ -336,7 +354,7 @@ func TestVerifyPeerCertStep4Failures(t *testing.T) { // A
 		params.DelegationProof = proof
 		params.DelegationSig = sig
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "node cert hash mismatch") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -352,7 +370,8 @@ func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
 			f.clock.Now().Add(-time.Minute),
 			f.clock.Now().Add(10*time.Minute),
 			testNonce(t),
-			f.sessionPub,
+			f.tlsCertPubKeyHash,
+			f.tlsExporterBinding,
 			f.x509FP,
 			certHash,
 		)
@@ -360,7 +379,7 @@ func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
 		params.DelegationProof = proof
 		params.DelegationSig = sig
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -374,7 +393,8 @@ func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
 			f.clock.Now().Add(-2*time.Minute),
 			f.clock.Now().Add(-time.Minute),
 			testNonce(t),
-			f.sessionPub,
+			f.tlsCertPubKeyHash,
+			f.tlsExporterBinding,
 			f.x509FP,
 			certHash,
 		)
@@ -382,7 +402,7 @@ func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
 		params.DelegationProof = proof
 		params.DelegationSig = sig
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "has expired") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -394,7 +414,7 @@ func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
 			t.Fatalf("first verify: %v", err)
 		}
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "replayed handshake nonce") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -404,7 +424,7 @@ func TestVerifyPeerCertStep5Failures(t *testing.T) { // A
 		params := buildParams(t, f)
 		params.TLSTranscriptHash = nil
 		_, _, err := f.carrier.VerifyPeerCert(params)
-		if err == nil || !strings.Contains(err.Error(), "TLS transcript hash") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -432,14 +452,15 @@ func TestVerifyPeerCertStep6Failures(t *testing.T) { // A
 			f.clock.Now().Add(-time.Minute),
 			f.clock.Now().Add(time.Minute),
 			testNonce(t),
-			f.sessionPub,
+			f.tlsCertPubKeyHash,
+			f.tlsExporterBinding,
 			f.x509FP,
 			certHash,
 		)
 		f.proof = proof
 		f.delegationSig = sig
 		_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
-		if err == nil || !strings.Contains(err.Error(), "role") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -447,7 +468,7 @@ func TestVerifyPeerCertStep6Failures(t *testing.T) { // A
 	t.Run("role mismatch with CA", func(t *testing.T) {
 		f := newVerifyFixture(t, ScopeAdmin, ScopeUser)
 		_, _, err := f.carrier.VerifyPeerCert(buildParams(t, f))
-		if err == nil || !strings.Contains(err.Error(), "does not match CA type") {
+		if err == nil || !strings.Contains(err.Error(), "authentication failed") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -480,14 +501,24 @@ func TestVerifyPeerCertNilGuards(t *testing.T) { // A
 			wantErr: "peer cert must not be nil",
 		},
 		{
-			name:    "nil tls session key",
+			name:    "zero TLS cert hash",
 			carrier: f.carrier,
 			params: func() VerifyPeerCertParams {
 				cp := params
-				cp.TLSSessionPubKey = nil
+				cp.TLSCertPubKeyHash = [32]byte{}
 				return cp
 			}(),
-			wantErr: "TLS session public key must not be nil",
+			wantErr: "TLS cert pubkey hash must not be zero",
+		},
+		{
+			name:    "zero TLS exporter",
+			carrier: f.carrier,
+			params: func() VerifyPeerCertParams {
+				cp := params
+				cp.TLSExporterBinding = [32]byte{}
+				return cp
+			}(),
+			wantErr: "TLS exporter binding must not be zero",
 		},
 		{
 			name:    "malformed cert",

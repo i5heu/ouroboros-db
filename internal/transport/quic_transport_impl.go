@@ -25,7 +25,14 @@ const (
 	handshakeTimeout = 10 * time.Second
 	idleTimeout      = 30 * time.Second
 	certValidityDays = 365
+	attemptWindow    = 10 * time.Second
+	maxAttempts      = 30
 )
+
+type attemptCounter struct { // A
+	windowStart time.Time
+	count       int
+}
 
 // quicTransportImpl is the concrete QUIC transport.
 type quicTransportImpl struct { // A
@@ -38,6 +45,9 @@ type quicTransportImpl struct { // A
 	listenAddr  string
 	ctx         context.Context
 	cancel      context.CancelFunc
+	rateMu      sync.Mutex
+	dialAttempts map[string]attemptCounter
+	acceptAttempts map[string]attemptCounter
 }
 
 // NewQuicTransport creates a new QUIC transport
@@ -68,6 +78,12 @@ func NewQuicTransport( // A
 		listenAddr:  listenAddr,
 		ctx:         ctx,
 		cancel:      cancel,
+		dialAttempts: make(
+			map[string]attemptCounter,
+		),
+		acceptAttempts: make(
+			map[string]attemptCounter,
+		),
 	}
 
 	listener, err := quic.ListenAddr(
@@ -102,10 +118,25 @@ func (t *quicTransportImpl) Dial( // A
 		)
 	}
 
+	if !t.allowDialAttempt(peer.Addresses[0]) {
+		return nil, fmt.Errorf(
+			"dial throttled for %s",
+			peer.Addresses[0],
+		)
+	}
+
+	cert, err := generateSelfSignedCert()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"generate dial TLS cert: %w",
+			err,
+		)
+	}
+
 	conn, err := quic.DialAddr(
 		t.ctx,
 		peer.Addresses[0],
-		t.clientTLSConfig(),
+		t.clientTLSConfig(cert),
 		t.quicConfig(),
 	)
 	if err != nil {
@@ -116,7 +147,11 @@ func (t *quicTransportImpl) Dial( // A
 		)
 	}
 
-	qc := newQuicConnection(conn, peer.NodeID)
+	qc := newQuicConnection(
+		conn,
+		peer.NodeID,
+		cert.Certificate[0],
+	)
 
 	t.mu.Lock()
 	t.connections[peer.NodeID] = qc
@@ -134,8 +169,24 @@ func (t *quicTransportImpl) Accept() ( // A
 		return nil, fmt.Errorf("accept: %w", err)
 	}
 
+	remoteAddr := conn.RemoteAddr().String()
+	if !t.allowAcceptAttempt(remoteAddr) {
+		_ = conn.CloseWithError(
+			0x100,
+			"rate limited",
+		)
+		return nil, fmt.Errorf(
+			"accept throttled for %s",
+			remoteAddr,
+		)
+	}
+
 	peerNodeID := extractNodeIDFromConn(conn)
-	qc := newQuicConnection(conn, peerNodeID)
+	qc := newQuicConnection(
+		conn,
+		peerNodeID,
+		t.tlsCert.Certificate[0],
+	)
 
 	t.mu.Lock()
 	t.connections[peerNodeID] = qc
@@ -220,10 +271,12 @@ func (t *quicTransportImpl) serverTLSConfig() *tls.Config { // A
 	}
 }
 
-func (t *quicTransportImpl) clientTLSConfig() *tls.Config { // A
+func (t *quicTransportImpl) clientTLSConfig( // A
+	cert tls.Certificate,
+) *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{
-			t.tlsCert,
+			cert,
 		},
 		// #nosec G402 -- peer identity is verified by CarrierAuth
 		// after handshake using NodeCert and trust scopes.
@@ -326,4 +379,49 @@ func generateSelfSignedCert() ( // A
 		Certificate: [][]byte{certDER},
 		PrivateKey:  key,
 	}, nil
+}
+
+func (t *quicTransportImpl) allowDialAttempt( // A
+	addr string,
+) bool {
+	return t.allowAttempt(
+		t.dialAttempts,
+		addr,
+	)
+}
+
+func (t *quicTransportImpl) allowAcceptAttempt( // A
+	remoteAddr string,
+) bool {
+	return t.allowAttempt(
+		t.acceptAttempts,
+		remoteAddr,
+	)
+}
+
+func (t *quicTransportImpl) allowAttempt( // A
+	attempts map[string]attemptCounter,
+	key string,
+) bool {
+	now := time.Now().UTC()
+	t.rateMu.Lock()
+	defer t.rateMu.Unlock()
+
+	counter := attempts[key]
+	if counter.windowStart.IsZero() ||
+		now.Sub(counter.windowStart) >= attemptWindow {
+		attempts[key] = attemptCounter{
+			windowStart: now,
+			count:       1,
+		}
+		return true
+	}
+
+	if counter.count >= maxAttempts {
+		return false
+	}
+
+	counter.count++
+	attempts[key] = counter
+	return true
 }

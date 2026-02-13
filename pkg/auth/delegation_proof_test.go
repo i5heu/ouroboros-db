@@ -11,11 +11,10 @@ func validDelegationProofParams( // A
 	t *testing.T,
 ) DelegationProofParams {
 	t.Helper()
-	sessionAC := generateKeys(t)
-	sessionPub := pubKeyPtr(t, sessionAC)
 	now := time.Now().UTC()
 	return DelegationProofParams{
-		SessionPubKey:   sessionPub,
+		TLSCertPubKeyHash: testNonce(t),
+		TLSExporterBinding: testNonce(t),
 		X509Fingerprint: testNonce(t),
 		NodeCertHash:    HashBytes([]byte("node-cert")),
 		NotBefore:       now.Add(-time.Minute),
@@ -35,11 +34,18 @@ func TestNewDelegationProofValidation( // A
 		want   string
 	}{
 		{
-			name: "nil session key",
+			name: "zero TLS cert pubkey hash",
 			mutate: func(p *DelegationProofParams) {
-				p.SessionPubKey = nil
+				p.TLSCertPubKeyHash = [32]byte{}
 			},
-			want: "session public key",
+			want: "TLS cert pubkey hash",
+		},
+		{
+			name: "zero TLS exporter binding",
+			mutate: func(p *DelegationProofParams) {
+				p.TLSExporterBinding = [32]byte{}
+			},
+			want: "TLS exporter binding",
 		},
 		{
 			name: "invalid time ordering",
@@ -95,8 +101,11 @@ func TestDelegationProofAccessors( // A
 		t.Fatalf("NewDelegationProof: %v", err)
 	}
 
-	if !proof.SessionPubKey().Equal(params.SessionPubKey) {
-		t.Fatal("session pub key mismatch")
+	if proof.TLSCertPubKeyHash() != params.TLSCertPubKeyHash {
+		t.Fatal("TLS cert pubkey hash mismatch")
+	}
+	if proof.TLSExporterBinding() != params.TLSExporterBinding {
+		t.Fatal("TLS exporter binding mismatch")
 	}
 	if proof.X509Fingerprint() != params.X509Fingerprint {
 		t.Fatal("x509 fingerprint mismatch")
@@ -159,8 +168,11 @@ func TestDelegationProofWireRoundTrip( // A
 		t.Fatalf("UnmarshalDelegationProof: %v", err)
 	}
 
-	if !roundTrip.SessionPubKey().Equal(proof.SessionPubKey()) {
-		t.Fatal("session pub key changed in round trip")
+	if roundTrip.TLSCertPubKeyHash() != proof.TLSCertPubKeyHash() {
+		t.Fatal("TLS cert pubkey hash changed in round trip")
+	}
+	if roundTrip.TLSExporterBinding() != proof.TLSExporterBinding() {
+		t.Fatal("TLS exporter binding changed in round trip")
 	}
 	if roundTrip.X509Fingerprint() != proof.X509Fingerprint() {
 		t.Fatal("x509 fingerprint changed in round trip")

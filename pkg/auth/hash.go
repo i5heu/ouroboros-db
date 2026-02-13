@@ -5,6 +5,7 @@ package auth
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 )
@@ -49,7 +50,10 @@ func HashString(s string) CaHash { // A
 
 // Equal returns true if this hash equals the other hash.
 func (h CaHash) Equal(other CaHash) bool { // A
-	return h == other
+	return subtle.ConstantTimeCompare(
+		h[:],
+		other[:],
+	) == 1
 }
 
 // IsZero returns true if this hash is the zero value

@@ -3,18 +3,15 @@ package auth
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
-	"math"
 	"time"
-
-	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
 
 // DelegationProof binds a TLS session to a NodeCert
 // identity. It proves the holder of the NodeCert
 // private key authorized this specific TLS session.
 type DelegationProof struct { // A
-	sessionPubKey   *keys.PublicKey
+	tlsCertPubKeyHash [32]byte
+	tlsExporterBinding [32]byte
 	x509Fingerprint [32]byte
 	nodeCertHash    CaHash
 	notBefore       time.Time
@@ -25,7 +22,8 @@ type DelegationProof struct { // A
 // DelegationProofParams holds parameters for creating
 // a new DelegationProof.
 type DelegationProofParams struct { // A
-	SessionPubKey   *keys.PublicKey
+	TLSCertPubKeyHash [32]byte
+	TLSExporterBinding [32]byte
 	X509Fingerprint [32]byte
 	NodeCertHash    CaHash
 	NotBefore       time.Time
@@ -38,9 +36,14 @@ type DelegationProofParams struct { // A
 func NewDelegationProof( // A
 	params DelegationProofParams,
 ) (*DelegationProof, error) {
-	if params.SessionPubKey == nil {
+	if params.TLSCertPubKeyHash == [32]byte{} {
 		return nil, errors.New(
-			"session public key must not be nil",
+			"TLS cert pubkey hash must not be zero",
+		)
+	}
+	if params.TLSExporterBinding == [32]byte{} {
+		return nil, errors.New(
+			"TLS exporter binding must not be zero",
 		)
 	}
 	if !params.NotAfter.After(params.NotBefore) {
@@ -64,7 +67,8 @@ func NewDelegationProof( // A
 		)
 	}
 	return &DelegationProof{
-		sessionPubKey:   params.SessionPubKey,
+			tlsCertPubKeyHash: params.TLSCertPubKeyHash,
+			tlsExporterBinding: params.TLSExporterBinding,
 		x509Fingerprint: params.X509Fingerprint,
 		nodeCertHash:    params.NodeCertHash,
 		notBefore:       params.NotBefore.UTC(),
@@ -73,9 +77,16 @@ func NewDelegationProof( // A
 	}, nil
 }
 
-// SessionPubKey returns the TLS session public key.
-func (d *DelegationProof) SessionPubKey() *keys.PublicKey { // A
-	return d.sessionPubKey
+	// TLSCertPubKeyHash returns SHA-256 of the TLS leaf
+	// certificate SubjectPublicKeyInfo.
+	func (d *DelegationProof) TLSCertPubKeyHash() [32]byte { // A
+		return d.tlsCertPubKeyHash
+	}
+
+	// TLSExporterBinding returns exporter-derived bytes
+	// bound to the active TLS transcript.
+	func (d *DelegationProof) TLSExporterBinding() [32]byte { // A
+		return d.tlsExporterBinding
 }
 
 // X509Fingerprint returns the SHA-256 of the presented
@@ -107,58 +118,19 @@ func (d *DelegationProof) HandshakeNonce() [32]byte { // A
 
 // canonicalSerializeDelegation encodes a DelegationProof
 // into a deterministic binary representation:
-// len(SessionKEM)(4) || SessionKEM ||
-// len(SessionSign)(4) || SessionSign ||
+// TLSCertPubKeyHash(32) ||
+// TLSExporterBinding(32) ||
 // X509Fingerprint(32) || NodeCertHash(32) ||
 // NotBefore(8, BE) || NotAfter(8, BE) ||
 // HandshakeNonce(32).
 func canonicalSerializeDelegation( // A
 	proof *DelegationProof,
 ) ([]byte, error) {
-	kemBytes, err := proof.sessionPubKey.MarshalBinaryKEM()
-	if err != nil {
-		return nil, fmt.Errorf(
-			"marshal session KEM key: %w", err,
-		)
-	}
-
-	signBytes, err := proof.sessionPubKey.MarshalBinarySign()
-	if err != nil {
-		return nil, fmt.Errorf(
-			"marshal session sign key: %w", err,
-		)
-	}
-
-	if len(kemBytes) > math.MaxUint32 {
-		return nil, fmt.Errorf(
-			"session KEM key too large: %d bytes",
-			len(kemBytes),
-		)
-	}
-	if len(signBytes) > math.MaxUint32 {
-		return nil, fmt.Errorf(
-			"session sign key too large: %d bytes",
-			len(signBytes),
-		)
-	}
-
-	size := 4 + len(kemBytes) +
-		4 + len(signBytes) +
-		32 + 32 + 8 + 8 + 32
+	size := 32 + 32 + 32 + 32 + 8 + 8 + 32
 	buf := make([]byte, 0, size)
 
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(
-		lenBuf[:], uint32(len(kemBytes)), //#nosec G115
-	)
-	buf = append(buf, lenBuf[:]...)
-	buf = append(buf, kemBytes...)
-
-	binary.BigEndian.PutUint32(
-		lenBuf[:], uint32(len(signBytes)), //#nosec G115
-	)
-	buf = append(buf, lenBuf[:]...)
-	buf = append(buf, signBytes...)
+	buf = append(buf, proof.tlsCertPubKeyHash[:]...)
+	buf = append(buf, proof.tlsExporterBinding[:]...)
 
 	buf = append(buf, proof.x509Fingerprint[:]...)
 	buf = append(buf, proof.nodeCertHash[:]...)

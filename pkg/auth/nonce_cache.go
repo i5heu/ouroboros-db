@@ -13,6 +13,7 @@ type NonceCache struct { // A
 	entries map[[32]byte]time.Time
 	ttl     time.Duration
 	clock   Clock
+	maxEntries int
 }
 
 // NewNonceCache creates a NonceCache with the given TTL
@@ -21,10 +22,28 @@ func NewNonceCache( // A
 	ttl time.Duration,
 	clock Clock,
 ) *NonceCache {
+	return NewNonceCacheWithMaxEntries(
+		ttl,
+		clock,
+		10_000,
+	)
+}
+
+// NewNonceCacheWithMaxEntries creates a NonceCache
+// with a hard cap on retained nonces.
+func NewNonceCacheWithMaxEntries( // A
+	ttl time.Duration,
+	clock Clock,
+	maxEntries int,
+) *NonceCache {
+	if maxEntries <= 0 {
+		maxEntries = 10_000
+	}
 	return &NonceCache{
 		entries: make(map[[32]byte]time.Time),
 		ttl:     ttl,
 		clock:   clock,
+		maxEntries: maxEntries,
 	}
 }
 
@@ -47,6 +66,8 @@ func (nc *NonceCache) RecordNonce( // A
 		return false
 	}
 
+	nc.evictOldestIfFull()
+
 	nc.entries[nonce] = nc.clock.Now()
 	return true
 }
@@ -59,5 +80,28 @@ func (nc *NonceCache) cleanup() { // A
 		if v.Before(cutoff) {
 			delete(nc.entries, k)
 		}
+	}
+}
+
+// evictOldestIfFull removes the oldest nonce entry if
+// the cache reached its configured capacity. Must be
+// called with mu held.
+func (nc *NonceCache) evictOldestIfFull() { // A
+	if len(nc.entries) < nc.maxEntries {
+		return
+	}
+
+	var oldestNonce [32]byte
+	var oldestTime time.Time
+	found := false
+	for nonce, seenAt := range nc.entries {
+		if !found || seenAt.Before(oldestTime) {
+			oldestNonce = nonce
+			oldestTime = seenAt
+			found = true
+		}
+	}
+	if found {
+		delete(nc.entries, oldestNonce)
 	}
 }

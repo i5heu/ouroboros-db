@@ -39,7 +39,7 @@ sequenceDiagram
     Note left of NodeA: DELEGATION:<br/>The persistent NodePrivKey signs the<br/>ephemeral SessionPubKey. This links<br/>the Identity to the Transport.
     
     NodeA->>NodeA: 2. Create X.509 Template (Leaf)<br/>Subject = SessionPubKey, Short TTL
-    NodeA->>NodeA: 3. Build DelegationProof:<br/>{ SessionPubKey, X509Fingerprint,<br/>NodeCertHash, NotBefore, NotAfter,<br/>HandshakeNonce }
+    NodeA->>NodeA: 3. Build DelegationProof:<br/>{ TLSCertPubKeyHash, TLSExporterBinding,<br/>X509Fingerprint, NodeCertHash,<br/>NotBefore, NotAfter, HandshakeNonce }
     NodeA->>NodeA: 4. DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof))
     NodeA->>NodeA: 5. Sign X.509 using SessionPrivKey
 
@@ -101,7 +101,7 @@ sequenceDiagram
         Note right of NodeB: CHECK 4: DELEGATION BINDING
         NodeB->>NodeB: Extract NodePubKey from verified NodeCert
         NodeB->>NodeB: Verify DelegationSig using NodePubKey<br/>Input: CTX_NODE_DELEGATION_V1 || DelegationProof
-        NodeB->>NodeB: Check DelegationProof.SessionPubKey == TLS SessionPubKey
+        NodeB->>NodeB: Check DelegationProof.TLSCertPubKeyHash == hash(TLS Cert SPKI)
         NodeB->>NodeB: Check DelegationProof.X509Fingerprint == presented X.509
         NodeB->>NodeB: Check DelegationProof.NodeCertHash == hash(NodeCert)
         Note right of NodeB: PASS: "Identity key explicitly delegated<br/>this exact transport key and cert."
@@ -111,6 +111,7 @@ sequenceDiagram
         Note right of NodeB: CHECK 5: REPLAY / UKS DEFENSE
         NodeB->>NodeB: Verify DelegationProof.NotAfter is short-lived
         NodeB->>NodeB: Verify HandshakeNonce unused (single-use cache)
+        NodeB->>NodeB: Check DelegationProof.TLSExporterBinding == TLS exporter value
         NodeB->>NodeB: Bind peer identity to TLS transcript hash
         alt Replay or Unknown-Key-Share detected
             NodeB->>NodeA: REJECT: "Replay/UKS"

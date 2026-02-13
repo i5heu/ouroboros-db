@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,6 +16,11 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+)
+
+const (
+	tlsExporterLabel      = "EXPORTER-Ouroboros-Auth-V1"
+	tlsExporterBindingLen = 32
 )
 
 // MessageReceiver is the callback invoked when an
@@ -406,7 +412,7 @@ func (c *Carrier) authenticateAndHandle( // A
 // receiveAuthHandshake reads an auth handshake message
 // from the peer, extracts TLS binding info, and verifies
 // the peer certificate through the 6-step pipeline.
-func (c *Carrier) receiveAuthHandshake( // A
+func (c *Carrier) receiveAuthHandshake( // PAP
 	conn Connection,
 ) (keys.NodeID, auth.TrustScope, error) {
 	stream, err := conn.AcceptStream()
@@ -432,13 +438,35 @@ func (c *Carrier) receiveAuthHandshake( // A
 	}
 
 	x509FP := extractX509Fingerprint(conn)
-	transcriptHash := computeTranscriptHash(conn)
+	certPubKeyHash, err := extractPeerCertPublicKeyHash(conn)
+	if err != nil {
+		return keys.NodeID{}, 0, errors.New(
+			"authentication failed",
+		)
+	}
+	exporterBinding, err := extractTLSExporterBinding(conn)
+	if err != nil {
+		return keys.NodeID{}, 0, errors.New(
+			"authentication failed",
+		)
+	}
+	transcriptHash := exporterBinding[:]
 
 	nodeID, scope, err := c.verifyAuthPayload(
-		msg.Payload, x509FP, transcriptHash,
+		msg.Payload,
+		x509FP,
+		certPubKeyHash,
+		exporterBinding,
+		transcriptHash,
 	)
 	if err != nil {
-		return keys.NodeID{}, 0, err
+		c.logger.Warn(
+			"auth handshake rejected",
+			slog.String("reason", err.Error()),
+		)
+		return keys.NodeID{}, 0, errors.New(
+			"authentication failed",
+		)
 	}
 
 	resp := interfaces.Response{
@@ -455,9 +483,11 @@ func (c *Carrier) receiveAuthHandshake( // A
 // [DelegationSig] + [SessionPubKey].
 // For now this is a placeholder that delegates to
 // VerifyPeerCert once full serialization is wired.
-func (c *Carrier) verifyAuthPayload( // A
+func (c *Carrier) verifyAuthPayload( // PAP
 	payload []byte,
 	x509FP [32]byte,
+	tlsCertPubKeyHash [32]byte,
+	tlsExporterBinding [32]byte,
 	transcriptHash []byte,
 ) (keys.NodeID, auth.TrustScope, error) {
 	if c.auth == nil {
@@ -492,7 +522,8 @@ func (c *Carrier) verifyAuthPayload( // A
 		CASignature:        fields.caSignature,
 		DelegationProof:    proof,
 		DelegationSig:      fields.delegationSig,
-		TLSSessionPubKey:   proof.SessionPubKey(),
+		TLSCertPubKeyHash:  tlsCertPubKeyHash,
+		TLSExporterBinding: tlsExporterBinding,
 		TLSX509Fingerprint: x509FP,
 		TLSTranscriptHash:  transcriptHash,
 	})
@@ -500,14 +531,14 @@ func (c *Carrier) verifyAuthPayload( // A
 
 // sendAuthHandshake sends the local node's auth
 // material to the peer over a new stream.
-func (c *Carrier) sendAuthHandshake( // A
+func (c *Carrier) sendAuthHandshake( // PAP
 	conn Connection,
 ) error {
 	if err := c.validateLocalAuthMaterial(); err != nil {
 		return err
 	}
 
-	payload, err := c.buildLocalAuthPayload()
+	payload, err := c.buildLocalAuthPayload(conn)
 	if err != nil {
 		return err
 	}
@@ -550,8 +581,10 @@ func (c *Carrier) validateLocalAuthMaterial() error { // A
 	return nil
 }
 
-func (c *Carrier) buildLocalAuthPayload() ([]byte, error) { // A
-	proof, err := c.buildLocalDelegationProof()
+func (c *Carrier) buildLocalAuthPayload( // A
+	conn Connection,
+) ([]byte, error) {
+	proof, err := c.buildLocalDelegationProof(conn)
 	if err != nil {
 		return nil, err
 	}
@@ -585,15 +618,35 @@ func (c *Carrier) buildLocalAuthPayload() ([]byte, error) { // A
 	return payload, nil
 }
 
-func (c *Carrier) buildLocalDelegationProof() (*auth.DelegationProof, error) { // A
+func (c *Carrier) buildLocalDelegationProof( // PAP
+	conn Connection,
+) (*auth.DelegationProof, error) {
 	certHash, err := c.localCert.Hash()
 	if err != nil {
 		return nil, fmt.Errorf("hash local cert: %w", err)
 	}
 
-	sessionPubVal := c.localKeys.GetPublicKey()
-	sessionPub := &sessionPubVal
-	x509FP := sha256.Sum256(c.transport.tlsCert.Certificate[0])
+	localCertDER := conn.LocalCertificateDER()
+	if len(localCertDER) == 0 {
+		return nil, errors.New("local TLS certificate is missing")
+	}
+	x509FP := sha256.Sum256(localCertDER)
+
+	certPubKeyHash, err := hashCertSubjectPublicKeyInfo(localCertDER)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"hash local cert SPKI: %w",
+			err,
+		)
+	}
+
+	tlsExporterBinding, err := extractTLSExporterBinding(conn)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"derive TLS exporter binding: %w",
+			err,
+		)
+	}
 
 	handshakeNonce, err := randomNonce32()
 	if err != nil {
@@ -601,7 +654,8 @@ func (c *Carrier) buildLocalDelegationProof() (*auth.DelegationProof, error) { /
 	}
 	now := time.Now().UTC()
 	proof, err := auth.NewDelegationProof(auth.DelegationProofParams{
-		SessionPubKey:   sessionPub,
+		TLSCertPubKeyHash: certPubKeyHash,
+		TLSExporterBinding: tlsExporterBinding,
 		X509Fingerprint: x509FP,
 		NodeCertHash:    certHash,
 		NotBefore:       now.Add(-time.Minute),
@@ -740,12 +794,59 @@ func extractX509Fingerprint( // A
 func computeTranscriptHash( // A
 	conn Connection,
 ) []byte {
-	certs := conn.PeerCertificatesDER()
-	if len(certs) == 0 {
+	binding, err := extractTLSExporterBinding(conn)
+	if err != nil {
 		return nil
 	}
-	h := sha256.Sum256(certs[0])
-	return h[:]
+	out := make([]byte, len(binding))
+	copy(out, binding[:])
+	return out
+}
+
+func extractPeerCertPublicKeyHash( // A
+	conn Connection,
+) ([32]byte, error) {
+	certs := conn.PeerCertificatesDER()
+	if len(certs) == 0 {
+		return [32]byte{}, errors.New(
+			"peer certificate is missing",
+		)
+	}
+	return hashCertSubjectPublicKeyInfo(certs[0])
+}
+
+func hashCertSubjectPublicKeyInfo( // A
+	certDER []byte,
+) ([32]byte, error) {
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf(
+			"parse certificate: %w",
+			err,
+		)
+	}
+	return sha256.Sum256(cert.RawSubjectPublicKeyInfo), nil
+}
+
+func extractTLSExporterBinding( // PAP
+	conn Connection,
+) ([32]byte, error) {
+	exporter, err := conn.ExportKeyingMaterial(
+		tlsExporterLabel,
+		nil,
+		tlsExporterBindingLen,
+	)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	if len(exporter) != tlsExporterBindingLen {
+		return [32]byte{}, errors.New(
+			"invalid exporter binding length",
+		)
+	}
+	var out [32]byte
+	copy(out[:], exporter)
+	return out, nil
 }
 
 // handleConnection processes inbound streams from a

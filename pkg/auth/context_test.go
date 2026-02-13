@@ -384,15 +384,19 @@ func TestDelegationSigningPayloadPrefix( // A
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
-	sessionAC := generateKeys(t)
-	sessionPub := pubKeyPtr(t, sessionAC)
 
 	cert := buildTestCert(
 		t, caPub, nodePub, ScopeAdmin,
 	)
 	x509FP := testNonce(t)
+	tlsCertPubKeyHash := testNonce(t)
+	tlsExporterBinding := testNonce(t)
 	proof := buildTestDelegation(
-		t, sessionPub, cert, x509FP,
+		t,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
+		cert,
+		x509FP,
 	)
 
 	payload, err := delegationSigningPayload(proof)
@@ -422,15 +426,19 @@ func TestDelegationSigningPayloadContainsCanon( // A
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
-	sessionAC := generateKeys(t)
-	sessionPub := pubKeyPtr(t, sessionAC)
 
 	cert := buildTestCert(
 		t, caPub, nodePub, ScopeUser,
 	)
 	x509FP := testNonce(t)
+	tlsCertPubKeyHash := testNonce(t)
+	tlsExporterBinding := testNonce(t)
 	proof := buildTestDelegation(
-		t, sessionPub, cert, x509FP,
+		t,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
+		cert,
+		x509FP,
 	)
 
 	payload, _ := delegationSigningPayload(proof)
@@ -470,15 +478,19 @@ func TestDelegationSigningPayloadDeterministic( // A
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
-	sessionAC := generateKeys(t)
-	sessionPub := pubKeyPtr(t, sessionAC)
 
 	cert := buildTestCert(
 		t, caPub, nodePub, ScopeAdmin,
 	)
 	x509FP := testNonce(t)
+	tlsCertPubKeyHash := testNonce(t)
+	tlsExporterBinding := testNonce(t)
 	proof := buildTestDelegation(
-		t, sessionPub, cert, x509FP,
+		t,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
+		cert,
+		x509FP,
 	)
 
 	p1, _ := delegationSigningPayload(proof)

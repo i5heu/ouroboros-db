@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"bytes"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"sync"
@@ -31,6 +31,7 @@ type CarrierAuth struct { // H
 type CarrierAuthConfig struct { // A
 	Clock        Clock
 	NonceTTL     time.Duration
+	NonceMaxEntries int
 	FreshnessTTL time.Duration
 	MaxDelegTTL  time.Duration
 }
@@ -47,6 +48,10 @@ func NewCarrierAuth( // H
 	nonceTTL := cfg.NonceTTL
 	if nonceTTL == 0 {
 		nonceTTL = 5 * time.Minute
+	}
+	nonceMaxEntries := cfg.NonceMaxEntries
+	if nonceMaxEntries <= 0 {
+		nonceMaxEntries = 10_000
 	}
 	freshnessTTL := cfg.FreshnessTTL
 	if freshnessTTL == 0 {
@@ -72,8 +77,10 @@ func NewCarrierAuth( // H
 		revokedUser: make(
 			map[CaHash]struct{},
 		),
-		nonceCache: NewNonceCache(
-			nonceTTL, clk,
+		nonceCache: NewNonceCacheWithMaxEntries(
+			nonceTTL,
+			clk,
+			nonceMaxEntries,
 		),
 		clock: clk,
 		revocationFresh: make(
@@ -91,7 +98,8 @@ type VerifyPeerCertParams struct { // A
 	CASignature        []byte
 	DelegationProof    *DelegationProof
 	DelegationSig      []byte
-	TLSSessionPubKey   *keys.PublicKey
+	TLSCertPubKeyHash  [32]byte
+	TLSExporterBinding [32]byte
 	TLSX509Fingerprint [32]byte
 	TLSTranscriptHash  []byte
 }
@@ -100,7 +108,7 @@ type VerifyPeerCertParams struct { // A
 // pipeline: issuer discovery, validity/revocation,
 // CA signature, delegation binding, replay defense,
 // and role extraction.
-func (ca *CarrierAuth) VerifyPeerCert( // AP
+func (ca *CarrierAuth) VerifyPeerCert( // PAP
 	params VerifyPeerCertParams,
 ) (keys.NodeID, TrustScope, error) {
 	if err := validateVerifyInputs(
@@ -116,39 +124,39 @@ func (ca *CarrierAuth) VerifyPeerCert( // AP
 		params.PeerCert.IssuerCAHash(),
 	)
 	if err != nil {
-		return keys.NodeID{}, 0, err
+		return keys.NodeID{}, 0, errors.New("authentication failed")
 	}
 
 	if err := ca.step2ValidityRevocation(
 		params.PeerCert,
 	); err != nil {
-		return keys.NodeID{}, 0, err
+		return keys.NodeID{}, 0, errors.New("authentication failed")
 	}
 
 	nodeID, err := step3AuthorityVerify(
 		caPubKey, params.PeerCert, params.CASignature,
 	)
 	if err != nil {
-		return keys.NodeID{}, 0, err
+		return keys.NodeID{}, 0, errors.New("authentication failed")
 	}
 
 	if err := step4DelegationBinding(
 		params,
 	); err != nil {
-		return keys.NodeID{}, 0, err
+		return keys.NodeID{}, 0, errors.New("authentication failed")
 	}
 
 	if err := ca.step5ReplayDefense(
 		params,
 	); err != nil {
-		return keys.NodeID{}, 0, err
+		return keys.NodeID{}, 0, errors.New("authentication failed")
 	}
 
 	scope, err := step6RoleExtraction(
 		params.PeerCert, caType,
 	)
 	if err != nil {
-		return keys.NodeID{}, 0, err
+		return keys.NodeID{}, 0, errors.New("authentication failed")
 	}
 
 	return nodeID, scope, nil
@@ -250,7 +258,7 @@ func step3AuthorityVerify( // A
 // step4DelegationBinding verifies that the delegation
 // proof is correctly bound to the NodeCert and TLS
 // session.
-func step4DelegationBinding( // A
+func step4DelegationBinding( // PAP
 	params VerifyPeerCertParams,
 ) error {
 	proof := params.DelegationProof
@@ -274,10 +282,13 @@ func step4DelegationBinding( // A
 		)
 	}
 
-	if err := matchSessionKey(
-		proof, params.TLSSessionPubKey,
-	); err != nil {
-		return err
+	proofPubKeyHash := proof.TLSCertPubKeyHash()
+
+	if subtle.ConstantTimeCompare(
+		proofPubKeyHash[:],
+		params.TLSCertPubKeyHash[:],
+	) != 1 {
+		return errors.New("TLS cert pubkey hash mismatch")
 	}
 
 	if proof.X509Fingerprint() != params.TLSX509Fingerprint {
@@ -301,37 +312,10 @@ func step4DelegationBinding( // A
 	return nil
 }
 
-// matchSessionKey compares the sign key bytes of the
-// delegation proof's session key with the TLS session
-// key.
-func matchSessionKey( // A
-	proof *DelegationProof,
-	tlsPub *keys.PublicKey,
-) error {
-	proofSign, err := proof.SessionPubKey().MarshalBinarySign()
-	if err != nil {
-		return fmt.Errorf(
-			"marshal proof session sign: %w", err,
-		)
-	}
-	tlsSign, err := tlsPub.MarshalBinarySign()
-	if err != nil {
-		return fmt.Errorf(
-			"marshal TLS session sign: %w", err,
-		)
-	}
-	if !bytes.Equal(proofSign, tlsSign) {
-		return errors.New(
-			"session key mismatch",
-		)
-	}
-	return nil
-}
-
 // step5ReplayDefense checks delegation lifetime,
 // validity window, nonce freshness, and transcript
 // hash binding.
-func (ca *CarrierAuth) step5ReplayDefense( // A
+func (ca *CarrierAuth) step5ReplayDefense( // PAP
 	params VerifyPeerCertParams,
 ) error {
 	proof := params.DelegationProof
@@ -360,6 +344,15 @@ func (ca *CarrierAuth) step5ReplayDefense( // A
 		proof.HandshakeNonce(),
 	) {
 		return errors.New("replayed handshake nonce")
+	}
+
+	proofExporter := proof.TLSExporterBinding()
+
+	if subtle.ConstantTimeCompare(
+		proofExporter[:],
+		params.TLSExporterBinding[:],
+	) != 1 {
+		return errors.New("TLS exporter binding mismatch")
 	}
 
 	if len(params.TLSTranscriptHash) == 0 {
@@ -417,10 +410,11 @@ func validateVerifyInputs( // A
 			"peer cert node public key must not be nil",
 		)
 	}
-	if params.TLSSessionPubKey == nil {
-		return errors.New(
-			"TLS session public key must not be nil",
-		)
+	if params.TLSCertPubKeyHash == [32]byte{} {
+		return errors.New("TLS cert pubkey hash must not be zero")
+	}
+	if params.TLSExporterBinding == [32]byte{} {
+		return errors.New("TLS exporter binding must not be zero")
 	}
 	return nil
 }

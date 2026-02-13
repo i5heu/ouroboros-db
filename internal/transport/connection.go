@@ -18,4 +18,14 @@ type Connection interface { // A
 	// X.509 certificates presented by the peer during
 	// the TLS handshake.
 	PeerCertificatesDER() [][]byte
+	// LocalCertificateDER returns the leaf certificate
+	// DER bytes used by the local endpoint.
+	LocalCertificateDER() []byte
+	// ExportKeyingMaterial derives exporter bytes bound
+	// to the active TLS transcript.
+	ExportKeyingMaterial(
+		label string,
+		context []byte,
+		length int,
+	) ([]byte, error)
 }

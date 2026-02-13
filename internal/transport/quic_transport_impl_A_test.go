@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -271,5 +272,93 @@ func TestQuicTransportDialNoAddress( // A
 	_, err = tr.Dial(peer)
 	if err == nil {
 		t.Fatal("expected error for no addresses")
+	}
+}
+
+func TestQuicTransportDialUsesEphemeralClientCert( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	authA := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
+	authB := auth.NewCarrierAuth(auth.CarrierAuthConfig{})
+
+	tA, err := NewQuicTransport(
+		"127.0.0.1:0",
+		authA,
+		keys.NodeID{1},
+	)
+	if err != nil {
+		t.Fatalf("transport A: %v", err)
+	}
+	defer deferCloseNoError(t, tA.Close)
+
+	tB, err := NewQuicTransport(
+		"127.0.0.1:0",
+		authB,
+		keys.NodeID{2},
+	)
+	if err != nil {
+		t.Fatalf("transport B: %v", err)
+	}
+	defer deferCloseNoError(t, tB.Close)
+
+	addrA := tA.(*quicTransportImpl).ListenAddr()
+	peer := interfaces.PeerNode{
+		NodeID:    keys.NodeID{1},
+		Addresses: []string{addrA},
+	}
+
+	acceptDone := make(chan Connection, 2)
+	go func() {
+		conn, _ := tA.Accept()
+		acceptDone <- conn
+	}()
+	firstConn, err := tB.Dial(peer)
+	if err != nil {
+		t.Fatalf("first dial: %v", err)
+	}
+	defer deferCloseNoError(t, firstConn.Close)
+	serverFirst := <-acceptDone
+	defer deferCloseNoError(t, serverFirst.Close)
+
+	go func() {
+		conn, _ := tA.Accept()
+		acceptDone <- conn
+	}()
+	secondConn, err := tB.Dial(peer)
+	if err != nil {
+		t.Fatalf("second dial: %v", err)
+	}
+	defer deferCloseNoError(t, secondConn.Close)
+	serverSecond := <-acceptDone
+	defer deferCloseNoError(t, serverSecond.Close)
+
+	firstDER := firstConn.LocalCertificateDER()
+	secondDER := secondConn.LocalCertificateDER()
+	if len(firstDER) == 0 || len(secondDER) == 0 {
+		t.Fatal("expected non-empty local cert DER")
+	}
+	if bytes.Equal(firstDER, secondDER) {
+		t.Fatal("expected per-dial ephemeral client certificates")
+	}
+}
+
+func TestQuicTransportAllowAttemptRateLimit( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	tpt := &quicTransportImpl{
+		dialAttempts: make(map[string]attemptCounter),
+	}
+	addr := "127.0.0.1:9999"
+
+	for i := 0; i < maxAttempts; i++ {
+		if !tpt.allowDialAttempt(addr) {
+			t.Fatalf("attempt %d unexpectedly throttled", i+1)
+		}
+	}
+
+	if tpt.allowDialAttempt(addr) {
+		t.Fatal("expected dial attempt to be throttled")
 	}
 }
