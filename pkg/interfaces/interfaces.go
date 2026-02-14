@@ -117,7 +117,7 @@ type Carrier interface { // A
 	) error
 	JoinCluster(
 		clusterNode PeerNode,
-		cert *auth.NodeCert,
+		cert NodeCert,
 	) error
 	LeaveCluster(clusterNode PeerNode) error
 	RemoveNode(nodeID keys.NodeID) error

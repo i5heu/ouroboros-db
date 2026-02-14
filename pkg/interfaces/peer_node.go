@@ -44,7 +44,7 @@ func (s ConnectionStatus) String() string { // A
 type PeerNode struct { // A
 	NodeID    keys.NodeID
 	Addresses []string
-	Cert      *auth.NodeCert
+	Cert      NodeCert
 }
 
 // NodeInfo holds complete node data for registry
@@ -52,7 +52,7 @@ type PeerNode struct { // A
 type NodeInfo struct { // A
 	Peer             PeerNode
 	CASignature      []byte
-	DelegationProof  *auth.DelegationProof
+	DelegationProof  DelegationProof
 	DelegationSig    []byte
 	LastSeen         time.Time
 	ConnectionStatus ConnectionStatus

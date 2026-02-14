@@ -20,13 +20,3 @@ func (s TrustScope) String() string { // A
 		return "unknown"
 	}
 }
-
-// NodeCert is the peer node certificate payload.
-type NodeCert struct { // A
-	IssuerCAHash string
-}
-
-// DelegationProof binds identity to transport.
-type DelegationProof struct { // A
-	HandshakeNonce []byte
-}

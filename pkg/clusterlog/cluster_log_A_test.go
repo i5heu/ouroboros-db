@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
@@ -120,7 +119,7 @@ func (m *mockCarrier) SendMessageToNode( // A
 
 func (m *mockCarrier) JoinCluster( // A
 	_ interfaces.PeerNode,
-	_ *auth.NodeCert,
+	_ interfaces.NodeCert,
 ) error {
 	return nil
 }

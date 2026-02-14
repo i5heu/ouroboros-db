@@ -85,7 +85,7 @@ func (m *mockCarrier) SendMessageToNode( // A
 
 func (m *mockCarrier) JoinCluster( // A
 	_ interfaces.PeerNode,
-	_ *auth.NodeCert,
+	_ interfaces.NodeCert,
 ) error {
 	return nil
 }

@@ -15,32 +15,17 @@ type Node struct { // A
 	NodeCerts []NodeCert
 }
 
-type NodeCert interface { // A
-	NodePubKey() keys.PublicKey
-	IssuerCAHash() string
-	ValidFrom() int64
-	ValidUntil() int64
-	Serial() []byte
-	CertNonce() []byte
-	NodeID() keys.NodeID
-}
+// NodeCert aliases auth.NodeCertLike to keep carrier
+// contract signatures exactly aligned across packages.
+type NodeCert = auth.NodeCertLike // A
 
-type DelegationProof interface { // A
-	TLSCertPubKeyHash() []byte
-	TLSExporterBinding() []byte
-	TLSTranscriptHash() []byte
-	X509Fingerprint() []byte
-	NodeCertBundleHash() []byte
-	NotBefore() int64
-	NotAfter() int64
-}
+// DelegationProof aliases auth.DelegationProofLike to
+// keep carrier contract signatures exactly aligned.
+type DelegationProof = auth.DelegationProofLike // A
 
-type AuthContext struct { // A
-	NodeID              keys.NodeID
-	EffectiveScope      auth.TrustScope
-	AllowedUserCAOwners []string
-	HasValidAdminCert   bool
-}
+// AuthContext is a type alias for auth.AuthContext,
+// kept here for backward compatibility.
+type AuthContext = auth.AuthContext // A
 
 type AdminCA interface { // A
 	PubKey() []byte
@@ -68,10 +53,10 @@ type CarrierAuth interface { // A
 		tlsTranscriptHash []byte,
 	) (AuthContext, error)
 	AddAdminPubKey(pubKey []byte) error
-	RemoveAdminPubKey(pubKeyHash string) error
-	RevokeAdminCA(adminCAHash string) error
 	AddUserPubKey(pubKey, anchorSig []byte, anchorAdminHash string) error
 	RemoveUserPubKey(pubKeyHash string) error
+	RemoveAdminPubKey(pubKeyHash string) error
+	RevokeAdminCA(adminCAHash string) error
 	RevokeUserCA(userCAHash string) error
 	RevokeNode(nodeID keys.NodeID) error
 }
