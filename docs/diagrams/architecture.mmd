@@ -524,13 +524,20 @@ classDiagram
     %% Trust-root management:
     %% - Add/RemoveAdminPubKey updates the trusted AdminCA set (keyed by AdminCAHash).
     %% - Add/RemoveUserPubKey updates the trusted UserCA set (keyed by UserCAHash).
-    %% Revocation:
+    %% Revocation (policy; NOT implemented yet):
     %% - Revocation protocol details (distribution/freshness semantics) are not yet fully
-    %%   specified in this document and will be specified and implemented afterwards.
-    %% - RevokeNode denies a NodeID even if it presents a valid certificate.
-    %% - Revocation applies to both admin-authorized and user-scoped nodes.
-    %% - RevokeAdminCA / RevokeUserCA disables a CA by hash (stronger than Remove*; intended
-    %%   to prevent re-adding the same root without an explicit un-revoke policy).
+    %%   specified and are not implemented yet.
+    %% - Only an AdminCA-authorized action may revoke a CA:
+    %%   - RevokeAdminCA disables an AdminCA by hash.
+    %%   - RevokeUserCA disables a UserCA by hash.
+    %% - Node certificate/node identity revocation (RevokeNode) is valid only if:
+    %%   - an AdminCA-authorized action revokes that NodeID, OR
+    %%   - ALL UserCAs that currently signed/authorize that NodeID revoke it and no AdminCA signs the note
+    %%     (unanimous signer-user-CA revocation; partial UserCA revocation is insufficient).
+    %% - Revocation may apply to both admin-authorized and user-scoped nodes, subject
+    %%   to the authority rules above.
+    %% - CA revocation is stronger than Remove* and is intended to prevent re-adding the
+    %%   same root without an explicit un-revoke policy.
     %% Authorization boundary (important):
     %% - Authentication answers "who is the peer node?" (NodeID + which CA validated it).
     %% - Authorization answers "what may it do?" and must be enforced by higher-level
