@@ -1,5 +1,4 @@
 package cas
-package cas
 
 import (
 	"testing"
