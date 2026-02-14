@@ -28,8 +28,11 @@ classDiagram
     %%   NodeID = SHA-256(NodePubKey).
     %% - AdminCA/UserCA signatures authorize the node but do not change its NodeID.
     %% Signature scope (what is signed):
-    %% - The CA signature MUST be over a canonical serialization of the ENTIRE NodeCert
-    %%   structure (including IssuerCAHash and any future metadata like expiry/constraints).
+    %% - The CA signature MUST be over a deterministic canonical serialization of the ENTIRE
+    %%   NodeCert structure (including IssuerCAHash and any future metadata like
+    %%   expiry/constraints).
+    %% - Canonical NodeCert encoding is REQUIRED to be deterministic CBOR (RFC 8949 core
+    %%   deterministic encoding) with map keys sorted by bytewise lexicographic order.
     %% - Sign/Verify MUST use cryptographic domain separation to prevent type confusion
     %%   between different signed payload types.
     %% - Required form (high-level):
@@ -46,9 +49,15 @@ classDiagram
     %%   signed by NodePubKey().publicSign:
     %%   DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof)).
     %% - DelegationProof MUST bind TLSCertPubKeyHash + TLSExporterBinding +
-    %%   X509Fingerprint + NodeCertBundleHash.
-    %% - Replay/UKS defense requires short delegation TTL, single-use handshake nonce, and
-    %%   identity binding to the TLS transcript.
+    %%   TLSTranscriptHash + X509Fingerprint + NodeCertBundleHash.
+    %% - TLSTranscriptHash MUST cover the full authenticated handshake transcript through
+    %%   TLS Finished (same transcript context used by exporter derivation) before
+    %%   DelegationProof is emitted.
+    %% - TLSExporterBinding MUST be derived with a unique domain-separated label:
+    %%   "EXPORTER_OUROBOROS_NODE_DELEGATION_V1" and context bytes equal to
+    %%   CanonicalSerialize(DelegationProof minus TLSExporterBinding).
+    %% - Replay/UKS defense requires short delegation TTL and identity binding to the
+    %%   active TLS transcript/exporter values.
     class NodeCert {
         +NodePubKey() keys.PublicKey
         +IssuerCAHash() CaHash.Hash
@@ -64,11 +73,11 @@ classDiagram
     class DelegationProof {
         +TLSCertPubKeyHash() []byte
         +TLSExporterBinding() []byte
+        +TLSTranscriptHash() []byte
         +X509Fingerprint() []byte
         +NodeCertBundleHash() []byte
         +NotBefore() time.Time
         +NotAfter() time.Time
-        +HandshakeNonce() []byte
     }
 
     %% TrustScope: Authentication scope of a connected peer.
@@ -473,13 +482,16 @@ classDiagram
     %%   - peerCerts: []NodeCert (same NodePubKey/NodeID, potentially mixed Admin/User)
     %%   - caSignatures: [][]byte matching peerCerts
     %%   - delegationProof: includes TLSCertPubKeyHash, TLSExporterBinding,
-    %%     X509Fingerprint, NodeCertBundleHash,
-    %%     NotBefore, NotAfter, HandshakeNonce
+    %%     TLSTranscriptHash, X509Fingerprint, NodeCertBundleHash,
+    %%     NotBefore, NotAfter
     %%   - delegationSig: signature over CTX_NODE_DELEGATION_V1 || canonical(delegationProof)
     %%   - tlsCertPubKeyHash: hash of QUIC/TLS peer leaf SubjectPublicKeyInfo
-    %%   - tlsExporterBinding: exporter bytes bound to TLS transcript
+    %%   - tlsExporterBinding: exporter bytes bound to TLS transcript using label
+    %%     "EXPORTER_OUROBOROS_NODE_DELEGATION_V1" and context
+    %%     CanonicalSerialize(DelegationProof minus TLSExporterBinding)
     %%   - tlsX509Fingerprint: fingerprint of presented TLS cert
-    %%   - tlsTranscriptHash: handshake transcript hash for binding checks
+    %%   - tlsTranscriptHash: hash of full handshake transcript through TLS Finished
+    %%     (same transcript context used for tlsExporterBinding)
     %% Decision:
     %% - VerifyPeerCert validates all certs in the bundle and derives effective authorization:
     %%   - if >=1 valid Admin cert: ScopeAdmin
@@ -494,9 +506,13 @@ classDiagram
     %% - delegationSig MUST verify under NodePubKey shared by the cert bundle.
     %% - delegationProof.TLSCertPubKeyHash MUST equal tlsCertPubKeyHash.
     %% - delegationProof.TLSExporterBinding MUST equal tlsExporterBinding.
+    %% - delegationProof.TLSTranscriptHash MUST equal tlsTranscriptHash.
     %% - delegationProof.X509Fingerprint MUST equal tlsX509Fingerprint.
-    %% - delegationProof.NodeCertBundleHash MUST equal hash(canonical(peerCerts)).
-    %% - HandshakeNonce MUST be unused and recorded as single-use (cluster-wide).
+    %% - delegationProof.NodeCertBundleHash MUST equal
+    %%   hash(CanonicalNodeCertBundle(peerCerts)).
+    %% - CanonicalNodeCertBundle(peerCerts) is defined as deterministic CBOR (RFC 8949 core
+    %%   deterministic encoding) over an array of canonical NodeCert objects sorted by
+    %%   NodePubKey bytes ascending, then Serial bytes ascending.
     %% - Effective identity MUST bind to tlsTranscriptHash to prevent UKS.
     %% Namespace collision requirement:
     %% - Because NodeID is CA-independent, callers MUST NOT use NodeID alone to grant
@@ -509,6 +525,8 @@ classDiagram
     %% - Add/RemoveAdminPubKey updates the trusted AdminCA set (keyed by AdminCAHash).
     %% - Add/RemoveUserPubKey updates the trusted UserCA set (keyed by UserCAHash).
     %% Revocation:
+    %% - Revocation protocol details (distribution/freshness semantics) are not yet fully
+    %%   specified in this document and will be specified and implemented afterwards.
     %% - RevokeNode denies a NodeID even if it presents a valid certificate.
     %% - Revocation applies to both admin-authorized and user-scoped nodes.
     %% - RevokeAdminCA / RevokeUserCA disables a CA by hash (stronger than Remove*; intended

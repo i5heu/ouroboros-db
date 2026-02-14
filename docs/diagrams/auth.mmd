@@ -5,6 +5,7 @@ sequenceDiagram
     participant NodeA as Node A (Prover)
     participant NodeB as Node B (Verifier)
     Note over NodeA, NodeB: SECURITY PROFILE (STRICT):<br>MUST use ML-DSA-87 for Node identity signatures,<br>MUST use X25519Kyber768 for session key exchange,<br>MUST use PQ-hybrid TLS suites only,<br>NO downgrade/fallback to weaker profile.
+    Note over NodeA, NodeB: REVOCATION STATUS:<br>Revocation protocol details are not yet fully specified in this diagram and will be specified and implemented afterwards.
     Note over Issuers: UserCA ANCHORING:<br>Every UserCA MUST be anchored by an AdminCA signature.<br>Anchoring/signing is handled by trusted frontend enrollment/admin flows and remains high-level in this spec.<br>If the anchor AdminCA is revoked/removed, the UserCA becomes untrusted.
 
     %% ==========================================
@@ -40,9 +41,7 @@ sequenceDiagram
     Note left of NodeA: DELEGATION:<br>The persistent NodePrivKey signs the<br>ephemeral SessionPubKey. This links<br>the Identity to the Transport.
     
     NodeA->>NodeA: 2. Create X.509 Template (Leaf)<br>Subject = SessionPubKey, Short TTL
-    NodeA->>NodeA: 3. Build DelegationProof:<br>{ TLSCertPubKeyHash, TLSExporterBinding,<br>X509Fingerprint, NodeCertBundleHash,<br>NotBefore, NotAfter, HandshakeNonce }
-    NodeA->>NodeA: 4. DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof))
-    NodeA->>NodeA: 5. Sign X.509 using SessionPrivKey
+    NodeA->>NodeA: 3. Sign X.509 using SessionPrivKey
 
     %% ==========================================
     %% PHASE 3: THE HANDSHAKE (Runtime)
@@ -60,7 +59,10 @@ sequenceDiagram
     
     Note right of NodeB: TLS CHECKS:<br>1. Peer owns SessionPrivKey<br>2. Negotiated suite/group match strict profile<br>3. Any downgrade => fail closed
     
-    Note right of NodeA: STEP B: IDENTITY ASSERTION<br>Send the authorization proof.
+    NodeA->>NodeA: Build DelegationProof from this active handshake:<br>{ TLSCertPubKeyHash, TLSExporterBinding, TLSTranscriptHash,<br>X509Fingerprint, NodeCertBundleHash, NotBefore, NotAfter }<br>where TLSTranscriptHash covers full handshake through TLS Finished
+    NodeA->>NodeA: Derive TLSExporterBinding using label<br>"EXPORTER_OUROBOROS_NODE_DELEGATION_V1"<br>and context CanonicalSerialize(DelegationProof minus TLSExporterBinding)
+    NodeA->>NodeA: Sign DelegationProof:<br>DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof))
+    Note right of NodeA: STEP B: IDENTITY ASSERTION<br>Send the handshake-bound authorization proof.
     NodeA->>NodeB: Send NodeCertBundle + CASignatures + DelegationProof + DelegationSig
     
     %% ==========================================
@@ -84,8 +86,8 @@ sequenceDiagram
     rect rgb(50, 30, 30)
         Note right of NodeB: CHECK 2: VALIDITY / REVOCATION / FRESHNESS
         NodeB->>NodeB: For each cert: verify now in [ValidFrom, ValidUntil]
-        NodeB->>NodeB: For each cert: verify serial not revoked
-        NodeB->>NodeB: For each issuer: verify revocation freshness<br>(CRL/OCSP or equivalent TTL)
+        NodeB->>NodeB: For each cert: revocation checks are TODO until revocation protocol spec lands
+        NodeB->>NodeB: For each issuer: revocation freshness model is TODO and will be defined later
         alt No valid cert remains
             NodeB->>NodeA: REJECT: "No Valid Cert"
         else One or more certs remain valid
@@ -106,16 +108,16 @@ sequenceDiagram
         NodeB->>NodeB: Verify DelegationSig using NodePubKey<br>Input: CTX_NODE_DELEGATION_V1 || DelegationProof
         NodeB->>NodeB: Check DelegationProof.TLSCertPubKeyHash == hash(TLS Cert SPKI)
         NodeB->>NodeB: Check DelegationProof.X509Fingerprint == presented X.509
-        NodeB->>NodeB: Check DelegationProof.NodeCertBundleHash == hash(canonical(NodeCertBundle))
+        NodeB->>NodeB: Check DelegationProof.NodeCertBundleHash == hash(CanonicalNodeCertBundle(NodeCertBundle))
+        NodeB->>NodeB: CanonicalNodeCertBundle = deterministic CBOR (RFC 8949 core deterministic encoding) over canonical NodeCert array sorted by NodePubKey bytes, then Serial bytes
         Note right of NodeB: PASS: "Identity key explicitly delegated<br>this exact transport key and cert."
     end
 
     rect rgb(20, 50, 20)
         Note right of NodeB: CHECK 5: REPLAY / UKS DEFENSE
         NodeB->>NodeB: Verify DelegationProof.NotAfter is short-lived
-        NodeB->>NodeB: Verify HandshakeNonce unused (cluster-wide single-use cache)
-        NodeB->>NodeB: Check DelegationProof.TLSExporterBinding == TLS exporter value
-        NodeB->>NodeB: Bind peer identity to TLS transcript hash
+        NodeB->>NodeB: Check DelegationProof.TLSExporterBinding == TLS exporter value using label "EXPORTER_OUROBOROS_NODE_DELEGATION_V1" and context CanonicalSerialize(DelegationProof minus TLSExporterBinding)
+        NodeB->>NodeB: Check DelegationProof.TLSTranscriptHash == full handshake transcript hash through TLS Finished
         alt Replay or Unknown-Key-Share detected
             NodeB->>NodeA: REJECT: "Replay/UKS"
         else Fresh and bound
