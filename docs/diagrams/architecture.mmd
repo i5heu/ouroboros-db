@@ -6,7 +6,7 @@ classDiagram
     class Node {
         +NodeID NodeID
         +[]string Addresses
-        +NodeCert NodeCert
+        +[]NodeCert NodeCerts
     }
 
     %% Security profile (strict):
@@ -21,7 +21,7 @@ classDiagram
     %%   - There can be multiple AdminCAs and multiple UserCAs.
     %%   - IssuerCAHash allows selecting the expected CA without trial-verifying many roots.
     %% - Includes signed lifecycle/authorization metadata:
-    %%   CertVersion, ValidFrom, ValidUntil, Serial, RoleClaims, CertNonce.
+    %%   CertVersion, ValidFrom, ValidUntil, Serial, CertNonce.
     %% NodeID derivation:
     %% - NodeID is NOT a free-form name.
     %% - NodeID is derived ONLY from the node public key material:
@@ -32,8 +32,10 @@ classDiagram
     %%   structure (including IssuerCAHash and any future metadata like expiry/constraints).
     %% - Sign/Verify MUST use cryptographic domain separation to prevent type confusion
     %%   between different signed payload types.
-    %% - Required form:
-    %%   CA_Signature = Sign(CTX_NODE_ADMISSION_V1 || CanonicalSerialize(NodeCert))
+    %% - Required form (high-level):
+    %%   CA signs canonical NodeCert payload in a domain-separated context.
+    %% - Signing workflow is frontend-owned (enrollment/admin UI flow) and is intentionally
+    %%   specified here only at high level.
     %% - This follows the "what you see is what was signed" rule and prevents mutable fields.
     %% Identity model:
     %% - There is NO name/CN/SAN-based identity. The only stable identity is NodeID derived
@@ -44,7 +46,7 @@ classDiagram
     %%   signed by NodePubKey().publicSign:
     %%   DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof)).
     %% - DelegationProof MUST bind TLSCertPubKeyHash + TLSExporterBinding +
-    %%   X509Fingerprint + NodeCertHash.
+    %%   X509Fingerprint + NodeCertBundleHash.
     %% - Replay/UKS defense requires short delegation TTL, single-use handshake nonce, and
     %%   identity binding to the TLS transcript.
     class NodeCert {
@@ -53,7 +55,6 @@ classDiagram
         +ValidFrom() time.Time
         +ValidUntil() time.Time
         +Serial() []byte
-        +RoleClaims() []string
         +CertNonce() []byte
         +NodeID() keys.NodeID
     }
@@ -64,7 +65,7 @@ classDiagram
         +TLSCertPubKeyHash() []byte
         +TLSExporterBinding() []byte
         +X509Fingerprint() []byte
-        +NodeCertHash() []byte
+        +NodeCertBundleHash() []byte
         +NotBefore() time.Time
         +NotAfter() time.Time
         +HandshakeNonce() []byte
@@ -73,21 +74,20 @@ classDiagram
     %% TrustScope: Authentication scope of a connected peer.
     %% Hierarchy: ScopeAdmin implies ScopeUser (Admin has all User permissions).
     %%
-    %% ScopeAdmin: AdminCA-authorized node.
+    %% ScopeAdmin: Node has at least one currently valid Admin-signed cert.
     %% - May perform system/cluster actions.
     %% - May request any data (subject to cluster policy), not tied to a specific user.
     %% - Can invoke handlers registered for ScopeAdmin OR ScopeUser.
     %%
-    %% ScopeUser: UserCA-authorized node.
+    %% ScopeUser: Node has no valid Admin cert, but at least one valid UserCA cert.
     %% - Must be sandboxed; never allow system/cluster actions.
-    %% - May request ONLY data belonging to the user identity represented by the issuing
-    %%   UserCA (peerCert.IssuerCAHash()) while the node is connected and not revoked.
+    %% - May request ONLY data owned by one of its currently valid signing UserCAs.
+    %% - Allowed owner set MUST be recomputed from valid certs when revocation/expiry changes.
     %% - No per-request user signature is required because the node identity is already
     %%   authenticated (PoP) and authorized (CA admission); the authorization boundary is
-    %%   enforced by scoping all requests to that issuing UserCAHash.
+    %%   enforced by scoping requests to that dynamic allowed owner set.
     %% - Can only invoke handlers registered for ScopeUser (unless also allowed ScopeAdmin).
-    %% - Role claims MUST resolve to exactly one of ScopeAdmin or ScopeUser;
-    %%   missing/invalid/ambiguous claims MUST fail authentication.
+    %% - If any Admin cert is valid, effective scope is ScopeAdmin (admin dominates).
     %%
     %% Handler Registration:
     %% - Handlers specify []TrustScope (peer needs ANY of these scopes - OR logic).
@@ -101,7 +101,8 @@ classDiagram
     %% ClusterController: Central control layer for node cluster operations.
     %% Handler Management (HTTP-style message handlers):
     %% - RegisterHandler: Associates a MessageType with handler function and allowed TrustScopes
-    %% - Handlers execute with peer authentication context (NodeID + TrustScope)
+    %% - Handlers execute with peer authentication context
+    %%   (NodeID + EffectiveScope + AllowedUserCAOwners).
     %% - No default handler: unregistered message types are rejected
     %%
     %% TrustScope Hierarchy & Access Control:
@@ -112,15 +113,11 @@ classDiagram
     %%
     %% Authorization Flow:
     %% 1. Carrier receives message and authenticates peer
-    %% 2. Carrier delivers (Message, NodeID, TrustScope) to ClusterController
+    %% 2. Carrier delivers (Message, AuthContext) to ClusterController
     %% 3. ClusterController looks up handler by MessageType
-    %% 4. CheckAccess() validates if peer's effective scopes match handler's allowed scopes
+    %% 4. Authorize() evaluates access policy and returns AccessDecision
     %% 5. If authorized: HandleIncomingMessage() invokes handler and returns Response
     %% 6. If denied: returns error with reason
-    %%
-    %% Effective Scope Calculation:
-    %% - GetEffectiveScopes(ScopeAdmin) returns [ScopeAdmin, ScopeUser]
-    %% - GetEffectiveScopes(ScopeUser) returns [ScopeUser]
     class ClusterController {
         %% Handler registration
         +RegisterHandler(msgType MessageType, scopes []TrustScope, handler MessageHandler) error
@@ -128,20 +125,18 @@ classDiagram
         +GetHandler(msgType MessageType) (HandlerRegistration, bool)
         
         %% Message processing
-        +HandleIncomingMessage(msg Message, peer NodeID, peerScope TrustScope) (Response, error)
-        +CheckAccess(msgType MessageType, peerScope TrustScope) AccessDecision
-        +GetEffectiveScopes(scope TrustScope) []TrustScope
+        +HandleIncomingMessage(msg Message, auth AuthContext) (Response, error)
+        +Authorize(msgType MessageType, auth AuthContext, ownerCAHash CaHash.Hash) AccessDecision
     }
 
     %% MessageHandler: HTTP-style handler function signature.
     %% Context carries request lifecycle and cancellation.
     %% Message contains the deserialized request payload.
-    %% Peer identifies the authenticated remote node.
-    %% Scope indicates the authenticated trust level of the peer.
+    %% Auth contains the authenticated remote node and effective authorization context.
     %% Returns Response with payload and optional error.
     class MessageHandler {
         <<function>>
-        func(ctx context.Context, msg Message, peer NodeID, scope TrustScope) (Response, error)
+        func(ctx context.Context, msg Message, auth AuthContext) (Response, error)
     }
 
     %% HandlerRegistration: Stores a registered handler with its access requirements.
@@ -170,6 +165,15 @@ classDiagram
     class AccessDecision {
         +bool Allowed
         +string Reason
+    }
+
+    %% AuthContext: authenticated peer context used by authorization.
+    %% EffectiveScope is derived from all currently valid certs of the same NodeID.
+    class AuthContext {
+        +NodeID NodeID
+        +TrustScope EffectiveScope
+        +[]CaHash.Hash AllowedUserCAOwners
+        +bool HasValidAdminCert
     }
 
     class ClusterMonitor {
@@ -301,8 +305,12 @@ classDiagram
     %% - Immediate disconnect on node removal
     %%
     %% Bootstrap:
-    %% - Static bootstrap list in BootstrapConfig
-    %% - Used for initial cluster join
+    %% - Initial shared material is minimal:
+    %%   trusted AdminCA public keys + bootstrap node addresses.
+    %% - Bootstrap node addresses are NOT trusted identities and grant NO special privileges.
+    %% - During startup, nodes try these addresses and authenticate each connection normally.
+    %% - No cluster-wide shared encryption state is assumed.
+    %% - Used only for initial cluster join.
     %%
     %% Node Sharing:
     %% - Periodic full sync via NodeSync
@@ -310,6 +318,9 @@ classDiagram
     %% - Full NodeCert + CA signatures exchanged
     %%
     %% Trust:
+    %% - Every node-to-node connection is independently authenticated.
+    %% - Transport confidentiality/integrity is per-connection (authenticated encryption
+    %%   from QUIC/TLS), not cluster-wide.
     %% - Authentication via pkg/auth/carrier_auth.go
     %% - Dynamic CA/node add/remove supported
     class Carrier {
@@ -319,8 +330,6 @@ classDiagram
         +SendMessageToNodeReliable(nodeID NodeID, message Message) error
         +BroadcastUnreliable(message Message) (attempted []Node)
         +SendMessageToNodeUnreliable(nodeID NodeID, message Message) error
-        +Broadcast(message Message) (success []Node, err error)
-        +SendMessageToNode(nodeID NodeID, message Message) error
         +JoinCluster(clusterNode Node, nodeCert NodeCert) error
         +LeaveCluster(clusterNode Node) error
         +RemoveNode(nodeID NodeID) error
@@ -352,16 +361,17 @@ classDiagram
         +Close() error
     }
 
-    %% BootstrapConfig: Static bootstrap node list.
+    %% BootstrapConfig: Static list of bootstrap addresses.
+    %% These are connection seeds only, not trust roots.
     class BootstrapConfig {
-        +[]Node BootstrapNodes
+        +[]string BootstrapAddresses
         +LoadFromFile(path string) error
         +SaveToFile(path string) error
     }
 
     %% NodeRegistry: Tracks all known nodes with certificates.
     class NodeRegistry {
-        +AddNode(node Node, cert NodeCert) error
+        +AddNode(node Node, certs []NodeCert, signatures [][]byte) error
         +RemoveNode(nodeID NodeID) error
         +GetNode(nodeID NodeID) (Node, error)
         +GetAllNodes() []Node
@@ -381,8 +391,8 @@ classDiagram
     %% NodeInfo: Complete node data for sync.
     class NodeInfo {
         +Node Node
-        +NodeCert NodeCert
-        +CASignature []byte
+        +[]NodeCert NodeCerts
+        +[][]byte CASignatures
         +LastSeen time.Time
         +ConnectionStatus ConnectionStatus
     }
@@ -402,11 +412,10 @@ classDiagram
     %%   exactly one Admin signing public key + its identifier.
     %% - AdminCA is verification-only: signing/issuance happens off-device/out-of-band.
     %% What it verifies:
-    %% - A "node certificate" is the peer-presented NodeCert plus a detached CA signature.
+    %% - A node may present multiple certs; each cert is validated independently.
     %% - VerifyNodeCert checks the CA signature is valid under this Admin pubkey over the
     %%   domain-separated payload:
-    %%   SignInput = CTX_NODE_ADMISSION_V1 || CanonicalSerialize(NodeCert)
-    %%   (not over a name or string identifier).
+    %%   canonical NodeCert payload (not over a name or string identifier).
     %% - On success, the returned NodeID MUST be computed from the NodeCert itself:
     %%   NodeID = SHA-256(NodeCert.NodePubKey).
     %% - This verifies issuance/authorization of the NodeCert, NOT proof-of-possession.
@@ -418,8 +427,8 @@ classDiagram
     %% - Nodes can exchange/compare AdminCAHash values to agree on which Admin root is trusted
     %%   without transmitting full key material.
     %% Enforcement:
-    %% - A peer is considered an "admin-authorized node" only if (1) VerifyNodeCert succeeds
-    %%   under at least one trusted AdminCA and (2) the NodeID is not revoked by CarrierAuth.
+    %% - A peer is considered admin-authorized if at least one currently valid cert verifies
+    %%   under a trusted AdminCA and the NodeID is not revoked by CarrierAuth.
     class AdminCA {
         +PubKey() sign.PublicKey
         +Hash() CaHash.Hash
@@ -435,14 +444,14 @@ classDiagram
     %% - Requesting nodes can send only UserCAHash to reference the correct UserCA.
     %% Anchor requirement:
     %% - Every UserCA MUST have an anchor signature from a trusted AdminCA.
-    %% - AnchorSig is the AdminCA's signature over CTX_USER_CA_ANCHOR_V1 || UserCAPubKey.
+    %% - AnchorSig is an AdminCA signature that anchors the UserCA.
+    %% - UserCA signing/anchoring workflow is frontend-owned and intentionally high level.
     %% - AnchorAdminHash identifies which AdminCA signed this UserCA.
     %% - If the anchor AdminCA is removed or revoked, the UserCA becomes untrusted.
     %% Node admission:
     %% - VerifyNodeCert validates user-signed node certificates.
-    %% - The signature is always a cryptographic signature over the domain-separated NodeCert
-    %%   payload (never a name):
-    %%   CTX_NODE_ADMISSION_V1 || CanonicalSerialize(NodeCert).
+    %% - The signature is always over canonical NodeCert payload (never a name),
+    %%   but exact signing procedure is frontend-owned and intentionally high level here.
     %% - On success, the returned NodeID MUST be computed from the NodeCert itself:
     %%   NodeID = SHA-256(NodeCert.NodePubKey).
     %% - Nodes admitted under a UserCA are "user-scoped" and must be restricted to data
@@ -461,10 +470,10 @@ classDiagram
     %% CarrierAuth (pkg): Carrier-side authentication + trust-root management.
     %% Inputs:
     %% - Carrier extracts identity material from handshake/auth exchange:
-    %%   - peerCert: NodeCert
-    %%   - caSignature: detached CA signature over CTX_NODE_ADMISSION_V1 || canonical(NodeCert)
+    %%   - peerCerts: []NodeCert (same NodePubKey/NodeID, potentially mixed Admin/User)
+    %%   - caSignatures: [][]byte matching peerCerts
     %%   - delegationProof: includes TLSCertPubKeyHash, TLSExporterBinding,
-    %%     X509Fingerprint, NodeCertHash,
+    %%     X509Fingerprint, NodeCertBundleHash,
     %%     NotBefore, NotAfter, HandshakeNonce
     %%   - delegationSig: signature over CTX_NODE_DELEGATION_V1 || canonical(delegationProof)
     %%   - tlsCertPubKeyHash: hash of QUIC/TLS peer leaf SubjectPublicKeyInfo
@@ -472,31 +481,30 @@ classDiagram
     %%   - tlsX509Fingerprint: fingerprint of presented TLS cert
     %%   - tlsTranscriptHash: handshake transcript hash for binding checks
     %% Decision:
-    %% - VerifyPeerCert attempts to authenticate the peer as either:
-    %%   - admin-authorized node: NodeCert verifies under a trusted AdminCA, OR
-    %%   - user-scoped node: NodeCert verifies under a trusted UserCA.
-    %% - On success it returns the authenticated NodeID AND the TrustScope.
+    %% - VerifyPeerCert validates all certs in the bundle and derives effective authorization:
+    %%   - if >=1 valid Admin cert: ScopeAdmin
+    %%   - else if >=1 valid User cert: ScopeUser with owner set from valid UserCAs
+    %%   - else reject
+    %% - On success it returns AuthContext (NodeID + EffectiveScope + AllowedUserCAOwners).
     %% - On failure it returns error and the connection MUST be rejected.
     %% Validation requirements (fail closed):
-    %% - Unknown IssuerCAHash MUST reject.
-    %% - NodeCert time window MUST be valid (ValidFrom..ValidUntil).
-    %% - Node/issuer revocation status MUST be fresh (TTL-bounded), else reject.
-    %% - VerifyNodeCert MUST succeed under exactly one trusted issuer path.
-    %% - delegationSig MUST verify under peerCert.NodePubKey().publicSign.
+    %% - For each cert: unknown IssuerCAHash, invalid time window, or stale revocation state
+    %%   MUST mark that cert invalid.
+    %% - At least one cert MUST remain valid after filtering; otherwise reject.
+    %% - delegationSig MUST verify under NodePubKey shared by the cert bundle.
     %% - delegationProof.TLSCertPubKeyHash MUST equal tlsCertPubKeyHash.
     %% - delegationProof.TLSExporterBinding MUST equal tlsExporterBinding.
     %% - delegationProof.X509Fingerprint MUST equal tlsX509Fingerprint.
-    %% - delegationProof.NodeCertHash MUST equal hash(peerCert).
-    %% - HandshakeNonce MUST be unused and recorded as single-use.
+    %% - delegationProof.NodeCertBundleHash MUST equal hash(canonical(peerCerts)).
+    %% - HandshakeNonce MUST be unused and recorded as single-use (cluster-wide).
     %% - Effective identity MUST bind to tlsTranscriptHash to prevent UKS.
     %% Namespace collision requirement:
     %% - Because NodeID is CA-independent, callers MUST NOT use NodeID alone to grant
     %%   system privileges.
-    %% - Callers MUST enforce authorization using TrustScope:
+    %% - Callers MUST enforce authorization using AuthContext:
     %%   - ScopeAdmin => eligible for system-level actions and cluster-wide data requests
     %%   - ScopeUser  => sandboxed; never allow system-level actions
-    %%     - may request ONLY data belonging to the issuing UserCAHash of the authenticated
-    %%       NodeCert (peerCert.IssuerCAHash())
+    %%     - may request ONLY data where owner UserCAHash is in AllowedUserCAOwners
     %% Trust-root management:
     %% - Add/RemoveAdminPubKey updates the trusted AdminCA set (keyed by AdminCAHash).
     %% - Add/RemoveUserPubKey updates the trusted UserCA set (keyed by UserCAHash).
@@ -510,7 +518,7 @@ classDiagram
     %% - Authorization answers "what may it do?" and must be enforced by higher-level
     %%   components (e.g., routing/ACL), especially for user-scoped nodes.
     class CarrierAuth {
-        +VerifyPeerCert(peerCert NodeCert, caSignature []byte, delegationProof DelegationProof, delegationSig []byte, tlsCertPubKeyHash []byte, tlsExporterBinding []byte, tlsX509Fingerprint []byte, tlsTranscriptHash []byte) (nodeID NodeID, scope TrustScope, error)
+        +VerifyPeerCert(peerCerts []NodeCert, caSignatures [][]byte, delegationProof DelegationProof, delegationSig []byte, tlsCertPubKeyHash []byte, tlsExporterBinding []byte, tlsX509Fingerprint []byte, tlsTranscriptHash []byte) (auth AuthContext, error)
         +AddAdminPubKey(pubKey sign.PublicKey) error
         +RemoveAdminPubKey(pubKeyHash CaHash.Hash) error
         +RevokeAdminCA(adminCAHash CaHash.Hash) error
@@ -520,16 +528,6 @@ classDiagram
         +RevokeNode(nodeID NodeID) error
     }
 
-    class BootStrapper {
-        +BootstrapNode(node Node) error
-    }
-    
-    class BootstrapAuthFunc {
-        <<function>>
-        func(conn Connection) (nodeID NodeID, scope TrustScope, error)
-    }
-
-    Carrier "1" *-- "1" BootStrapper : initializes
     Carrier "1" *-- "1" CarrierAuth : authenticatesVia
     Carrier "1" *-- "1" QuicTransport : uses
     Carrier "1" *-- "1" NodeRegistry : manages
@@ -615,6 +613,14 @@ classDiagram
         -DistributedWAL wal
         -BlockStore blockStore
         -EncryptionService encryptor
+        -PrivilegeChecker privilegeChecker
+    }
+
+    %% PrivilegeChecker: centralized CAS authorization gate.
+    %% - Admin scope: allow all data operations.
+    %% - User scope: allow only owner-authorized data.
+    class PrivilegeChecker {
+        +CanAccessData(auth AuthContext, ownerCAHash CaHash.Hash) bool
     }
 
     %% BlockStore: Low-level Block and BlockSlice persistence.
@@ -690,6 +696,7 @@ classDiagram
     CAS "1" *-- "1" BlockStore : stores blocks via
     CAS "1" *-- "1" EncryptionService : encrypts/decrypts via
     CAS "1" *-- "1" DistributedWAL : buffers writes via
+    CAS "1" *-- "1" PrivilegeChecker : authorizes data access via
     ClusterController "1" *-- "1" DistributedIndex : LooksUps
     DistributedIndex "1" *-- "1" HashToNode : used for mapping
     DistributedIndex "1" *-- "1" KeyToHashAndNode : lookups for keys
