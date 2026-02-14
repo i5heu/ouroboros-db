@@ -10,19 +10,21 @@ import (
 )
 
 type verifyFixture struct { // A
-	carrier       *CarrierAuth
-	clock         *fakeClock
-	caAC          *keys.AsyncCrypt
-	caPub         *keys.PublicKey
-	nodeAC        *keys.AsyncCrypt
-	nodePub       *keys.PublicKey
-	tlsCertPubKeyHash [32]byte
+	carrier            *CarrierAuth
+	clock              *fakeClock
+	caAC               *keys.AsyncCrypt
+	caPub              *keys.PublicKey
+	adminAnchorAC      *keys.AsyncCrypt
+	adminAnchorPub     *keys.PublicKey
+	nodeAC             *keys.AsyncCrypt
+	nodePub            *keys.PublicKey
+	tlsCertPubKeyHash  [32]byte
 	tlsExporterBinding [32]byte
-	cert          *NodeCert
-	caSig         []byte
-	x509FP        [32]byte
-	proof         *DelegationProof
-	delegationSig []byte
+	cert               *NodeCert
+	caSig              []byte
+	x509FP             [32]byte
+	proof              *DelegationProof
+	delegationSig      []byte
 }
 
 func newVerifyFixture( // A
@@ -47,13 +49,30 @@ func newVerifyFixture( // A
 	tlsCertPubKeyHash := testNonce(t)
 	tlsExporterBinding := testNonce(t)
 
+	var adminAnchorAC *keys.AsyncCrypt
+	var adminAnchorPub *keys.PublicKey
+
 	switch caScope {
 	case ScopeAdmin:
 		if err := carrier.AddAdminPubKey(caPub); err != nil {
 			t.Fatalf("AddAdminPubKey: %v", err)
 		}
 	case ScopeUser:
-		if err := carrier.AddUserPubKey(caPub); err != nil {
+		adminAnchorAC = generateKeys(t)
+		adminAnchorPub = pubKeyPtr(t, adminAnchorAC)
+		if err := carrier.AddAdminPubKey(adminAnchorPub); err != nil {
+			t.Fatalf("AddAdminPubKey for anchor: %v", err)
+		}
+		anchorSig, adminHash := buildAnchoredUserCA(
+			t,
+			adminAnchorAC,
+			caPub,
+		)
+		if err := carrier.AddUserPubKey(
+			caPub,
+			anchorSig,
+			adminHash,
+		); err != nil {
 			t.Fatalf("AddUserPubKey: %v", err)
 		}
 	default:
@@ -75,19 +94,21 @@ func newVerifyFixture( // A
 	carrier.RefreshRevocationState(cert.IssuerCAHash())
 
 	return verifyFixture{
-		carrier:       carrier,
-		clock:         clk,
-		caAC:          caAC,
-		caPub:         caPub,
-		nodeAC:        nodeAC,
-		nodePub:       nodePub,
-		tlsCertPubKeyHash: tlsCertPubKeyHash,
+		carrier:            carrier,
+		clock:              clk,
+		caAC:               caAC,
+		caPub:              caPub,
+		adminAnchorAC:      adminAnchorAC,
+		adminAnchorPub:     adminAnchorPub,
+		nodeAC:             nodeAC,
+		nodePub:            nodePub,
+		tlsCertPubKeyHash:  tlsCertPubKeyHash,
 		tlsExporterBinding: tlsExporterBinding,
-		cert:          cert,
-		caSig:         caSig,
-		x509FP:        x509FP,
-		proof:         proof,
-		delegationSig: delegationSig,
+		cert:               cert,
+		caSig:              caSig,
+		x509FP:             x509FP,
+		proof:              proof,
+		delegationSig:      delegationSig,
 	}
 }
 
@@ -121,13 +142,13 @@ func rebuildProof( // A
 ) (*DelegationProof, []byte) {
 	t.Helper()
 	proof, err := NewDelegationProof(DelegationProofParams{
-		TLSCertPubKeyHash: tlsCertPubKeyHash,
+		TLSCertPubKeyHash:  tlsCertPubKeyHash,
 		TLSExporterBinding: tlsExporterBinding,
-		X509Fingerprint: x509,
-		NodeCertHash:    nodeHash,
-		NotBefore:       notBefore,
-		NotAfter:        notAfter,
-		HandshakeNonce:  nonce,
+		X509Fingerprint:    x509,
+		NodeCertHash:       nodeHash,
+		NotBefore:          notBefore,
+		NotAfter:           notAfter,
+		HandshakeNonce:     nonce,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegationProof: %v", err)
@@ -568,18 +589,21 @@ func TestCarrierAuthKeyManagement(t *testing.T) { // A
 	userPub := pubKeyPtr(t, userAC)
 
 	mustErr(t, ca.AddAdminPubKey(nil), "nil admin pubkey")
-	mustErr(t, ca.AddUserPubKey(nil), "nil user pubkey")
 	mustNoErr(t, ca.AddAdminPubKey(adminPub), "AddAdminPubKey")
-	mustNoErr(t, ca.AddUserPubKey(userPub), "AddUserPubKey")
 
-	adminHash, _ := computeCAHash(adminPub)
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+	mustErr(t, ca.AddUserPubKey(nil, anchorSig, adminHash), "nil user pubkey")
+	mustErr(t, ca.AddUserPubKey(userPub, nil, adminHash), "nil anchor sig")
+	mustErr(t, ca.AddUserPubKey(userPub, anchorSig, CaHash{}), "zero admin hash")
+	mustNoErr(t, ca.AddUserPubKey(userPub, anchorSig, adminHash), "AddUserPubKey")
+
 	userHash, _ := computeCAHash(userPub)
 	mustNoErr(t, ca.RemoveAdminPubKey(adminHash), "RemoveAdminPubKey")
 	mustNoErr(t, ca.RemoveUserPubKey(userHash), "RemoveUserPubKey")
 	mustNoErr(t, ca.RevokeAdminCA(adminHash), "RevokeAdminCA")
 	mustNoErr(t, ca.RevokeUserCA(userHash), "RevokeUserCA")
 	mustErr(t, ca.AddAdminPubKey(adminPub), "revoked admin CA")
-	mustErr(t, ca.AddUserPubKey(userPub), "revoked user CA")
+	mustErr(t, ca.AddUserPubKey(userPub, anchorSig, adminHash), "revoked user CA")
 }
 
 func mustNoErr( // A
@@ -825,12 +849,17 @@ func TestReAddRevokedAdminCA(t *testing.T) { // A
 
 func TestReAddRevokedUserCA(t *testing.T) { // A
 	caAuth := newTestCarrierAuth()
-	caAC := generateKeys(t)
-	caPub := pubKeyPtr(t, caAC)
-	caHash, _ := computeCAHash(caPub)
+	adminAC := generateKeys(t)
+	adminPub := pubKeyPtr(t, adminAC)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+	userHash, _ := computeCAHash(userPub)
 
-	_ = caAuth.RevokeUserCA(caHash)
-	err := caAuth.AddUserPubKey(caPub)
+	mustNoErr(t, caAuth.AddAdminPubKey(adminPub), "AddAdminPubKey")
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	_ = caAuth.RevokeUserCA(userHash)
+	err := caAuth.AddUserPubKey(userPub, anchorSig, adminHash)
 	if err == nil || !strings.Contains(err.Error(), "is revoked") {
 		t.Fatalf("re-adding revoked User CA must fail: %v", err)
 	}
@@ -929,5 +958,101 @@ func TestNonceReuseAfterTTLExpiry(t *testing.T) { // A
 	_, _, err = f.carrier.VerifyPeerCert(params)
 	if err != nil {
 		t.Fatalf("nonce reuse after TTL expiry should succeed: %v", err)
+	}
+}
+
+func TestAddUserPubKey_UnknownAdminCA(t *testing.T) { // A
+	ca := newTestCarrierAuth()
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+	adminAC := generateKeys(t)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	err := ca.AddUserPubKey(userPub, anchorSig, adminHash)
+	if err == nil {
+		t.Fatal("expected error for unknown admin CA")
+	}
+	if !strings.Contains(err.Error(), "not found in trust store") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddUserPubKey_InvalidAnchorSig(t *testing.T) { // A
+	ca := newTestCarrierAuth()
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+	adminAC := generateKeys(t)
+	adminPub := pubKeyPtr(t, adminAC)
+
+	mustNoErr(t, ca.AddAdminPubKey(adminPub), "AddAdminPubKey")
+
+	adminHash, _ := computeCAHash(adminPub)
+	badSig := []byte("invalid-signature")
+
+	err := ca.AddUserPubKey(userPub, badSig, adminHash)
+	if err == nil {
+		t.Fatal("expected error for invalid anchor signature")
+	}
+	if !strings.Contains(err.Error(), "anchor signature verification failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddUserPubKey_RevokedAnchorAdmin(t *testing.T) { // A
+	ca := newTestCarrierAuth()
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+	adminAC := generateKeys(t)
+	adminPub := pubKeyPtr(t, adminAC)
+
+	mustNoErr(t, ca.AddAdminPubKey(adminPub), "AddAdminPubKey")
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	mustNoErr(t, ca.RevokeAdminCA(adminHash), "RevokeAdminCA")
+
+	err := ca.AddUserPubKey(userPub, anchorSig, adminHash)
+	if err == nil {
+		t.Fatal("expected error for revoked anchor admin")
+	}
+	if !strings.Contains(err.Error(), "is revoked") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyPeerCert_UserCA_AnchorAdminRevoked(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeUser, ScopeUser)
+
+	adminAnchorHash, err := computeCAHash(f.adminAnchorPub)
+	if err != nil {
+		t.Fatalf("computeCAHash: %v", err)
+	}
+
+	mustNoErr(
+		t,
+		f.carrier.RevokeAdminCA(adminAnchorHash),
+		"RevokeAdminCA",
+	)
+
+	_, _, err = f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("expected auth failure with revoked anchor admin: %v", err)
+	}
+}
+
+func TestVerifyPeerCert_UserCA_AnchorAdminRemoved(t *testing.T) { // A
+	f := newVerifyFixture(t, ScopeUser, ScopeUser)
+
+	adminAnchorHash, err := computeCAHash(f.adminAnchorPub)
+	if err != nil {
+		t.Fatalf("computeCAHash: %v", err)
+	}
+
+	_ = f.carrier.RemoveAdminPubKey(adminAnchorHash)
+
+	_, _, err = f.carrier.VerifyPeerCert(buildParams(t, f))
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("expected auth failure with removed anchor admin: %v", err)
 	}
 }

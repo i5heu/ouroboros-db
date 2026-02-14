@@ -13,6 +13,7 @@ const (
 	ctxNodeAdmissionV1  = "CTX_NODE_ADMISSION_V1"
 	ctxNodePopV1        = "CTX_NODE_POP_V1"
 	ctxNodeDelegationV1 = "CTX_NODE_DELEGATION_V1"
+	ctxUserCAAnchorV1   = "CTX_USER_CA_ANCHOR_V1"
 	currentCertVersion  = 2
 )
 
@@ -171,6 +172,72 @@ func delegationSigningPayload( // A
 	payload = append(payload, ctx...)
 	payload = append(payload, canon...)
 	return payload, nil
+}
+
+func userCAAnchorPayload( // PAP
+	userCAPubKey *keys.PublicKey,
+) ([]byte, error) {
+	if userCAPubKey == nil {
+		return nil, errors.New(
+			"user CA public key must not be nil",
+		)
+	}
+	signBytes, err := userCAPubKey.MarshalBinarySign()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"marshal user CA sign key: %w", err,
+		)
+	}
+	ctx := []byte(ctxUserCAAnchorV1)
+	payload := make(
+		[]byte, 0, len(ctx)+len(signBytes),
+	)
+	payload = append(payload, ctx...)
+	payload = append(payload, signBytes...)
+	return payload, nil
+}
+
+func SignUserCAAnchor( // PAP
+	adminSigner *keys.AsyncCrypt,
+	userCAPubKey *keys.PublicKey,
+) ([]byte, error) {
+	if adminSigner == nil {
+		return nil, errors.New(
+			"admin signer must not be nil",
+		)
+	}
+	payload, err := userCAAnchorPayload(userCAPubKey)
+	if err != nil {
+		return nil, err
+	}
+	return adminSigner.Sign(payload)
+}
+
+func verifyUserCAAnchor( // PAP
+	adminPubKey *keys.PublicKey,
+	userCAPubKey *keys.PublicKey,
+	anchorSig []byte,
+) error {
+	if adminPubKey == nil {
+		return errors.New(
+			"admin public key must not be nil",
+		)
+	}
+	if len(anchorSig) == 0 {
+		return errors.New(
+			"anchor signature must not be empty",
+		)
+	}
+	payload, err := userCAAnchorPayload(userCAPubKey)
+	if err != nil {
+		return err
+	}
+	if !adminPubKey.Verify(payload, anchorSig) {
+		return errors.New(
+			"user CA anchor signature verification failed",
+		)
+	}
+	return nil
 }
 
 // SignNodeCert signs the domain-separated NodeCert

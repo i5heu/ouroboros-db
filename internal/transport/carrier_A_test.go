@@ -178,10 +178,9 @@ func TestCarrierSendMessageReliable( // A
 
 	addrA := cA.ListenAddr()
 
-	// Register A as a peer of B and establish
-	// connection.
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{addrA},
 	}
 	err := cB.JoinCluster(peerA, nil)
@@ -189,12 +188,11 @@ func TestCarrierSendMessageReliable( // A
 		t.Fatalf("JoinCluster: %v", err)
 	}
 
-	// Send a reliable message from B to A.
 	msg := interfaces.Message{
 		Type:    interfaces.MessageTypeHeartbeat,
 		Payload: []byte("hello"),
 	}
-	err = cB.SendMessageToNode(peerA.NodeID, msg)
+	err = cB.SendMessageToNode(nodeIDA, msg)
 	if err != nil {
 		t.Fatalf("SendMessageToNode: %v", err)
 	}
@@ -207,9 +205,9 @@ func TestCarrierBroadcastReliable( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
-	// Connect B to A.
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	_ = cB.JoinCluster(peerA, nil)
@@ -243,8 +241,9 @@ func TestCarrierBroadcastUnreliable( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	_ = cB.JoinCluster(peerA, nil)
@@ -267,12 +266,12 @@ func TestCarrierJoinAndLeave(t *testing.T) { // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 
-	// Join
 	err := cB.JoinCluster(peerA, nil)
 	if err != nil {
 		t.Fatalf("JoinCluster: %v", err)
@@ -286,11 +285,11 @@ func TestCarrierJoinAndLeave(t *testing.T) { // A
 		)
 	}
 
-	if !cB.IsConnected(peerA.NodeID) {
+	if !cB.IsConnected(nodeIDA) {
 		t.Error("expected connected after join")
 	}
 
-	// Leave
+	peerA.NodeID = nodeIDA
 	err = cB.LeaveCluster(peerA)
 	if err != nil {
 		t.Fatalf("LeaveCluster: %v", err)
@@ -310,18 +309,19 @@ func TestCarrierRemoveNode(t *testing.T) { // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	_ = cB.JoinCluster(peerA, nil)
 
-	err := cB.RemoveNode(peerA.NodeID)
+	err := cB.RemoveNode(nodeIDA)
 	if err != nil {
 		t.Fatalf("RemoveNode: %v", err)
 	}
 
-	if cB.IsConnected(peerA.NodeID) {
+	if cB.IsConnected(nodeIDA) {
 		t.Error(
 			"expected disconnected after remove",
 		)
@@ -418,9 +418,9 @@ func TestCarrierInboundMessageDispatch( // A
 	)
 	cA.SetMessageReceiver(recv)
 
-	// Connect B to A.
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	err := cB.JoinCluster(peerA, nil)
@@ -428,13 +428,9 @@ func TestCarrierInboundMessageDispatch( // A
 		t.Fatalf("JoinCluster: %v", err)
 	}
 
-	// Give the accept loop time to spawn the
-	// connection handler.
 	time.Sleep(100 * time.Millisecond)
 
-	// B sends a message to A and reads the response
-	// by opening a stream directly.
-	conn := cB.transport.GetConnection(peerA.NodeID)
+	conn := cB.transport.GetConnection(nodeIDA)
 	if conn == nil {
 		t.Fatal("no connection to peer A")
 	}
@@ -483,10 +479,9 @@ func TestCarrierInboundNoReceiver( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
-	// No receiver set on A.
-
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	err := cB.JoinCluster(peerA, nil)
@@ -496,7 +491,7 @@ func TestCarrierInboundNoReceiver( // A
 
 	time.Sleep(100 * time.Millisecond)
 
-	conn := cB.transport.GetConnection(peerA.NodeID)
+	conn := cB.transport.GetConnection(nodeIDA)
 	if conn == nil {
 		t.Fatal("no connection to peer A")
 	}
@@ -547,8 +542,9 @@ func TestCarrierBroadcastWrapper( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	_ = cB.JoinCluster(peerA, nil)
@@ -569,8 +565,6 @@ func TestCarrierBroadcastWrapper( // A
 	}
 }
 
-// TestCarrierSendMessageToNodeUnreliable verifies
-// the unreliable single-node send path.
 func TestCarrierSendMessageToNodeUnreliable( // A
 	t *testing.T,
 ) {
@@ -578,8 +572,9 @@ func TestCarrierSendMessageToNodeUnreliable( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	_ = cB.JoinCluster(peerA, nil)
@@ -589,7 +584,7 @@ func TestCarrierSendMessageToNodeUnreliable( // A
 		Payload: []byte("dgram-single"),
 	}
 	err := cB.SendMessageToNodeUnreliable(
-		peerA.NodeID, msg,
+		nodeIDA, msg,
 	)
 	if err != nil {
 		t.Fatalf(
@@ -630,8 +625,9 @@ func TestCarrierGetNodeSuccess( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	err := cB.JoinCluster(peerA, nil)
@@ -639,14 +635,14 @@ func TestCarrierGetNodeSuccess( // A
 		t.Fatalf("JoinCluster: %v", err)
 	}
 
-	got, err := cB.GetNode(peerA.NodeID)
+	got, err := cB.GetNode(nodeIDA)
 	if err != nil {
 		t.Fatalf("GetNode: %v", err)
 	}
-	if got.NodeID != peerA.NodeID {
+	if got.NodeID != nodeIDA {
 		t.Fatalf(
 			"NodeID = %v, want %v",
-			got.NodeID, peerA.NodeID,
+			got.NodeID, nodeIDA,
 		)
 	}
 }
@@ -988,8 +984,9 @@ func TestCarrierJoinClusterFailsWhenPeerRejectsAuthHandshake( // A
 		t.Fatalf("RevokeAdminCA: %v", err)
 	}
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	peerA := interfaces.PeerNode{
-		NodeID:    keys.NodeID{1},
+		NodeID:    nodeIDA,
 		Addresses: []string{cA.ListenAddr()},
 	}
 	err := cB.JoinCluster(peerA, nil)
@@ -997,8 +994,60 @@ func TestCarrierJoinClusterFailsWhenPeerRejectsAuthHandshake( // A
 		t.Fatal("expected JoinCluster auth rejection error")
 	}
 
-	if cB.IsConnected(peerA.NodeID) {
+	if cB.IsConnected(nodeIDA) {
 		t.Fatal("peer must not be connected after auth rejection")
+	}
+}
+
+func TestJoinClusterRejectsBadPeerBothSides( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+
+	// A revokes B's CA so A will reject B's auth
+	if err := cA.auth.RevokeAdminCA(
+		cB.localCert.IssuerCAHash(),
+	); err != nil {
+		t.Fatalf("RevokeAdminCA: %v", err)
+	}
+
+	nodeIDA, _ := cA.localCert.NodeID()
+	nodeIDB, _ := cB.localCert.NodeID()
+
+	peerA := interfaces.PeerNode{
+		NodeID:    nodeIDA,
+		Addresses: []string{cA.ListenAddr()},
+	}
+	err := cB.JoinCluster(peerA, nil)
+	if err == nil {
+		t.Fatal(
+			"expected JoinCluster auth rejection",
+		)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// B must not have registered A
+	if cB.IsConnected(nodeIDA) {
+		t.Error(
+			"B must not have A connected",
+		)
+	}
+	_, errB := cB.registry.GetNode(nodeIDA)
+	if errB == nil {
+		t.Error(
+			"B must not have A in registry",
+		)
+	}
+
+	// A must not have registered B
+	_, errA := cA.registry.GetNode(nodeIDB)
+	if errA == nil {
+		t.Error(
+			"A must not have B in registry",
+		)
 	}
 }
 
@@ -1129,7 +1178,8 @@ func TestJoinClusterNilLocalCert(t *testing.T) { // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 	cB.localCert = nil
-	err := cB.JoinCluster(interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}, nil)
+	nodeIDA, _ := cA.localCert.NodeID()
+	err := cB.JoinCluster(interfaces.PeerNode{NodeID: nodeIDA, Addresses: []string{cA.ListenAddr()}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "local cert must not be nil") {
 		t.Fatalf("nil local cert must fail JoinCluster: %v", err)
 	}
@@ -1140,7 +1190,8 @@ func TestJoinClusterNilLocalKeys(t *testing.T) { // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 	cB.localKeys = nil
-	err := cB.JoinCluster(interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}, nil)
+	nodeIDA, _ := cA.localCert.NodeID()
+	err := cB.JoinCluster(interfaces.PeerNode{NodeID: nodeIDA, Addresses: []string{cA.ListenAddr()}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "local keys must not be nil") {
 		t.Fatalf("nil local keys must fail JoinCluster: %v", err)
 	}
@@ -1151,26 +1202,31 @@ func TestJoinClusterEmptyCASignature(t *testing.T) { // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 	cB.localCASignature = nil
-	err := cB.JoinCluster(interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}, nil)
+	nodeIDA, _ := cA.localCert.NodeID()
+	err := cB.JoinCluster(interfaces.PeerNode{NodeID: nodeIDA, Addresses: []string{cA.ListenAddr()}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "local CA signature must not be empty") {
 		t.Fatalf("empty CA signature must fail JoinCluster: %v", err)
 	}
 }
 
-
-
-func TestJoinClusterRegistersWithZeroScope(t *testing.T) { // A
+func TestJoinClusterMutualAuthVerifiedScope(t *testing.T) { // A
 	t.Parallel()
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
-	peerA := interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}
-	_ = cB.JoinCluster(peerA, nil)
+	nodeIDA, _ := cA.localCert.NodeID()
+	peerA := interfaces.PeerNode{NodeID: nodeIDA, Addresses: []string{cA.ListenAddr()}}
+	err := cB.JoinCluster(peerA, nil)
+	if err != nil {
+		t.Fatalf("JoinCluster: %v", err)
+	}
 
-	// Documents current mutual auth gap
-	node, _ := cB.registry.GetNode(peerA.NodeID)
-	if node.TrustScope != 0 {
-		t.Errorf("expected 0 scope for dial-out peer, got %v", node.TrustScope)
+	node, err := cB.registry.GetNode(nodeIDA)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.TrustScope != auth.ScopeAdmin {
+		t.Errorf("expected ScopeAdmin for verified peer, got %v", node.TrustScope)
 	}
 }
 
@@ -1192,13 +1248,13 @@ func TestAcceptedPeerScopeInRegistry(t *testing.T) { // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
 	nodeIDB, _ := cB.localCert.NodeID()
-	peerA := interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}
+	peerA := interfaces.PeerNode{NodeID: nodeIDA, Addresses: []string{cA.ListenAddr()}}
 	_ = cB.JoinCluster(peerA, nil)
 
 	time.Sleep(100 * time.Millisecond)
 
-	// A accepted B's connection and verified B's ScopeAdmin cert.
 	nodeB, err := cA.registry.GetNode(nodeIDB)
 	if err != nil {
 		t.Fatalf("B not found in A's registry: %v", err)
@@ -1215,6 +1271,8 @@ func TestDispatchMessageIncludesCorrectScope( // A
 	cA := newTestCarrier(t, keys.NodeID{1})
 	cB := newTestCarrier(t, keys.NodeID{2})
 
+	nodeIDA, _ := cA.localCert.NodeID()
+
 	var gotScope atomic.Value
 	recv := MessageReceiver(func(_ interfaces.Message, _ keys.NodeID, scope auth.TrustScope) (interfaces.Response, error) {
 		gotScope.Store(scope)
@@ -1222,12 +1280,12 @@ func TestDispatchMessageIncludesCorrectScope( // A
 	})
 	cA.SetMessageReceiver(recv)
 
-	peerA := interfaces.PeerNode{NodeID: keys.NodeID{1}, Addresses: []string{cA.ListenAddr()}}
+	peerA := interfaces.PeerNode{NodeID: nodeIDA, Addresses: []string{cA.ListenAddr()}}
 	_ = cB.JoinCluster(peerA, nil)
 
 	time.Sleep(100 * time.Millisecond)
 
-	_ = cB.SendMessageToNode(keys.NodeID{1}, interfaces.Message{Type: interfaces.MessageTypeHeartbeat})
+	_ = cB.SendMessageToNode(nodeIDA, interfaces.Message{Type: interfaces.MessageTypeHeartbeat})
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -1239,4 +1297,3 @@ func TestDispatchMessageIncludesCorrectScope( // A
 		t.Errorf("gotScope = %v, want ScopeAdmin", val)
 	}
 }
-

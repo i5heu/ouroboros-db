@@ -3,9 +3,11 @@ package transport
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
@@ -90,14 +92,24 @@ func TestBootstrapConfigLoadInvalid( // A
 	}
 }
 
+func noopAuthFn( // A
+	_ Connection,
+) (keys.NodeID, auth.TrustScope, error) {
+	return keys.NodeID{}, 0, nil
+}
+
 func TestBootstrapEmptyConfig(t *testing.T) { // A
 	t.Parallel()
-	bs := NewBootStrapper(
+	bs, err := NewBootStrapper(
 		&BootstrapConfig{},
 		nil,
 		nil,
+		noopAuthFn,
 	)
-	err := bs.Bootstrap()
+	if err != nil {
+		t.Fatalf("NewBootStrapper: %v", err)
+	}
+	err = bs.Bootstrap()
 	if err != nil {
 		t.Fatalf("expected nil for empty config: %v",
 			err)
@@ -106,10 +118,72 @@ func TestBootstrapEmptyConfig(t *testing.T) { // A
 
 func TestBootstrapNilConfig(t *testing.T) { // A
 	t.Parallel()
-	bs := NewBootStrapper(nil, nil, nil)
-	err := bs.Bootstrap()
+	bs, err := NewBootStrapper(
+		nil, nil, nil, noopAuthFn,
+	)
+	if err != nil {
+		t.Fatalf("NewBootStrapper: %v", err)
+	}
+	err = bs.Bootstrap()
 	if err != nil {
 		t.Fatalf("expected nil for nil config: %v",
 			err)
+	}
+}
+
+func TestNewBootStrapperNilAuthFn( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	_, err := NewBootStrapper(nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for nil authFn")
+	}
+	if !strings.Contains(
+		err.Error(), "must not be nil",
+	) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBootstrapNodeMutualAuth( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cA := newTestCarrier(t, keys.NodeID{1})
+	cB := newTestCarrier(t, keys.NodeID{2})
+
+	nodeIDA, _ := cA.localCert.NodeID()
+	peer := interfaces.PeerNode{
+		NodeID:    nodeIDA,
+		Addresses: []string{cA.ListenAddr()},
+	}
+
+	bs, err := NewBootStrapper(
+		&BootstrapConfig{
+			BootstrapNodes: []interfaces.PeerNode{peer},
+		},
+		cB.transport,
+		cB.registry,
+		cB.authenticateBootstrapConn,
+	)
+	if err != nil {
+		t.Fatalf("NewBootStrapper: %v", err)
+	}
+
+	err = bs.BootstrapNode(peer)
+	if err != nil {
+		t.Fatalf("BootstrapNode: %v", err)
+	}
+
+	node, err := cB.registry.GetNode(nodeIDA)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.TrustScope != auth.ScopeAdmin {
+		t.Errorf(
+			"TrustScope = %v, want ScopeAdmin",
+			node.TrustScope,
+		)
 	}
 }

@@ -10,18 +10,32 @@ import (
 // UserCA represents a user certificate authority for
 // user-scoped node admission. It is verification-only;
 // signing happens off-device.
-type UserCA struct { // A
-	pubKey *keys.PublicKey
-	hash   CaHash
+type UserCA struct { // PAP
+	pubKey      *keys.PublicKey
+	hash        CaHash
+	anchorSig   []byte
+	anchorAdmin CaHash
 }
 
 // NewUserCA creates a UserCA from the user public key.
-func NewUserCA( // AP
+func NewUserCA( // PAP
 	pubKey *keys.PublicKey,
+	anchorSig []byte,
+	anchorAdminHash CaHash,
 ) (*UserCA, error) {
 	if pubKey == nil {
 		return nil, errors.New(
 			"user CA public key must not be nil",
+		)
+	}
+	if len(anchorSig) == 0 {
+		return nil, errors.New(
+			"user CA anchor signature must not be empty",
+		)
+	}
+	if anchorAdminHash.IsZero() {
+		return nil, errors.New(
+			"user CA anchor admin hash must not be zero",
 		)
 	}
 	h, err := computeCAHash(pubKey)
@@ -29,8 +43,10 @@ func NewUserCA( // AP
 		return nil, err
 	}
 	return &UserCA{
-		pubKey: pubKey,
-		hash:   h,
+		pubKey:      pubKey,
+		hash:        h,
+		anchorSig:   anchorSig,
+		anchorAdmin: anchorAdminHash,
 	}, nil
 }
 
@@ -42,6 +58,14 @@ func (ca *UserCA) PubKey() *keys.PublicKey { // A
 // Hash returns the SHA-256 identifier of this user CA.
 func (ca *UserCA) Hash() CaHash { // A
 	return ca.hash
+}
+
+func (ca *UserCA) AnchorSig() []byte { // PAP
+	return ca.anchorSig
+}
+
+func (ca *UserCA) AnchorAdminHash() CaHash { // PAP
+	return ca.anchorAdmin
 }
 
 // VerifyNodeCert verifies a node certificate was signed

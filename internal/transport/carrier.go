@@ -23,6 +23,11 @@ const (
 	tlsExporterBindingLen = 32
 )
 
+const (
+	keyPeerNodeId = "peerNodeId"
+	keyFailReason = "failReason"
+)
+
 // MessageReceiver is the callback invoked when an
 // inbound message arrives from an authenticated peer.
 // The Carrier writes the returned Response back on
@@ -105,11 +110,6 @@ func NewCarrier( // A
 		qt,
 		cfg.CarrierAuth,
 	)
-	bs := NewBootStrapper(
-		cfg.BootstrapConfig,
-		qt,
-		registry,
-	)
 
 	ctx, cancel := context.WithCancel(
 		context.Background(),
@@ -119,7 +119,7 @@ func NewCarrier( // A
 		transport:        impl,
 		registry:         registry,
 		nodeSync:         ns,
-		bootstrapper:     bs,
+		bootstrapper:     nil,
 		auth:             cfg.CarrierAuth,
 		localCert:        cfg.LocalCert,
 		localCASignature: cfg.LocalCASignature,
@@ -128,6 +128,21 @@ func NewCarrier( // A
 		ctx:              ctx,
 		cancel:           cancel,
 	}
+
+	bs, bsErr := NewBootStrapper(
+		cfg.BootstrapConfig,
+		qt,
+		registry,
+		c.authenticateBootstrapConn,
+	)
+	if bsErr != nil {
+		_ = qt.Close()
+		cancel()
+		return nil, fmt.Errorf(
+			"create bootstrapper: %w", bsErr,
+		)
+	}
+	c.bootstrapper = bs
 
 	c.wg.Add(1)
 	go c.acceptLoop()
@@ -269,7 +284,7 @@ func (c *Carrier) SendMessageToNode( // A
 	)
 }
 
-func (c *Carrier) JoinCluster( // A
+func (c *Carrier) JoinCluster( // PAP
 	clusterNode interfaces.PeerNode,
 	cert *auth.NodeCert,
 ) error {
@@ -287,11 +302,29 @@ func (c *Carrier) JoinCluster( // A
 		)
 	}
 
-	err = c.registry.AddNode(
-		clusterNode,
-		nil,
-		0,
-	)
+	nodeID, scope, err := c.receiveAuthHandshake(conn)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf(
+			"receive peer auth handshake: %w", err,
+		)
+	}
+
+	if !clusterNode.NodeID.IsZero() &&
+		nodeID != clusterNode.NodeID {
+		_ = conn.Close()
+		return fmt.Errorf(
+			"peer node ID mismatch: got %s, expected %s",
+			nodeID,
+			clusterNode.NodeID,
+		)
+	}
+
+	peer := interfaces.PeerNode{
+		NodeID:    nodeID,
+		Addresses: clusterNode.Addresses,
+	}
+	err = c.registry.AddNode(peer, nil, scope)
 	if err != nil {
 		_ = conn.Close()
 		return fmt.Errorf(
@@ -300,7 +333,7 @@ func (c *Carrier) JoinCluster( // A
 	}
 
 	return c.registry.UpdateConnectionStatus(
-		clusterNode.NodeID,
+		nodeID,
 		interfaces.ConnectionStatusConnected,
 	)
 }
@@ -375,7 +408,7 @@ func (c *Carrier) acceptLoop() { // A
 // authenticateAndHandle reads the auth handshake from
 // the accepted connection, verifies the peer, registers
 // it, and then handles subsequent streams.
-func (c *Carrier) authenticateAndHandle( // A
+func (c *Carrier) authenticateAndHandle( // PAP
 	conn Connection,
 ) {
 	defer c.wg.Done()
@@ -388,6 +421,17 @@ func (c *Carrier) authenticateAndHandle( // A
 		return
 	}
 
+	if err := c.sendAuthHandshake(conn); err != nil {
+		c.logger.WarnContext(
+			c.ctx,
+			"failed to send auth handshake back",
+			keyPeerNodeId, nodeID.String(),
+			keyFailReason, err.Error(),
+		)
+		_ = conn.Close()
+		return
+	}
+
 	if qc, ok := conn.(*quicConnection); ok {
 		qc.setNodeID(nodeID)
 	}
@@ -395,7 +439,18 @@ func (c *Carrier) authenticateAndHandle( // A
 	peer := interfaces.PeerNode{
 		NodeID: nodeID,
 	}
-	_ = c.registry.AddNode(peer, nil, scope)
+	if err := c.registry.AddNode(
+		peer, nil, scope,
+	); err != nil {
+		c.logger.WarnContext(
+			c.ctx,
+			"failed to register accepted peer",
+			keyPeerNodeId, nodeID.String(),
+			keyFailReason, err.Error(),
+		)
+		_ = conn.Close()
+		return
+	}
 	_ = c.registry.UpdateConnectionStatus(
 		nodeID,
 		interfaces.ConnectionStatusConnected,
@@ -460,9 +515,10 @@ func (c *Carrier) receiveAuthHandshake( // PAP
 		transcriptHash,
 	)
 	if err != nil {
-		c.logger.Warn(
+		c.logger.WarnContext(
+			c.ctx,
 			"auth handshake rejected",
-			slog.String("reason", err.Error()),
+			keyFailReason, err.Error(),
 		)
 		return keys.NodeID{}, 0, errors.New(
 			"authentication failed",
@@ -527,6 +583,17 @@ func (c *Carrier) verifyAuthPayload( // PAP
 		TLSX509Fingerprint: x509FP,
 		TLSTranscriptHash:  transcriptHash,
 	})
+}
+
+func (c *Carrier) authenticateBootstrapConn( // PAP
+	conn Connection,
+) (keys.NodeID, auth.TrustScope, error) {
+	if err := c.sendAuthHandshake(conn); err != nil {
+		return keys.NodeID{}, 0, fmt.Errorf(
+			"send auth handshake: %w", err,
+		)
+	}
+	return c.receiveAuthHandshake(conn)
 }
 
 // sendAuthHandshake sends the local node's auth
@@ -654,13 +721,13 @@ func (c *Carrier) buildLocalDelegationProof( // PAP
 	}
 	now := time.Now().UTC()
 	proof, err := auth.NewDelegationProof(auth.DelegationProofParams{
-		TLSCertPubKeyHash: certPubKeyHash,
+		TLSCertPubKeyHash:  certPubKeyHash,
 		TLSExporterBinding: tlsExporterBinding,
-		X509Fingerprint: x509FP,
-		NodeCertHash:    certHash,
-		NotBefore:       now.Add(-time.Minute),
-		NotAfter:        now.Add(2 * time.Minute),
-		HandshakeNonce:  handshakeNonce,
+		X509Fingerprint:    x509FP,
+		NodeCertHash:       certHash,
+		NotBefore:          now.Add(-time.Minute),
+		NotAfter:           now.Add(2 * time.Minute),
+		HandshakeNonce:     handshakeNonce,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build delegation proof: %w", err)

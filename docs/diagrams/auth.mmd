@@ -1,10 +1,11 @@
 sequenceDiagram
     autonumber
     %% PARTICIPANTS
-    participant Issuer as Issuing CA<br/>(AdminCA OR UserCA)
+    participant Issuer as Issuing CA<br>(AdminCA OR UserCA)
     participant NodeA as Node A (Prover)
     participant NodeB as Node B (Verifier)
-    Note over NodeA, NodeB: SECURITY PROFILE (STRICT):<br/>MUST use ML-DSA-87 for Node identity signatures,<br/>MUST use X25519Kyber768 for session key exchange,<br/>MUST use PQ-hybrid TLS suites only,<br/>NO downgrade/fallback to weaker profile.
+    Note over NodeA, NodeB: SECURITY PROFILE (STRICT):<br>MUST use ML-DSA-87 for Node identity signatures,<br>MUST use X25519Kyber768 for session key exchange,<br>MUST use PQ-hybrid TLS suites only,<br>NO downgrade/fallback to weaker profile.
+    Note over Issuer: UserCA ANCHORING:<br>Every UserCA MUST be anchored by an AdminCA signature.<br>SignUserCAAnchor(adminSigner, userCAPubKey) produces anchorSig.<br>If the anchor AdminCA is revoked/removed, the UserCA becomes untrusted.
 
     %% ==========================================
     %% PHASE 1: ISSUANCE (Offline / Bootstrap)
@@ -12,21 +13,21 @@ sequenceDiagram
     %% ==========================================
     Note over NodeA, Issuer: PHASE 1: IDENTITY BOOTSTRAP (Offline)
     
-    NodeA->>NodeA: 1. Generate Persistent KeyPair<br/>(NodePubKey + NodePrivKey)<br/>Algo: ML-DSA-87
+    NodeA->>NodeA: 1. Generate Persistent KeyPair<br>(NodePubKey + NodePrivKey)<br>Algo: ML-DSA-87
     
-    NodeA->>Issuer: 2. Submit NodePubKey + PoP<br/>(Sign CTX_NODE_POP_V1 || IssuerChallenge)
+    NodeA->>Issuer: 2. Submit NodePubKey + PoP<br>(Sign CTX_NODE_POP_V1 || IssuerChallenge)
     
-    Note right of Issuer: POLICY CHECK:<br/>1. Validate Node Hardware/Request<br/>2. Determine Permissions (Admin vs User)
+    Note right of Issuer: POLICY CHECK:<br>1. Validate Node Hardware/Request<br>2. Determine Permissions (Admin vs User)
     
-    Issuer->>Issuer: 3. Calculate IssuerCAHash<br/>(Unique SHA-256 ID of this CA's Root Key)
+    Issuer->>Issuer: 3. Calculate IssuerCAHash<br>(Unique SHA-256 ID of this CA's Root Key)
     
-    Issuer->>Issuer: 4. Construct NodeCert Payload:<br/>{ CertVersion, NodePubKey, IssuerCAHash,<br/>ValidFrom, ValidUntil, Serial, RoleClaims,<br/>CertNonce }
+    Issuer->>Issuer: 4. Construct NodeCert Payload:<br>{ CertVersion, NodePubKey, IssuerCAHash,<br>ValidFrom, ValidUntil, Serial, RoleClaims,<br>CertNonce }
     
-    Note right of Issuer: SIGNING:<br/>Uses Domain Separation to prevent<br/>cross-protocol attacks.
+    Note right of Issuer: SIGNING:<br>Uses Domain Separation to prevent<br>cross-protocol attacks.
     Issuer->>Issuer: 5. Sig = Sign(CTX_NODE_ADMISSION_V1 || CanonicalSerialize(NodeCert))
     
     Issuer->>NodeA: 6. Return Signed NodeCert
-    Note left of NodeA: STORAGE:<br/>Node persists NodeCert + NodePrivKey.<br/>NodePrivKey never leaves secure boundary.
+    Note left of NodeA: STORAGE:<br>Node persists NodeCert + NodePrivKey.<br>NodePrivKey never leaves secure boundary.
 
     %% ==========================================
     %% PHASE 2: DELEGATION (Startup)
@@ -34,12 +35,12 @@ sequenceDiagram
     %% ==========================================
     Note over NodeA: PHASE 2: SESSION DELEGATION (Startup/Rotation)
     
-    NodeA->>NodeA: 1. Generate Ephemeral Session KeyPair<br/>Algo: X25519Kyber768 (Hybrid PQ)
+    NodeA->>NodeA: 1. Generate Ephemeral Session KeyPair<br>Algo: X25519Kyber768 (Hybrid PQ)
     
-    Note left of NodeA: DELEGATION:<br/>The persistent NodePrivKey signs the<br/>ephemeral SessionPubKey. This links<br/>the Identity to the Transport.
+    Note left of NodeA: DELEGATION:<br>The persistent NodePrivKey signs the<br>ephemeral SessionPubKey. This links<br>the Identity to the Transport.
     
-    NodeA->>NodeA: 2. Create X.509 Template (Leaf)<br/>Subject = SessionPubKey, Short TTL
-    NodeA->>NodeA: 3. Build DelegationProof:<br/>{ TLSCertPubKeyHash, TLSExporterBinding,<br/>X509Fingerprint, NodeCertHash,<br/>NotBefore, NotAfter, HandshakeNonce }
+    NodeA->>NodeA: 2. Create X.509 Template (Leaf)<br>Subject = SessionPubKey, Short TTL
+    NodeA->>NodeA: 3. Build DelegationProof:<br>{ TLSCertPubKeyHash, TLSExporterBinding,<br>X509Fingerprint, NodeCertHash,<br>NotBefore, NotAfter, HandshakeNonce }
     NodeA->>NodeA: 4. DelegationSig = Sign(CTX_NODE_DELEGATION_V1 || CanonicalSerialize(DelegationProof))
     NodeA->>NodeA: 5. Sign X.509 using SessionPrivKey
 
@@ -49,16 +50,16 @@ sequenceDiagram
     %% ==========================================
     Note over NodeA, NodeB: PHASE 3: SECURE CONNECTION (Runtime)
     
-    NodeA->>NodeB: TLS ClientHello (CipherSuites: PQ-Hybrid,<br/>SupportedGroups: X25519Kyber768)
+    NodeA->>NodeB: TLS ClientHello (CipherSuites: PQ-Hybrid,<br>SupportedGroups: X25519Kyber768)
     NodeB->>NodeA: TLS ServerHello
     
-    Note right of NodeA: STEP A: TRANSPORT SECURITY<br/>Prove ownership of the Ephemeral Session Key.
+    Note right of NodeA: STEP A: TRANSPORT SECURITY<br>Prove ownership of the Ephemeral Session Key.
     NodeA->>NodeB: Send X.509 Cert (Contains SessionPubKey)
     NodeA->>NodeB: TLS CertificateVerify (Signed by SessionPrivKey)
     
-    Note right of NodeB: TLS CHECKS:<br/>1. Peer owns SessionPrivKey<br/>2. Negotiated suite/group match strict profile<br/>3. Any downgrade => fail closed
+    Note right of NodeB: TLS CHECKS:<br>1. Peer owns SessionPrivKey<br>2. Negotiated suite/group match strict profile<br>3. Any downgrade => fail closed
     
-    Note right of NodeA: STEP B: IDENTITY ASSERTION<br/>Send the authorization proof.
+    Note right of NodeA: STEP B: IDENTITY ASSERTION<br>Send the authorization proof.
     NodeA->>NodeB: Send NodeCert + DelegationProof + DelegationSig
     
     %% ==========================================
@@ -83,7 +84,7 @@ sequenceDiagram
         Note right of NodeB: CHECK 2: VALIDITY / REVOCATION / FRESHNESS
         NodeB->>NodeB: Verify now in [ValidFrom, ValidUntil]
         NodeB->>NodeB: Verify NodeCert.Serial not revoked
-        NodeB->>NodeB: Verify issuer revocation state fresh<br/>(CRL/OCSP or equivalent TTL)
+        NodeB->>NodeB: Verify issuer revocation state fresh<br>(CRL/OCSP or equivalent TTL)
         alt Any failure
             NodeB->>NodeA: REJECT: "Expired/Revoked/Stale"
         else All good
@@ -93,18 +94,18 @@ sequenceDiagram
     
     rect rgb(20, 50, 20)
         Note right of NodeB: CHECK 3: AUTHORITY VERIFICATION
-        NodeB->>NodeB: Verify Sig on NodeCert using CA_PubKey<br/>Input: CTX_NODE_ADMISSION_V1 || NodeCert
-        Note right of NodeB: PASS: "This NodePubKey is authorized<br/>by a valid CA."
+        NodeB->>NodeB: Verify Sig on NodeCert using CA_PubKey<br>Input: CTX_NODE_ADMISSION_V1 || NodeCert
+        Note right of NodeB: PASS: "This NodePubKey is authorized<br>by a valid CA."
     end
 
     rect rgb(20, 50, 20)
         Note right of NodeB: CHECK 4: DELEGATION BINDING
         NodeB->>NodeB: Extract NodePubKey from verified NodeCert
-        NodeB->>NodeB: Verify DelegationSig using NodePubKey<br/>Input: CTX_NODE_DELEGATION_V1 || DelegationProof
+        NodeB->>NodeB: Verify DelegationSig using NodePubKey<br>Input: CTX_NODE_DELEGATION_V1 || DelegationProof
         NodeB->>NodeB: Check DelegationProof.TLSCertPubKeyHash == hash(TLS Cert SPKI)
         NodeB->>NodeB: Check DelegationProof.X509Fingerprint == presented X.509
         NodeB->>NodeB: Check DelegationProof.NodeCertHash == hash(NodeCert)
-        Note right of NodeB: PASS: "Identity key explicitly delegated<br/>this exact transport key and cert."
+        Note right of NodeB: PASS: "Identity key explicitly delegated<br>this exact transport key and cert."
     end
 
     rect rgb(20, 50, 20)
@@ -121,7 +122,7 @@ sequenceDiagram
     end
     
     alt All Checks Pass
-        NodeB->>NodeB: Assign Role from signed RoleClaims<br/>Role must be ScopeAdmin or ScopeUser; else REJECT
+        NodeB->>NodeB: Assign Role from signed RoleClaims<br>Role must be ScopeAdmin or ScopeUser; else REJECT
         NodeB->>NodeA: ACCEPT CONNECTION
     else Any Failure
         NodeB->>NodeA: CLOSE CONNECTION (Bad Certificate)

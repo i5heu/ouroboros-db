@@ -7,10 +7,13 @@ import (
 )
 
 func TestNewUserCA(t *testing.T) { // A
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
 
-	user, err := NewUserCA(pub)
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	user, err := NewUserCA(userPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}
@@ -20,36 +23,83 @@ func TestNewUserCA(t *testing.T) { // A
 }
 
 func TestNewUserCANilPubKey(t *testing.T) { // A
-	_, err := NewUserCA(nil)
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	_, err := NewUserCA(nil, anchorSig, adminHash)
 	if err == nil {
 		t.Fatal("expected error for nil pubkey")
 	}
 }
 
-func TestUserCAPubKey(t *testing.T) { // A
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
+func TestNewUserCA_RequiresAnchorSig(t *testing.T) { // A
+	adminAC := generateKeys(t)
+	adminPub := pubKeyPtr(t, adminAC)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
 
-	user, err := NewUserCA(pub)
+	adminHash, err := computeCAHash(adminPub)
+	if err != nil {
+		t.Fatalf("computeCAHash: %v", err)
+	}
+
+	_, err = NewUserCA(userPub, nil, adminHash)
+	if err == nil {
+		t.Fatal("expected error for nil anchor sig")
+	}
+
+	_, err = NewUserCA(userPub, []byte{}, adminHash)
+	if err == nil {
+		t.Fatal("expected error for empty anchor sig")
+	}
+}
+
+func TestNewUserCA_RequiresAnchorAdminHash(t *testing.T) { // A
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, _ := buildAnchoredUserCA(t, adminAC, userPub)
+
+	_, err := NewUserCA(userPub, anchorSig, CaHash{})
+	if err == nil {
+		t.Fatal("expected error for zero admin hash")
+	}
+}
+
+func TestUserCAPubKey(t *testing.T) { // A
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	user, err := NewUserCA(userPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}
 
-	if !user.PubKey().Equal(pub) {
+	if !user.PubKey().Equal(userPub) {
 		t.Error("PubKey() does not match input")
 	}
 }
 
 func TestUserCAHash(t *testing.T) { // A
-	ac := generateKeys(t)
-	pub := pubKeyPtr(t, ac)
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
 
-	user, err := NewUserCA(pub)
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	user, err := NewUserCA(userPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}
 
-	expected, err := computeCAHash(pub)
+	expected, err := computeCAHash(userPub)
 	if err != nil {
 		t.Fatalf("computeCAHash: %v", err)
 	}
@@ -60,8 +110,13 @@ func TestUserCAHash(t *testing.T) { // A
 }
 
 func TestUserCAHashNotZero(t *testing.T) { // A
-	ac := generateKeys(t)
-	user, err := NewUserCA(pubKeyPtr(t, ac))
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	user, err := NewUserCA(userPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}
@@ -70,13 +125,61 @@ func TestUserCAHashNotZero(t *testing.T) { // A
 	}
 }
 
+func TestUserCAAnchorSig(t *testing.T) { // A
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	user, err := NewUserCA(userPub, anchorSig, adminHash)
+	if err != nil {
+		t.Fatalf("NewUserCA: %v", err)
+	}
+
+	if !equalByteSlices(user.AnchorSig(), anchorSig) {
+		t.Error("AnchorSig() does not match input")
+	}
+}
+
+func TestUserCAAnchorAdminHash(t *testing.T) { // A
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, adminAC, userPub)
+
+	user, err := NewUserCA(userPub, anchorSig, adminHash)
+	if err != nil {
+		t.Fatalf("NewUserCA: %v", err)
+	}
+
+	if !user.AnchorAdminHash().Equal(adminHash) {
+		t.Error("AnchorAdminHash() does not match input")
+	}
+}
+
+func equalByteSlices(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestUserCAVerifyNodeCert(t *testing.T) { // A
 	caAC := generateKeys(t)
 	caPub := pubKeyPtr(t, caAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	user, err := NewUserCA(caPub)
+	anchorSig, adminHash := buildAnchoredUserCA(t, caAC, caPub)
+
+	user, err := NewUserCA(caPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}
@@ -106,7 +209,9 @@ func TestUserCAVerifyNodeCertBadSig( // A
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	user, _ := NewUserCA(caPub)
+	anchorSig, adminHash := buildAnchoredUserCA(t, caAC, caPub)
+
+	user, _ := NewUserCA(caPub, anchorSig, adminHash)
 	cert := buildTestCert(t, caPub, nodePub)
 
 	_, err := user.VerifyNodeCert(
@@ -125,10 +230,13 @@ func TestUserCAVerifyNodeCertWrongCA( // A
 	caAC := generateKeys(t)
 	caPub := pubKeyPtr(t, caAC)
 	otherAC := generateKeys(t)
+	otherPub := pubKeyPtr(t, otherAC)
 	nodeAC := generateKeys(t)
 	nodePub := pubKeyPtr(t, nodeAC)
 
-	user, _ := NewUserCA(pubKeyPtr(t, otherAC))
+	anchorSig, adminHash := buildAnchoredUserCA(t, otherAC, otherPub)
+
+	user, _ := NewUserCA(otherPub, anchorSig, adminHash)
 	cert := buildTestCert(t, caPub, nodePub)
 	sig := signCert(t, caAC, cert)
 
@@ -151,7 +259,9 @@ func TestUserCAVerifyNodeCertIssuerMismatch( // A
 	otherAC := generateKeys(t)
 	otherPub := pubKeyPtr(t, otherAC)
 
-	user, err := NewUserCA(caPub)
+	anchorSig, adminHash := buildAnchoredUserCA(t, caAC, caPub)
+
+	user, err := NewUserCA(caPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}
@@ -190,7 +300,11 @@ func TestUserCAVerifyNodeCertNilCert( // A
 	t *testing.T,
 ) {
 	caAC := generateKeys(t)
-	user, err := NewUserCA(pubKeyPtr(t, caAC))
+	caPub := pubKeyPtr(t, caAC)
+
+	anchorSig, adminHash := buildAnchoredUserCA(t, caAC, caPub)
+
+	user, err := NewUserCA(caPub, anchorSig, adminHash)
 	if err != nil {
 		t.Fatalf("NewUserCA: %v", err)
 	}

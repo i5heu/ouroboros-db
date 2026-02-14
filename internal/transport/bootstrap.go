@@ -7,8 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
+
+type BootstrapAuthFunc func( // PAP
+	conn Connection,
+) (keys.NodeID, auth.TrustScope, error)
 
 // BootstrapConfig holds the static bootstrap node
 // list for initial cluster join.
@@ -87,24 +93,34 @@ type BootStrapper struct { // A
 	config    *BootstrapConfig
 	transport QuicTransport
 	registry  NodeRegistry
+	authFn    BootstrapAuthFunc
 }
 
 // NewBootStrapper creates a new BootStrapper.
-func NewBootStrapper( // A
+// authFn is required and must not be nil; all
+// bootstrap connections must be authenticated.
+func NewBootStrapper( // PAP
 	config *BootstrapConfig,
 	transport QuicTransport,
 	registry NodeRegistry,
-) *BootStrapper {
+	authFn BootstrapAuthFunc,
+) (*BootStrapper, error) {
+	if authFn == nil {
+		return nil, fmt.Errorf(
+			"bootstrap auth function must not be nil",
+		)
+	}
 	return &BootStrapper{
 		config:    config,
 		transport: transport,
 		registry:  registry,
-	}
+		authFn:    authFn,
+	}, nil
 }
 
 // BootstrapNode connects to a bootstrap node and
 // registers it in the node registry.
-func (b *BootStrapper) BootstrapNode( // A
+func (b *BootStrapper) BootstrapNode( // PAP
 	peer interfaces.PeerNode,
 ) error {
 	conn, err := b.transport.Dial(peer)
@@ -116,11 +132,33 @@ func (b *BootStrapper) BootstrapNode( // A
 		)
 	}
 
-	// Register the bootstrap node in the registry.
+	nodeID, scope, err := b.authFn(conn)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf(
+			"authenticate bootstrap node %s: %w",
+			peer.NodeID,
+			err,
+		)
+	}
+
+	if !peer.NodeID.IsZero() && nodeID != peer.NodeID {
+		_ = conn.Close()
+		return fmt.Errorf(
+			"bootstrap node ID mismatch: got %s, expected %s",
+			nodeID,
+			peer.NodeID,
+		)
+	}
+
+	registeredPeer := interfaces.PeerNode{
+		NodeID:    nodeID,
+		Addresses: peer.Addresses,
+	}
 	err = b.registry.AddNode(
-		peer,
+		registeredPeer,
 		nil,
-		0,
+		scope,
 	)
 	if err != nil {
 		_ = conn.Close()
@@ -130,7 +168,7 @@ func (b *BootStrapper) BootstrapNode( // A
 	}
 
 	err = b.registry.UpdateConnectionStatus(
-		peer.NodeID,
+		nodeID,
 		interfaces.ConnectionStatusConnected,
 	)
 	if err != nil {

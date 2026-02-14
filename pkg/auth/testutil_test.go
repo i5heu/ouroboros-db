@@ -122,13 +122,13 @@ func buildTestDelegation( // A
 	}
 	now := time.Now()
 	proof, err := NewDelegationProof(DelegationProofParams{
-		TLSCertPubKeyHash: tlsCertPubKeyHash,
+		TLSCertPubKeyHash:  tlsCertPubKeyHash,
 		TLSExporterBinding: tlsExporterBinding,
-		X509Fingerprint: x509FP,
-		NodeCertHash:    certHash,
-		NotBefore:       now.Add(-time.Minute),
-		NotAfter:        now.Add(time.Minute),
-		HandshakeNonce:  testNonce(t),
+		X509Fingerprint:    x509FP,
+		NodeCertHash:       certHash,
+		NotBefore:          now.Add(-time.Minute),
+		NotAfter:           now.Add(time.Minute),
+		HandshakeNonce:     testNonce(t),
 	})
 	if err != nil {
 		t.Fatalf("new delegation proof: %v", err)
@@ -191,4 +191,22 @@ func (c *fakeClock) Now() time.Time { // A
 
 func newTestCarrierAuth() *CarrierAuth { // A
 	return NewCarrierAuth(CarrierAuthConfig{})
+}
+
+func buildAnchoredUserCA( // A
+	t *testing.T,
+	adminAC *keys.AsyncCrypt,
+	userCAPub *keys.PublicKey,
+) (anchorSig []byte, adminHash CaHash) {
+	t.Helper()
+	anchorSig, err := SignUserCAAnchor(adminAC, userCAPub)
+	if err != nil {
+		t.Fatalf("SignUserCAAnchor: %v", err)
+	}
+	adminPub := adminAC.GetPublicKey()
+	adminHash, err = computeCAHash(&adminPub)
+	if err != nil {
+		t.Fatalf("computeCAHash: %v", err)
+	}
+	return anchorSig, adminHash
 }

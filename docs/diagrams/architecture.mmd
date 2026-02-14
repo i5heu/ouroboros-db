@@ -429,9 +429,15 @@ classDiagram
     %% UserCA: User certificate authority (one trust root).
     %% Purpose:
     %% - Represents a user identity root for user-scoped node admission.
+    %% - MUST be anchored by an AdminCA signature (cryptographic chain of trust).
     %% Identification:
     %% - Hash() is the SHA-256 identifier of the UserCA public key (UserCAHash).
     %% - Requesting nodes can send only UserCAHash to reference the correct UserCA.
+    %% Anchor requirement:
+    %% - Every UserCA MUST have an anchor signature from a trusted AdminCA.
+    %% - AnchorSig is the AdminCA's signature over CTX_USER_CA_ANCHOR_V1 || UserCAPubKey.
+    %% - AnchorAdminHash identifies which AdminCA signed this UserCA.
+    %% - If the anchor AdminCA is removed or revoked, the UserCA becomes untrusted.
     %% Node admission:
     %% - VerifyNodeCert validates user-signed node certificates.
     %% - The signature is always a cryptographic signature over the domain-separated NodeCert
@@ -447,6 +453,8 @@ classDiagram
     class UserCA {
         +PubKey() sign.PublicKey
         +Hash() CaHash.Hash
+        +AnchorSig() []byte
+        +AnchorAdminHash() CaHash.Hash
         +VerifyNodeCert(nodeCert NodeCert, caSignature []byte) (nodeID NodeID, error)
     }
 
@@ -506,7 +514,7 @@ classDiagram
         +AddAdminPubKey(pubKey sign.PublicKey) error
         +RemoveAdminPubKey(pubKeyHash CaHash.Hash) error
         +RevokeAdminCA(adminCAHash CaHash.Hash) error
-        +AddUserPubKey(pubKey sign.PublicKey) error
+        +AddUserPubKey(pubKey sign.PublicKey, anchorSig []byte, anchorAdminHash CaHash.Hash) error
         +RemoveUserPubKey(pubKeyHash CaHash.Hash) error
         +RevokeUserCA(userCAHash CaHash.Hash) error
         +RevokeNode(nodeID NodeID) error
@@ -514,6 +522,11 @@ classDiagram
 
     class BootStrapper {
         +BootstrapNode(node Node) error
+    }
+    
+    class BootstrapAuthFunc {
+        <<function>>
+        func(conn Connection) (nodeID NodeID, scope TrustScope, error)
     }
 
     Carrier "1" *-- "1" BootStrapper : initializes
@@ -531,6 +544,7 @@ classDiagram
     CarrierAuth ..> "1" DelegationProof : validatesBindingWith
     AdminCA ..> Node : validatesAdminSignedNodeCertFor
     UserCA ..> Node : validatesUserSignedNodeCertFor
+    UserCA ..> AdminCA : anchoredBy
 
     class Message  {
         +MessageType Type

@@ -758,3 +758,149 @@ func TestCrossContextPoPSigAsAdmission(t *testing.T) { // A
 		t.Fatalf("PoP signature should not work as admission signature: %v", err)
 	}
 }
+
+func TestUserCAAnchorPayloadDomainSeparation( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	payload, err := userCAAnchorPayload(userPub)
+	if err != nil {
+		t.Fatalf("userCAAnchorPayload: %v", err)
+	}
+
+	prefix := string(payload[:len(ctxUserCAAnchorV1)])
+	if prefix != ctxUserCAAnchorV1 {
+		t.Errorf(
+			"prefix = %q, want %q",
+			prefix, ctxUserCAAnchorV1,
+		)
+	}
+}
+
+func TestSignVerifyUserCAAnchor( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, err := SignUserCAAnchor(adminAC, userPub)
+	if err != nil {
+		t.Fatalf("SignUserCAAnchor: %v", err)
+	}
+
+	adminPub := adminAC.GetPublicKey()
+	err = verifyUserCAAnchor(&adminPub, userPub, anchorSig)
+	if err != nil {
+		t.Fatalf("verifyUserCAAnchor: %v", err)
+	}
+}
+
+func TestVerifyUserCAAnchor_WrongAdminKey( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	adminAC := generateKeys(t)
+	otherAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, err := SignUserCAAnchor(adminAC, userPub)
+	if err != nil {
+		t.Fatalf("SignUserCAAnchor: %v", err)
+	}
+
+	otherPub := otherAC.GetPublicKey()
+	err = verifyUserCAAnchor(&otherPub, userPub, anchorSig)
+	if err == nil {
+		t.Fatal("expected error for wrong admin key")
+	}
+	if !strings.Contains(err.Error(), "verification failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyUserCAAnchor_CorruptSig( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	anchorSig, err := SignUserCAAnchor(adminAC, userPub)
+	if err != nil {
+		t.Fatalf("SignUserCAAnchor: %v", err)
+	}
+
+	anchorSig[0] ^= 0xFF
+
+	adminPub := adminAC.GetPublicKey()
+	err = verifyUserCAAnchor(&adminPub, userPub, anchorSig)
+	if err == nil {
+		t.Fatal("expected error for corrupt signature")
+	}
+}
+
+func TestVerifyUserCAAnchor_EmptySig( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	adminAC := generateKeys(t)
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	adminPub := adminAC.GetPublicKey()
+	err := verifyUserCAAnchor(&adminPub, userPub, []byte{})
+	if err == nil {
+		t.Fatal("expected error for empty signature")
+	}
+}
+
+func TestVerifyUserCAAnchor_NilAdminKey( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	err := verifyUserCAAnchor(nil, userPub, []byte("sig"))
+	if err == nil {
+		t.Fatal("expected error for nil admin key")
+	}
+}
+
+func TestUserCAAnchorPayloadNilKey( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	_, err := userCAAnchorPayload(nil)
+	if err == nil {
+		t.Fatal("expected error for nil key")
+	}
+}
+
+func TestSignUserCAAnchorNilSigner( // A
+	t *testing.T,
+) {
+	t.Parallel()
+
+	userAC := generateKeys(t)
+	userPub := pubKeyPtr(t, userAC)
+
+	_, err := SignUserCAAnchor(nil, userPub)
+	if err == nil {
+		t.Fatal("expected error for nil signer")
+	}
+}

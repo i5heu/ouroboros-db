@@ -29,11 +29,11 @@ type CarrierAuth struct { // H
 // CarrierAuthConfig holds configuration for creating a
 // CarrierAuth.
 type CarrierAuthConfig struct { // A
-	Clock        Clock
-	NonceTTL     time.Duration
+	Clock           Clock
+	NonceTTL        time.Duration
 	NonceMaxEntries int
-	FreshnessTTL time.Duration
-	MaxDelegTTL  time.Duration
+	FreshnessTTL    time.Duration
+	MaxDelegTTL     time.Duration
 }
 
 // NewCarrierAuth creates a CarrierAuth with the given
@@ -174,13 +174,24 @@ const ( // A
 // step1IssuerDiscovery looks up the issuer CA by hash.
 // Returns the CA type and public key. Must be called
 // with mu held.
-func (ca *CarrierAuth) step1IssuerDiscovery( // A
+func (ca *CarrierAuth) step1IssuerDiscovery( // PAP
 	issuer CaHash,
 ) (caType, *keys.PublicKey, error) {
 	if admin, ok := ca.adminCAs[issuer]; ok {
 		return caTypeAdmin, admin.PubKey(), nil
 	}
 	if user, ok := ca.userCAs[issuer]; ok {
+		anchorAdmin := user.AnchorAdminHash()
+		if _, ok := ca.adminCAs[anchorAdmin]; !ok {
+			return 0, nil, errors.New(
+				"user CA anchor admin not in trust store",
+			)
+		}
+		if _, revoked := ca.revokedAdmin[anchorAdmin]; revoked {
+			return 0, nil, errors.New(
+				"user CA anchor admin is revoked",
+			)
+		}
 		return caTypeUser, user.PubKey(), nil
 	}
 	return 0, nil, errors.New(
@@ -472,15 +483,55 @@ func (ca *CarrierAuth) RevokeAdminCA( // AP
 }
 
 // AddUserPubKey registers a new user CA trust root.
-func (ca *CarrierAuth) AddUserPubKey( // AP
+func (ca *CarrierAuth) AddUserPubKey( // PAP
 	pubKey *keys.PublicKey,
+	anchorSig []byte,
+	anchorAdminHash CaHash,
 ) error {
-	user, err := NewUserCA(pubKey)
+	if pubKey == nil {
+		return errors.New("user CA public key must not be nil")
+	}
+	if len(anchorSig) == 0 {
+		return errors.New("anchor signature must not be empty")
+	}
+	if anchorAdminHash.IsZero() {
+		return errors.New("anchor admin hash must not be zero")
+	}
+
+	ca.mu.Lock()
+	defer ca.mu.Unlock()
+
+	adminCA, ok := ca.adminCAs[anchorAdminHash]
+	if !ok {
+		return fmt.Errorf(
+			"anchor admin CA %s not found in trust store",
+			anchorAdminHash.Hex(),
+		)
+	}
+
+	if _, revoked := ca.revokedAdmin[anchorAdminHash]; revoked {
+		return fmt.Errorf(
+			"anchor admin CA %s is revoked",
+			anchorAdminHash.Hex(),
+		)
+	}
+
+	if err := verifyUserCAAnchor(
+		adminCA.PubKey(),
+		pubKey,
+		anchorSig,
+	); err != nil {
+		return fmt.Errorf(
+			"anchor signature verification failed: %w",
+			err,
+		)
+	}
+
+	user, err := NewUserCA(pubKey, anchorSig, anchorAdminHash)
 	if err != nil {
 		return err
 	}
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+
 	if _, revoked := ca.revokedUser[user.Hash()]; revoked {
 		return fmt.Errorf(
 			"user CA hash is revoked: %s",
