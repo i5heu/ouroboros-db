@@ -11,7 +11,6 @@ type NodeCertImpl struct { // A
 	validFrom    int64
 	validUntil   int64
 	serial       []byte
-	roleClaims   []string
 	certNonce    []byte
 	nodeID       keys.NodeID
 }
@@ -24,7 +23,6 @@ func NewNodeCert( // A
 	validFrom int64,
 	validUntil int64,
 	serial []byte,
-	roleClaims []string,
 	certNonce []byte,
 ) (*NodeCertImpl, error) {
 	nid, err := pubKey.NodeID()
@@ -38,7 +36,6 @@ func NewNodeCert( // A
 		validFrom:    validFrom,
 		validUntil:   validUntil,
 		serial:       serial,
-		roleClaims:   roleClaims,
 		certNonce:    certNonce,
 		nodeID:       nid,
 	}, nil
@@ -72,12 +69,6 @@ func (n *NodeCertImpl) ValidUntil() int64 { // A
 // Serial returns the certificate serial number.
 func (n *NodeCertImpl) Serial() []byte { // A
 	return n.serial
-}
-
-// RoleClaims returns role/scope claims carried by
-// the certificate.
-func (n *NodeCertImpl) RoleClaims() []string { // A
-	return n.roleClaims
 }
 
 // CertNonce returns the certificate nonce.

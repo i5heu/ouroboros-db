@@ -22,7 +22,7 @@ sequenceDiagram
     
     Issuers->>Issuers: 3. Calculate IssuerCAHash<br>(Unique SHA-256 ID of each CA Root Key)
     
-    Issuers->>Issuers: 4. Construct one or more NodeCert Payloads:<br>{ CertVersion, NodePubKey, IssuerCAHash,<br>ValidFrom, ValidUntil, Serial, RoleClaims,<br>CertNonce }
+    Issuers->>Issuers: 4. Construct one or more NodeCert Payloads:<br>{ CertVersion, NodePubKey, IssuerCAHash,<br>ValidFrom, ValidUntil, Serial,<br>CertNonce }
     
     Note right of Issuers: SIGNING:<br>NodeCert/UserCA signing is handled by trusted frontend flows.<br>This diagram keeps signing details intentionally high-level.
     Issuers->>Issuers: 5. For each cert: sign NodeCert payload (high-level)

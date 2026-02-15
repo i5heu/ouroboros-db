@@ -9,7 +9,7 @@ func TestNewNodeCert(t *testing.T) { // A
 	cert, err := NewNodeCert(
 		pub, "issuer-hash",
 		100, 200,
-		[]byte("ser"), nil, []byte("nonce"),
+		[]byte("ser"), []byte("nonce"),
 	)
 	if err != nil {
 		t.Fatalf("NewNodeCert: %v", err)
@@ -40,7 +40,7 @@ func TestNodeCertPubKeyRoundTrip(t *testing.T) { // A
 	pub := ac.GetPublicKey()
 
 	cert, err := NewNodeCert(
-		pub, "h", 0, 0, nil, nil, nil,
+		pub, "h", 0, 0, nil, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestNodeCertNodeIDConsistency(t *testing.T) { // A
 	pub := ac.GetPublicKey()
 
 	cert, err := NewNodeCert(
-		pub, "h", 0, 0, nil, nil, nil,
+		pub, "h", 0, 0, nil, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestNodeCertImplementsInterface( // A
 	ac := mustKeyPair(t)
 	pub := ac.GetPublicKey()
 	cert, err := NewNodeCert(
-		pub, "h", 0, 0, nil, nil, nil,
+		pub, "h", 0, 0, nil, nil,
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -32,7 +32,6 @@ type NodeCertLike interface { // A
 	ValidFrom() int64
 	ValidUntil() int64
 	Serial() []byte
-	RoleClaims() []string
 	CertNonce() []byte
 	NodeID() keys.NodeID
 }
@@ -52,14 +51,13 @@ type DelegationProofLike interface { // A
 // canonicalCert is the CBOR-serializable form of a
 // NodeCert with deterministic field ordering.
 type canonicalCert struct { // A
-	CertVersion  uint16   `cbor:"1,keyasint"`
-	NodePubKey   []byte   `cbor:"2,keyasint"`
-	IssuerCAHash string   `cbor:"3,keyasint"`
-	ValidFrom    int64    `cbor:"4,keyasint"`
-	ValidUntil   int64    `cbor:"5,keyasint"`
-	Serial       []byte   `cbor:"6,keyasint"`
-	RoleClaims   []string `cbor:"7,keyasint"`
-	CertNonce    []byte   `cbor:"8,keyasint"`
+	CertVersion  uint16 `cbor:"1,keyasint"`
+	NodePubKey   []byte `cbor:"2,keyasint"`
+	IssuerCAHash string `cbor:"3,keyasint"`
+	ValidFrom    int64  `cbor:"4,keyasint"`
+	ValidUntil   int64  `cbor:"5,keyasint"`
+	Serial       []byte `cbor:"6,keyasint"`
+	CertNonce    []byte `cbor:"7,keyasint"`
 }
 
 // canonicalDelegation is the CBOR-serializable form
@@ -102,7 +100,6 @@ func CanonicalNodeCert( // A
 		ValidFrom:    cert.ValidFrom(),
 		ValidUntil:   cert.ValidUntil(),
 		Serial:       cert.Serial(),
-		RoleClaims:   cert.RoleClaims(),
 		CertNonce:    cert.CertNonce(),
 	}
 	return cborEncMode.Marshal(c)

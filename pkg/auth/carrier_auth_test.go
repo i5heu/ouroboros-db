@@ -71,7 +71,7 @@ func buildScenario(t *testing.T) *fullScenario { // A
 	cert, err := NewNodeCert(
 		nodePub, adminCA.Hash(),
 		now-10, now+600,
-		[]byte("serial-1"), nil, []byte("nonce-1"),
+		[]byte("serial-1"), []byte("nonce-1"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestVerifyPeerCertExpiredCert( // A
 	expired, _ := NewNodeCert(
 		s.nodeAC.GetPublicKey(), s.adminCA.Hash(),
 		1000, 2000,
-		[]byte("ser"), nil, []byte("non"),
+		[]byte("ser"), []byte("non"),
 	)
 	canonical, _ := CanonicalNodeCert(expired)
 	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
@@ -513,7 +513,7 @@ func TestUserScopedVerification(t *testing.T) { // A
 	cert, _ := NewNodeCert(
 		nodePub, userCA.Hash(),
 		now-10, now+600,
-		[]byte("s1"), nil, []byte("n1"),
+		[]byte("s1"), []byte("n1"),
 	)
 	canonical, _ := CanonicalNodeCert(cert)
 	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
@@ -676,7 +676,6 @@ func TestUserCAInvalidWhenAnchorAdminRemoved( // A
 		now-10,
 		now+600,
 		[]byte("s1"),
-		nil,
 		[]byte("n1"),
 	)
 	canonical, _ := CanonicalNodeCert(cert)

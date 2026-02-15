@@ -100,7 +100,6 @@ type certData struct {
 	validFrom  int64
 	validUntil int64
 	serial     []byte
-	roleClaims []string
 	certNonce  []byte
 }
 
@@ -114,21 +113,12 @@ func genCertData(kp *keyPair, now int64) *rapid.Generator[*certData] {
 			rapid.RuneFrom([]rune("0123456789abcdef")),
 			64, 64, 64,
 		).Draw(t, "issuerHash")
-		roleClaimsN := rapid.IntRange(0, 3).Draw(t, "roleClaimsN")
-		roleClaims := make([]string, roleClaimsN)
-		for i := range roleClaims {
-			roleClaims[i] = fmt.Sprintf(
-				"role-%d",
-				rapid.IntRange(0, 100).Draw(t, fmt.Sprintf("role%d", i)),
-			)
-		}
 		return &certData{
 			kp:         kp,
 			issuerHash: issuerHash,
 			validFrom:  validFrom,
 			validUntil: validUntil,
 			serial:     serial,
-			roleClaims: roleClaims,
 			certNonce:  certNonce,
 		}
 	})
@@ -141,7 +131,6 @@ func (cd *certData) toNodeCert() (*auth.NodeCertImpl, error) {
 		cd.validFrom,
 		cd.validUntil,
 		cd.serial,
-		cd.roleClaims,
 		cd.certNonce,
 	)
 }

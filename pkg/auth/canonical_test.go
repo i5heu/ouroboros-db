@@ -25,7 +25,6 @@ func mustNodeCert( // A
 		pub, issuer,
 		1000, 2000,
 		[]byte("serial-1"),
-		nil,
 		[]byte("nonce-1"),
 	)
 	if err != nil {
@@ -63,14 +62,14 @@ func TestCanonicalNodeCertBundle(t *testing.T) { // A
 
 	cert1, err := NewNodeCert(
 		pub, "ca-1", 1000, 2000,
-		[]byte("serial-1"), nil, []byte("nonce-1"),
+		[]byte("serial-1"), []byte("nonce-1"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cert2, err := NewNodeCert(
 		pub, "ca-2", 1000, 2000,
-		[]byte("serial-2"), nil, []byte("nonce-2"),
+		[]byte("serial-2"), []byte("nonce-2"),
 	)
 	if err != nil {
 		t.Fatal(err)
