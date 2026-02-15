@@ -15,8 +15,7 @@ const KEMPublicKeySize = 1568 // A
 // AdminCAImpl implements interfaces.AdminCA using
 // ML-DSA-87 signature verification.
 type AdminCAImpl struct { // A
-	pubKey *keys.PublicKey
-	hash   string
+	caBase
 }
 
 // NewAdminCA constructs an AdminCAImpl from
@@ -32,54 +31,9 @@ func NewAdminCA( // A
 	if err != nil {
 		return nil, err
 	}
-	return &AdminCAImpl{pubKey: pub, hash: h}, nil
-}
-
-// PubKey returns the concatenated KEM+Sign bytes.
-func (a *AdminCAImpl) PubKey() []byte { // A
-	kem, err := a.pubKey.MarshalBinaryKEM()
-	if err != nil {
-		return nil
-	}
-	sign, err := a.pubKey.MarshalBinarySign()
-	if err != nil {
-		return nil
-	}
-	out := make([]byte, len(kem)+len(sign))
-	copy(out, kem)
-	copy(out[len(kem):], sign)
-	return out
-}
-
-// Hash returns hex(SHA-256(signPubKeyBytes)).
-func (a *AdminCAImpl) Hash() string { // A
-	return a.hash
-}
-
-// VerifyNodeCert verifies a CA signature on a
-// NodeCert and returns the derived NodeID.
-func (a *AdminCAImpl) VerifyNodeCert( // A
-	cert NodeCertLike,
-	caSignature []byte,
-) (keys.NodeID, error) {
-	canonical, err := CanonicalNodeCert(cert)
-	if err != nil {
-		return keys.NodeID{}, fmt.Errorf(
-			"canonical encoding failed: %w", err,
-		)
-	}
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
-	if !a.pubKey.Verify(msg, caSignature) {
-		return keys.NodeID{}, ErrInvalidCASignature
-	}
-	pubKey := cert.NodePubKey()
-	nid, err := pubKey.NodeID()
-	if err != nil {
-		return keys.NodeID{}, fmt.Errorf(
-			"node ID derivation failed: %w", err,
-		)
-	}
-	return nid, nil
+	return &AdminCAImpl{
+		caBase: caBase{pubKey: pub, hash: h},
+	}, nil
 }
 
 // splitAndParsePubKey splits concatenated KEM+Sign
@@ -96,6 +50,25 @@ func splitAndParsePubKey( // A
 	kemBytes := pubKeyBytes[:KEMPublicKeySize]
 	signBytes := pubKeyBytes[KEMPublicKeySize:]
 	return keys.NewPublicKeyFromBinary(kemBytes, signBytes)
+}
+
+// marshalPubKeyBytes returns concatenated KEM+Sign
+// public key bytes from a keys.PublicKey.
+func marshalPubKeyBytes( // A
+	pub *keys.PublicKey,
+) ([]byte, error) {
+	kem, err := pub.MarshalBinaryKEM()
+	if err != nil {
+		return nil, err
+	}
+	sign, err := pub.MarshalBinarySign()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, len(kem)+len(sign))
+	copy(out, kem)
+	copy(out[len(kem):], sign)
+	return out, nil
 }
 
 // caHash computes hex(SHA-256(signPubKeyBytes)).

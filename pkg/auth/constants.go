@@ -25,9 +25,10 @@ const DefaultCertVersion uint16 = 1 // A
 
 // Slog key constants for structured logging.
 const ( // A
-	LogKeyStep   = "step"
-	LogKeyNodeID = "nodeID"
-	LogKeyCAHash = "caHash"
-	LogKeyScope  = "scope"
-	LogKeyReason = "reason"
+	LogKeyStep      = "step"
+	LogKeyNodeID    = "nodeID"
+	LogKeyCAHash    = "caHash"
+	LogKeyScope     = "scope"
+	LogKeyReason    = "reason"
+	LogKeyCertIndex = "certIndex"
 )

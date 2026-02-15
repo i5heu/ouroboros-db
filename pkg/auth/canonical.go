@@ -91,20 +91,10 @@ func CanonicalNodeCert( // A
 	cert NodeCertLike,
 ) ([]byte, error) {
 	pubKey := cert.NodePubKey()
-	kemBytes, err := pubKey.MarshalBinaryKEM()
+	nodePubKey, err := marshalPubKeyBytes(&pubKey)
 	if err != nil {
 		return nil, err
 	}
-	signBytes, err := pubKey.MarshalBinarySign()
-	if err != nil {
-		return nil, err
-	}
-	nodePubKey := make(
-		[]byte,
-		len(kemBytes)+len(signBytes),
-	)
-	copy(nodePubKey, kemBytes)
-	copy(nodePubKey[len(kemBytes):], signBytes)
 	c := canonicalCert{
 		CertVersion:  cert.CertVersion(),
 		NodePubKey:   nodePubKey,
@@ -126,8 +116,8 @@ func CanonicalNodeCertBundle( // A
 ) ([]byte, error) {
 	type sortEntry struct {
 		nodePubKey []byte
-		serial    []byte
-		encoded   []byte
+		serial     []byte
+		encoded    []byte
 	}
 	entries := make([]sortEntry, len(certs))
 	for i, cert := range certs {
@@ -136,24 +126,14 @@ func CanonicalNodeCertBundle( // A
 			return nil, err
 		}
 		pubKey := cert.NodePubKey()
-		kemBytes, err := pubKey.MarshalBinaryKEM()
+		nodePubKey, err := marshalPubKeyBytes(&pubKey)
 		if err != nil {
 			return nil, err
 		}
-		signBytes, err := pubKey.MarshalBinarySign()
-		if err != nil {
-			return nil, err
-		}
-		nodePubKey := make(
-			[]byte,
-			len(kemBytes)+len(signBytes),
-		)
-		copy(nodePubKey, kemBytes)
-		copy(nodePubKey[len(kemBytes):], signBytes)
 		entries[i] = sortEntry{
 			nodePubKey: nodePubKey,
-			serial:    cert.Serial(),
-			encoded:   enc,
+			serial:     cert.Serial(),
+			encoded:    enc,
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool {

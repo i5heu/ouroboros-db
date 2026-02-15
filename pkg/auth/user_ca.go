@@ -1,14 +1,9 @@
 package auth
 
-import (
-	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-)
-
 // UserCAImpl implements interfaces.UserCA with anchor
 // chain validation against an AdminCA.
 type UserCAImpl struct { // A
-	pubKey          *keys.PublicKey
-	hash            string
+	caBase
 	anchorSig       []byte
 	anchorAdminHash string
 }
@@ -29,32 +24,10 @@ func newUserCA( // A
 		return nil, err
 	}
 	return &UserCAImpl{
-		pubKey:          pub,
-		hash:            h,
+		caBase:          caBase{pubKey: pub, hash: h},
 		anchorSig:       anchorSig,
 		anchorAdminHash: anchorAdminHash,
 	}, nil
-}
-
-// PubKey returns the concatenated KEM+Sign bytes.
-func (u *UserCAImpl) PubKey() []byte { // A
-	kem, err := u.pubKey.MarshalBinaryKEM()
-	if err != nil {
-		return nil
-	}
-	sign, err := u.pubKey.MarshalBinarySign()
-	if err != nil {
-		return nil
-	}
-	out := make([]byte, len(kem)+len(sign))
-	copy(out, kem)
-	copy(out[len(kem):], sign)
-	return out
-}
-
-// Hash returns hex(SHA-256(signPubKeyBytes)).
-func (u *UserCAImpl) Hash() string { // A
-	return u.hash
 }
 
 // AnchorSig returns the anchor signature bytes.
@@ -66,14 +39,4 @@ func (u *UserCAImpl) AnchorSig() []byte { // A
 // that anchored this UserCA.
 func (u *UserCAImpl) AnchorAdminHash() string { // A
 	return u.anchorAdminHash
-}
-
-// VerifyNodeCert verifies a CA signature on a
-// NodeCert and returns the derived NodeID.
-func (u *UserCAImpl) VerifyNodeCert( // A
-	cert NodeCertLike,
-	caSignature []byte,
-) (keys.NodeID, error) {
-	a := &AdminCAImpl{pubKey: u.pubKey, hash: u.hash}
-	return a.VerifyNodeCert(cert, caSignature)
 }
