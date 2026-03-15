@@ -10,6 +10,8 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
 
+const oversizedPeerCertBundleSize = 1025 // A
+
 // testLogger returns a discard logger for tests.
 func testLogger() *slog.Logger { // A
 	return slog.New(
@@ -320,6 +322,348 @@ func TestVerifyPeerCertBundleHashMismatch( // A
 	if err != ErrBundleHashMismatch {
 		t.Errorf(
 			"got %v, want ErrBundleHashMismatch", err,
+		)
+	}
+}
+
+type switchingNodeCert struct { // A
+	signedPubKey    keys.PublicKey
+	presentedPubKey keys.PublicKey
+	issuerCAHash    string
+	validFrom       int64
+	validUntil      int64
+	serial          []byte
+	certNonce       []byte
+	nodeID          keys.NodeID
+	nodePubKeyCalls int
+}
+
+func newSwitchingNodeCert( // A
+	signedPubKey keys.PublicKey,
+	presentedPubKey keys.PublicKey,
+	issuerCAHash string,
+	validFrom int64,
+	validUntil int64,
+	serial []byte,
+	certNonce []byte,
+) (*switchingNodeCert, error) {
+	nodeID, err := presentedPubKey.NodeID()
+	if err != nil {
+		return nil, err
+	}
+	return &switchingNodeCert{
+		signedPubKey:    signedPubKey,
+		presentedPubKey: presentedPubKey,
+		issuerCAHash:    issuerCAHash,
+		validFrom:       validFrom,
+		validUntil:      validUntil,
+		serial:          append([]byte(nil), serial...),
+		certNonce:       append([]byte(nil), certNonce...),
+		nodeID:          nodeID,
+	}, nil
+}
+
+func (c *switchingNodeCert) CertVersion() uint16 { // A
+	return DefaultCertVersion
+}
+
+func (c *switchingNodeCert) NodePubKey() keys.PublicKey { // A
+	c.nodePubKeyCalls++
+	if c.nodePubKeyCalls <= 2 {
+		return c.signedPubKey
+	}
+	return c.presentedPubKey
+}
+
+func (c *switchingNodeCert) IssuerCAHash() string { // A
+	return c.issuerCAHash
+}
+
+func (c *switchingNodeCert) ValidFrom() int64 { // A
+	return c.validFrom
+}
+
+func (c *switchingNodeCert) ValidUntil() int64 { // A
+	return c.validUntil
+}
+
+func (c *switchingNodeCert) Serial() []byte { // A
+	return append([]byte(nil), c.serial...)
+}
+
+func (c *switchingNodeCert) CertNonce() []byte { // A
+	return append([]byte(nil), c.certNonce...)
+}
+
+func (c *switchingNodeCert) NodeID() keys.NodeID { // A
+	return c.nodeID
+}
+
+func mustVerifyPeerCertWithoutPanic( // A
+	t *testing.T,
+	ca *carrierAuth,
+	peerCerts []NodeCertLike,
+	caSignatures [][]byte,
+	delegationProof DelegationProofLike,
+	delegationSig []byte,
+	tlsCertPubKeyHash []byte,
+	tlsExporterBinding []byte,
+	tlsX509Fingerprint []byte,
+	tlsTranscriptHash []byte,
+) (AuthContext, error) {
+	t.Helper()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("VerifyPeerCert panicked: %v", recovered)
+		}
+	}()
+	return ca.VerifyPeerCert(
+		peerCerts,
+		caSignatures,
+		delegationProof,
+		delegationSig,
+		tlsCertPubKeyHash,
+		tlsExporterBinding,
+		tlsX509Fingerprint,
+		tlsTranscriptHash,
+	)
+}
+
+func TestVerifyPeerCertNilDelegationProofRejected( // A
+	t *testing.T,
+) {
+	s := buildScenario(t)
+
+	_, err := mustVerifyPeerCertWithoutPanic(
+		t,
+		s.ca,
+		[]NodeCertLike{s.cert},
+		[][]byte{s.caSig},
+		nil,
+		s.delSig,
+		s.certHash,
+		s.exporter,
+		s.x509FP,
+		s.transcript,
+	)
+	if err == nil {
+		t.Fatal("expected nil delegation proof to be rejected")
+	}
+}
+
+func TestVerifyPeerCertNilBundleEntryRejected( // A
+	t *testing.T,
+) {
+	s := buildScenario(t)
+
+	_, err := mustVerifyPeerCertWithoutPanic(
+		t,
+		s.ca,
+		[]NodeCertLike{nil},
+		[][]byte{s.caSig},
+		s.proof,
+		s.delSig,
+		s.certHash,
+		s.exporter,
+		s.x509FP,
+		s.transcript,
+	)
+	if err == nil {
+		t.Fatal("expected nil certificate entry to be rejected")
+	}
+}
+
+func TestVerifyPeerCertRejectsStatefulCertView( // A
+	t *testing.T,
+) {
+	s := buildScenario(t)
+	attackerAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attackerPub := attackerAC.GetPublicKey()
+
+	maliciousCert, err := newSwitchingNodeCert(
+		s.nodeAC.GetPublicKey(),
+		attackerPub,
+		s.adminCA.Hash(),
+		s.cert.ValidFrom(),
+		s.cert.ValidUntil(),
+		s.cert.Serial(),
+		s.cert.CertNonce(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	signedView, err := NewNodeCert(
+		s.nodeAC.GetPublicKey(),
+		s.adminCA.Hash(),
+		s.cert.ValidFrom(),
+		s.cert.ValidUntil(),
+		s.cert.Serial(),
+		s.cert.CertNonce(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := CanonicalNodeCert(signedView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certMsg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	caSig, err := s.adminAC.Sign(certMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	presentedView, err := NewNodeCert(
+		attackerPub,
+		s.adminCA.Hash(),
+		s.cert.ValidFrom(),
+		s.cert.ValidUntil(),
+		s.cert.Serial(),
+		s.cert.CertNonce(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleBytes, err := CanonicalNodeCertBundle(
+		[]NodeCertLike{presentedView},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleHash := sha256.Sum256(bundleBytes)
+
+	proof := NewDelegationProof(
+		s.certHash,
+		nil,
+		s.transcript,
+		s.x509FP,
+		bundleHash[:],
+		time.Now().Unix()-5,
+		time.Now().Unix()+MaxDelegationTTL-10,
+	)
+	exporterCtx, err := CanonicalDelegationProofForExporter(
+		proof,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := deriveTestExporter(exporterCtx)
+	proof = NewDelegationProof(
+		s.certHash,
+		exporter,
+		s.transcript,
+		s.x509FP,
+		bundleHash[:],
+		proof.NotBefore(),
+		proof.NotAfter(),
+	)
+	proofCanonical, err := CanonicalDelegationProof(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegationMsg := DomainSeparate(
+		CTXNodeDelegationV1,
+		proofCanonical,
+	)
+	delegationSig, err := attackerAC.Sign(delegationMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, err := mustVerifyPeerCertWithoutPanic(
+		t,
+		s.ca,
+		[]NodeCertLike{maliciousCert},
+		[][]byte{caSig},
+		proof,
+		delegationSig,
+		s.certHash,
+		exporter,
+		s.x509FP,
+		s.transcript,
+	)
+	if err == nil {
+		t.Fatalf(
+			"expected stateful cert view to be rejected, got success for node %s",
+			ctx.NodeID.String(),
+		)
+	}
+}
+
+func TestVerifyPeerCertRejectsOversizedBundle( // A
+	t *testing.T,
+) {
+	s := buildScenario(t)
+	peerCerts := make([]NodeCertLike, oversizedPeerCertBundleSize)
+	caSignatures := make([][]byte, oversizedPeerCertBundleSize)
+	for i := range peerCerts {
+		peerCerts[i] = s.cert
+		caSignatures[i] = s.caSig
+	}
+	bundleBytes, err := CanonicalNodeCertBundle(peerCerts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleHash := sha256.Sum256(bundleBytes)
+	now := time.Now().Unix()
+	proof := NewDelegationProof(
+		s.certHash,
+		nil,
+		s.transcript,
+		s.x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	exporterCtx, err := CanonicalDelegationProofForExporter(
+		proof,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := deriveTestExporter(exporterCtx)
+	proof = NewDelegationProof(
+		s.certHash,
+		exporter,
+		s.transcript,
+		s.x509FP,
+		bundleHash[:],
+		proof.NotBefore(),
+		proof.NotAfter(),
+	)
+	proofCanonical, err := CanonicalDelegationProof(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegationMsg := DomainSeparate(
+		CTXNodeDelegationV1,
+		proofCanonical,
+	)
+	delegationSig, err := s.nodeAC.Sign(delegationMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, err := mustVerifyPeerCertWithoutPanic(
+		t,
+		s.ca,
+		peerCerts,
+		caSignatures,
+		proof,
+		delegationSig,
+		s.certHash,
+		exporter,
+		s.x509FP,
+		s.transcript,
+	)
+	if err == nil {
+		t.Fatalf(
+			"expected oversized bundle to be rejected, got success for node %s",
+			ctx.NodeID.String(),
 		)
 	}
 }
