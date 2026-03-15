@@ -1,13 +1,4 @@
-# TODO
-
-## Renaming / Cleanup
-
-- [ ] Remove duplicate `LogLevel` from `pkg/interfaces/monitor.go` - use
-      `pkg/clusterlog.LogLevel`
-- [ ] Remove duplicate `LogEntry` from `pkg/interfaces/monitor.go` - use
-      `pkg/clusterlog.LogEntry`
-- [ ] Implement `BootstrapConfig.LoadFromFile()` and `SaveToFile()` (currently
-      stubs)
+# TODO implementation tasks
 
 ## Transport Layer
 
@@ -71,3 +62,13 @@
 - [x] Implement `ClusterLog` - Done: `pkg/clusterlog/cluster_log.go`
 - [x] Implement `LogEntry` - Done: `pkg/clusterlog/log_entry.go`
 - [x] Implement `LogLevel` - Done: `pkg/clusterlog/log_level.go`
+
+
+# TODO before release tasks
+
+- [ ] Security audit of data encryption and key management
+- [ ] Security audit of auth and transport layers
+- [ ] Hardening of auth and transport against logical attacks
+- [ ] Hardening of transport against DoS attacks
+- [ ] Security review of user or public data handling code
+- [ ] Identify and document security weaknesses
