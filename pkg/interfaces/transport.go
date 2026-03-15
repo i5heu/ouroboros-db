@@ -1,6 +1,8 @@
 package interfaces
 
 import (
+	"encoding/json"
+	"os"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
@@ -34,11 +36,31 @@ type BootstrapConfig struct { // A
 }
 
 func (b *BootstrapConfig) LoadFromFile(path string) error { // A
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cfg struct {
+		BootstrapAddresses []string `json:"bootstrapAddresses"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	b.BootstrapAddresses = cfg.BootstrapAddresses
 	return nil
 }
 
 func (b *BootstrapConfig) SaveToFile(path string) error { // A
-	return nil
+	cfg := struct {
+		BootstrapAddresses []string `json:"bootstrapAddresses"`
+	}{
+		BootstrapAddresses: b.BootstrapAddresses,
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 type NodeRegistry interface { // A

@@ -136,7 +136,7 @@ func (cl *ClusterLog) Log( // AC
 	}
 
 	cl.logger.Log(
-		ctx, level.toSlogLevel(), "log entry",
+		ctx, level.ToSlogLevel(), "log entry",
 		append(cl.baseAttrs(level, fields), keyMessage, msg)...,
 	)
 
@@ -511,7 +511,7 @@ func (cl *ClusterLog) cleanup() { // AC
 
 	kept := cl.entries[:0]
 	for i := range cl.entries {
-		if !cl.entries[i].isExpired(now) {
+		if !cl.entries[i].IsExpired(now) {
 			kept = append(kept, cl.entries[i])
 		}
 	}

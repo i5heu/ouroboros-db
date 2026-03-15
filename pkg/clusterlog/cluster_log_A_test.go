@@ -547,9 +547,9 @@ func TestLogEntryIsExpired(t *testing.T) { // A
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tc.entry.isExpired(now)
+			got := tc.entry.IsExpired(now)
 			if got != tc.expired {
-				t.Errorf("isExpired = %v, want %v",
+				t.Errorf("IsExpired = %v, want %v",
 					got, tc.expired)
 			}
 		})
@@ -587,7 +587,7 @@ func TestLogEntryIsExpiredUnknownLevel( // A
 	}
 	// Unknown level falls back to Info TTL (3d),
 	// so 4d old should be expired.
-	if !entry.isExpired(now) {
+	if !entry.IsExpired(now) {
 		t.Error(
 			"unknown level should fall back to " +
 				"Info TTL and be expired",
@@ -598,7 +598,7 @@ func TestLogEntryIsExpiredUnknownLevel( // A
 		Timestamp: now.Add(-2 * 24 * time.Hour),
 		Level:     LogLevel(99),
 	}
-	if fresh.isExpired(now) {
+	if fresh.IsExpired(now) {
 		t.Error(
 			"unknown level 2d old should not be " +
 				"expired (Info TTL = 3d)",

@@ -7,37 +7,21 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/pkg/logtypes"
 )
-
-type LogLevel int // A
-
-const ( // A
-	LogLevelDebug LogLevel = iota
-	LogLevelInfo
-	LogLevelWarn
-	LogLevelError
-)
-
-type LogEntry struct { // A
-	Timestamp time.Time
-	NodeID    keys.NodeID
-	Level     LogLevel
-	Message   string
-	Fields    map[string]string
-}
 
 type ClusterLog interface { // A
 	New(logger *slog.Logger, carrier Carrier, selfID keys.NodeID) *ClusterLog
 	Stop()
-	Log(ctx context.Context, level LogLevel, msg string, fields map[string]string)
+	Log(ctx context.Context, level logtypes.LogLevel, msg string, fields map[string]string)
 	Info(ctx context.Context, msg string, fields map[string]string)
 	Warn(ctx context.Context, msg string, fields map[string]string)
 	Debug(ctx context.Context, msg string, fields map[string]string)
 	Err(ctx context.Context, msg string, fields map[string]string)
-	Tail(limit int) []LogEntry
-	Query(nodeID keys.NodeID, since time.Time) []LogEntry
-	QueryAll(since time.Time) []LogEntry
-	QueryByLevel(level LogLevel, since time.Time) []LogEntry
+	Tail(limit int) []logtypes.LogEntry
+	Query(nodeID keys.NodeID, since time.Time) []logtypes.LogEntry
+	QueryAll(since time.Time) []logtypes.LogEntry
+	QueryByLevel(level logtypes.LogLevel, since time.Time) []logtypes.LogEntry
 	SubscribeLog(
 		ctx context.Context,
 		sourceNodeID keys.NodeID,
