@@ -38,6 +38,12 @@ type issuerInfo struct { // A
 	verifier certVerifier
 }
 
+type bindingField struct { // A
+	name      string
+	value     []byte
+	expectedL int
+}
+
 // VerifyPeerCert validates all certs in the bundle
 // and derives effective authorization. Each step is a
 // separate method to stay under complexity limits.
@@ -83,6 +89,56 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 	if err != nil {
 		return AuthContext{}, err
 	}
+	err = validateBindingFields([]bindingField{
+		{
+			name:      "proof TLS cert pubkey hash",
+			value:     delegationProof.TLSCertPubKeyHash(),
+			expectedL: TLSCertPubKeyHashSize,
+		},
+		{
+			name:      "proof TLS exporter binding",
+			value:     delegationProof.TLSExporterBinding(),
+			expectedL: TLSExporterBindingSize,
+		},
+		{
+			name:      "proof TLS transcript hash",
+			value:     delegationProof.TLSTranscriptHash(),
+			expectedL: TLSTranscriptHashSize,
+		},
+		{
+			name:      "proof X.509 fingerprint",
+			value:     delegationProof.X509Fingerprint(),
+			expectedL: X509FingerprintSize,
+		},
+		{
+			name:      "proof node cert bundle hash",
+			value:     delegationProof.NodeCertBundleHash(),
+			expectedL: NodeCertBundleHashSize,
+		},
+		{
+			name:      "transport TLS cert pubkey hash",
+			value:     tlsCertPubKeyHash,
+			expectedL: TLSCertPubKeyHashSize,
+		},
+		{
+			name:      "transport TLS exporter binding",
+			value:     tlsExporterBinding,
+			expectedL: TLSExporterBindingSize,
+		},
+		{
+			name:      "transport X.509 fingerprint",
+			value:     tlsX509Fingerprint,
+			expectedL: X509FingerprintSize,
+		},
+		{
+			name:      "transport TLS transcript hash",
+			value:     tlsTranscriptHash,
+			expectedL: TLSTranscriptHashSize,
+		},
+	})
+	if err != nil {
+		return AuthContext{}, err
+	}
 	err = ca.verifyDelegation(
 		result, delegationProof, delegationSig,
 		peerCerts, tlsCertPubKeyHash,
@@ -99,6 +155,21 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 		return AuthContext{}, err
 	}
 	return ca.deriveScope(result), nil
+}
+
+func validateBindingFields( // A
+	fields []bindingField,
+) error {
+	for _, field := range fields {
+		if len(field.value) != field.expectedL {
+			return fmt.Errorf(
+				"%w: %s",
+				ErrInvalidBindingField,
+				field.name,
+			)
+		}
+	}
+	return nil
 }
 
 // verifyChain performs checks 1-3: issuer discovery,

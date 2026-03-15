@@ -88,9 +88,18 @@ func buildScenario(t *testing.T) *fullScenario { // A
 	}
 
 	// Build delegation proof.
-	certHash := []byte("tls-cert-pub-key-hash")
-	x509FP := []byte("x509-fingerprint")
-	transcript := []byte("transcript-hash")
+	certHashSum := sha256.Sum256(
+		[]byte("tls-cert-pub-key-hash"),
+	)
+	x509FPSum := sha256.Sum256(
+		[]byte("x509-fingerprint"),
+	)
+	transcriptSum := sha256.Sum256(
+		[]byte("transcript-hash"),
+	)
+	certHash := certHashSum[:]
+	x509FP := x509FPSum[:]
+	transcript := transcriptSum[:]
 
 	certs := []NodeCertLike{cert}
 	bundleBytes, _ := CanonicalNodeCertBundle(certs)
@@ -144,6 +153,32 @@ func buildScenario(t *testing.T) *fullScenario { // A
 		exporter:   exporter,
 		x509FP:     x509FP,
 		transcript: transcript,
+	}
+}
+
+func TestVerifyPeerCertRejectsInvalidBindingFieldLength( // A
+	t *testing.T,
+) {
+	s := buildScenario(t)
+
+	_, err := s.ca.VerifyPeerCert(
+		[]NodeCertLike{s.cert},
+		[][]byte{s.caSig},
+		s.proof,
+		s.delSig,
+		[]byte("short"),
+		s.exporter,
+		s.x509FP,
+		s.transcript,
+	)
+	if err == nil {
+		t.Fatal("expected invalid binding field length")
+	}
+	if err.Error() == ErrTLSBindingMismatch.Error() {
+		t.Fatalf(
+			"got mismatch error instead of invalid length: %v",
+			err,
+		)
 	}
 }
 
@@ -270,13 +305,16 @@ func TestVerifyPeerCertTLSBindingMismatch( // A
 	t *testing.T,
 ) {
 	s := buildScenario(t)
+	wrongCertHash := sha256.Sum256(
+		[]byte("wrong-cert-hash"),
+	)
 
 	_, err := s.ca.VerifyPeerCert(
 		[]NodeCertLike{s.cert},
 		[][]byte{s.caSig},
 		s.proof,
 		s.delSig,
-		[]byte("wrong-cert-hash"),
+		wrongCertHash[:],
 		s.exporter,
 		s.x509FP,
 		s.transcript,
@@ -294,12 +332,15 @@ func TestVerifyPeerCertBundleHashMismatch( // A
 	s := buildScenario(t)
 
 	// Tamper with the bundle hash in the proof.
+	wrongBundleHash := sha256.Sum256(
+		[]byte("wrong-bundle-hash"),
+	)
 	tampered := NewDelegationProof(
 		s.proof.TLSCertPubKeyHash(),
 		s.proof.TLSExporterBinding(),
 		s.proof.TLSTranscriptHash(),
 		s.proof.X509Fingerprint(),
-		[]byte("wrong-bundle-hash"),
+		wrongBundleHash[:],
 		s.proof.NotBefore(),
 		s.proof.NotAfter(),
 	)
@@ -863,9 +904,12 @@ func TestUserScopedVerification(t *testing.T) { // A
 	caSig, _ := userAC.Sign(msg)
 
 	// Build delegation.
-	certHash := []byte("cert-hash")
-	x509FP := []byte("x509-fp")
-	transcript := []byte("transcript")
+	certHashSum := sha256.Sum256([]byte("cert-hash"))
+	x509FPSum := sha256.Sum256([]byte("x509-fp"))
+	transcriptSum := sha256.Sum256([]byte("transcript"))
+	certHash := certHashSum[:]
+	x509FP := x509FPSum[:]
+	transcript := transcriptSum[:]
 	certs := []NodeCertLike{cert}
 	bundleBytes, _ := CanonicalNodeCertBundle(certs)
 	bh := sha256.Sum256(bundleBytes)

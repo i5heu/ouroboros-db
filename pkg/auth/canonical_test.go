@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -93,6 +94,44 @@ func TestCanonicalNodeCertBundle(t *testing.T) { // A
 	}
 	if string(data) != string(data2) {
 		t.Fatal("bundle not order-independent")
+	}
+}
+
+func TestCanonicalNodeCertBundleTotalOrdering( // A
+	t *testing.T,
+) {
+	ac := mustKeyPair(t)
+	pub := ac.GetPublicKey()
+
+	cert1, err := NewNodeCert(
+		pub, "ca-1", 1000, 2000,
+		[]byte("serial-1"), []byte("nonce-1"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert2, err := NewNodeCert(
+		pub, "ca-2", 1000, 2000,
+		[]byte("serial-1"), []byte("nonce-2"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data1, err := CanonicalNodeCertBundle(
+		[]NodeCertLike{cert1, cert2},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data2, err := CanonicalNodeCertBundle(
+		[]NodeCertLike{cert2, cert1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data1, data2) {
+		t.Fatal("bundle ordering is not total")
 	}
 }
 

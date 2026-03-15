@@ -50,6 +50,12 @@ var ( // A
 		"TLS binding mismatch in delegation proof",
 	)
 
+	// ErrInvalidBindingField is returned when a
+	// cryptographic binding field has an invalid size.
+	ErrInvalidBindingField = errors.New(
+		"invalid delegation binding field",
+	)
+
 	// ErrBundleHashMismatch is returned when the
 	// NodeCertBundleHash in the delegation proof does
 	// not match the computed bundle hash.

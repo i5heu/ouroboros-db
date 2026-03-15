@@ -107,13 +107,12 @@ func CanonicalNodeCert( // A
 
 // CanonicalNodeCertBundle encodes a sorted array of
 // NodeCerts into deterministic CBOR. Certs are sorted
-// by sign-pubkey bytes ascending, then serial bytes.
+// by their full canonical encodings to guarantee a
+// total order even when partial fields collide.
 func CanonicalNodeCertBundle( // A
 	certs []NodeCertLike,
 ) ([]byte, error) {
 	type sortEntry struct {
-		nodePubKey []byte
-		serial     []byte
 		encoded    []byte
 	}
 	entries := make([]sortEntry, len(certs))
@@ -122,28 +121,14 @@ func CanonicalNodeCertBundle( // A
 		if err != nil {
 			return nil, err
 		}
-		pubKey := cert.NodePubKey()
-		nodePubKey, err := marshalPubKeyBytes(&pubKey)
-		if err != nil {
-			return nil, err
-		}
 		entries[i] = sortEntry{
-			nodePubKey: nodePubKey,
-			serial:     cert.Serial(),
-			encoded:    enc,
+			encoded: enc,
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		cmp := bytes.Compare(
-			entries[i].nodePubKey,
-			entries[j].nodePubKey,
-		)
-		if cmp != 0 {
-			return cmp < 0
-		}
 		return bytes.Compare(
-			entries[i].serial,
-			entries[j].serial,
+			entries[i].encoded,
+			entries[j].encoded,
 		) < 0
 	})
 	raw := make([]cbor.RawMessage, len(entries))

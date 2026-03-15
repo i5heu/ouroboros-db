@@ -27,6 +27,16 @@ const MaxPeerCertBundleSize int = 1024 // A
 // version.
 const DefaultCertVersion uint16 = 1 // A
 
+// Binding field sizes for hash- and exporter-based
+// delegation inputs.
+const ( // A
+	TLSCertPubKeyHashSize  = 32
+	TLSExporterBindingSize = 32
+	TLSTranscriptHashSize  = 32
+	X509FingerprintSize    = 32
+	NodeCertBundleHashSize = 32
+)
+
 // Slog key constants for structured logging.
 const ( // A
 	LogKeyStep      = "step"
