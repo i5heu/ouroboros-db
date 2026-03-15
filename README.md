@@ -17,13 +17,21 @@ The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a represe
 
 ### Environmental Constraints
 
-#### Hardware Constraints
-
-##### Server
+#### Server Hardware Constraints
 - Must run with 4GB of RAM and 2 CPU cores
 - WAL files must not be larger than 10GB
+- For NVMe SSDs optimize for:
+  - prioritize index storage
+- For HDDs optimize for:
+  - prioritize Block storage
+  - low write amplification
+  - low read amplification
+  - disable memory mapping
+  - Badger Ideas:
+    - put opt.Dir to a faster NVMe or SSD and use the HDD for opt.ValueDir
+    - optimize ValueLogFileSize for Block storage
 
-##### Mobile
+#### Mobile Hardware Constraints
 - RAM
   - Dynamic available RAM via `os_proc_available_memory` iOS and `ActivityManager.getMemoryClass()` Android
   - Full Mode must run with 128MB of RAM and 1 CPU core
@@ -32,7 +40,7 @@ The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a represe
 - ValueLog must not be larger than 50MB
 - Optimize for startup time
 - Silent Push Notification Constraints (Background Sync)
-  - Sync time must be minimal
+  - Sync time must be minimal (achievable with BadgerDB)
   - Available RAM 24MB
   - max [30 seconds](https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app#:~:text=Your%20app%20has%2030%20seconds%20to%20perform%20any%20tasks%20and%20call%20the%20provided%20completion%20handler.) to sync on iOS
   - max [10 seconds](https://firebase.google.com/docs/cloud-messaging/android/receive-messages#:~:text=//%20Handle%20message%20within%2010%20seconds%0A%20%20%20%20%20%20%20%20%20%20%20%20handleNow()) to sync on Android or [10 Minutes](https://developer.android.com/develop/background-work/background-tasks/persistent#:~:text=potentially%20longer%20than-,10%20minutes,-.) with `WorkManager`
