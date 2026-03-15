@@ -54,8 +54,24 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 	if len(peerCerts) == 0 {
 		return AuthContext{}, ErrNoCerts
 	}
+	if len(peerCerts) > MaxPeerCertBundleSize {
+		return AuthContext{}, ErrBundleTooLarge
+	}
 	if len(caSignatures) != len(peerCerts) {
 		return AuthContext{}, ErrSignatureCountMismatch
+	}
+	if delegationProof == nil {
+		return AuthContext{}, ErrNilDelegationProof
+	}
+	for i, cert := range peerCerts {
+		if cert == nil {
+			ca.logger.WarnContext(
+				context.TODO(),
+				"nil entry in peer cert bundle",
+				LogKeyCertIndex, i,
+			)
+			return AuthContext{}, ErrNilCertEntry
+		}
 	}
 	nowUnix := time.Now().Unix()
 	ca.mu.RLock()
@@ -259,6 +275,15 @@ func (ca *carrierAuth) verifySingleCert( // A
 		return keys.NodeID{}, nil, 0, err
 	}
 	pubKey := cert.NodePubKey()
+	pubKeyNID, err := pubKey.NodeID()
+	if err != nil {
+		return keys.NodeID{}, nil, 0, fmt.Errorf(
+			"node ID derivation from pubkey: %w", err,
+		)
+	}
+	if nid != pubKeyNID {
+		return keys.NodeID{}, nil, 0, ErrMismatchedNodeID
+	}
 	return nid, &pubKey, issuer.typ, nil
 }
 

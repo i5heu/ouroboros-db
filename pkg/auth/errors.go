@@ -81,6 +81,24 @@ var ( // A
 		"certificate/signature count mismatch",
 	)
 
+	// ErrBundleTooLarge is returned when the peer cert
+	// bundle exceeds MaxPeerCertBundleSize.
+	ErrBundleTooLarge = errors.New(
+		"peer cert bundle exceeds maximum size",
+	)
+
+	// ErrNilDelegationProof is returned when the
+	// delegation proof is nil.
+	ErrNilDelegationProof = errors.New(
+		"delegation proof is nil",
+	)
+
+	// ErrNilCertEntry is returned when a nil entry
+	// is found in the peer cert bundle.
+	ErrNilCertEntry = errors.New(
+		"nil entry in peer cert bundle",
+	)
+
 	// ErrCARevoked is returned when a CA has been
 	// revoked.
 	ErrCARevoked = errors.New("CA has been revoked")

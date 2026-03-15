@@ -33,7 +33,23 @@ func (b *caBase) VerifyNodeCert( // A
 	cert NodeCertLike,
 	caSignature []byte,
 ) (keys.NodeID, error) {
-	canonical, err := CanonicalNodeCert(cert)
+	pubKey := cert.NodePubKey()
+	nodePubKeyBytes, err := marshalPubKeyBytes(&pubKey)
+	if err != nil {
+		return keys.NodeID{}, fmt.Errorf(
+			"pubkey marshal failed: %w", err,
+		)
+	}
+	c := canonicalCert{
+		CertVersion:  cert.CertVersion(),
+		NodePubKey:   nodePubKeyBytes,
+		IssuerCAHash: cert.IssuerCAHash(),
+		ValidFrom:    cert.ValidFrom(),
+		ValidUntil:   cert.ValidUntil(),
+		Serial:       cert.Serial(),
+		CertNonce:    cert.CertNonce(),
+	}
+	canonical, err := cborEncMode.Marshal(c)
 	if err != nil {
 		return keys.NodeID{}, fmt.Errorf(
 			"canonical encoding failed: %w", err,
@@ -43,7 +59,6 @@ func (b *caBase) VerifyNodeCert( // A
 	if !b.pubKey.Verify(msg, caSignature) {
 		return keys.NodeID{}, ErrInvalidCASignature
 	}
-	pubKey := cert.NodePubKey()
 	nid, err := pubKey.NodeID()
 	if err != nil {
 		return keys.NodeID{}, fmt.Errorf(
