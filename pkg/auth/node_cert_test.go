@@ -1,6 +1,9 @@
 package auth
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestNewNodeCert(t *testing.T) { // A
 	ac := mustKeyPair(t)
@@ -101,5 +104,52 @@ func TestNodeCertImplementsInterface( // A
 	nid := cert.NodeID()
 	if nid.IsZero() {
 		t.Error("should have valid NodeID")
+	}
+}
+
+func TestNodeCertDefensiveCopiesByteFields( // A
+	t *testing.T,
+) {
+	ac := mustKeyPair(t)
+	serial := []byte("ser")
+	certNonce := []byte("nonce")
+
+	cert, err := NewNodeCert(
+		ac.GetPublicKey(),
+		"issuer-hash",
+		100,
+		200,
+		serial,
+		certNonce,
+	)
+	if err != nil {
+		t.Fatalf("NewNodeCert: %v", err)
+	}
+
+	serial[0] = 'X'
+	certNonce[0] = 'Y'
+	if string(cert.Serial()) != "ser" {
+		t.Fatalf("serial mutated after constructor copy: %q", cert.Serial())
+	}
+	if string(cert.CertNonce()) != "nonce" {
+		t.Fatalf(
+			"cert nonce mutated after constructor copy: %q",
+			cert.CertNonce(),
+		)
+	}
+
+	returnedSerial := cert.Serial()
+	returnedNonce := cert.CertNonce()
+	returnedSerial[0] = 'Z'
+	returnedNonce[0] = 'W'
+
+	if !bytes.Equal(cert.Serial(), []byte("ser")) {
+		t.Fatalf("serial mutated through getter: %q", cert.Serial())
+	}
+	if !bytes.Equal(cert.CertNonce(), []byte("nonce")) {
+		t.Fatalf(
+			"cert nonce mutated through getter: %q",
+			cert.CertNonce(),
+		)
 	}
 }

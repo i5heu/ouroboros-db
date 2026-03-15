@@ -2,6 +2,13 @@ package auth
 
 import "github.com/i5heu/ouroboros-crypt/pkg/keys"
 
+func cloneBytes(src []byte) []byte { // A
+	if src == nil {
+		return nil
+	}
+	return append([]byte(nil), src...)
+}
+
 // NodeCertImpl is a concrete implementation of the
 // interfaces.NodeCert interface.
 type NodeCertImpl struct { // A
@@ -35,8 +42,8 @@ func NewNodeCert( // A
 		issuerCAHash: issuerCAHash,
 		validFrom:    validFrom,
 		validUntil:   validUntil,
-		serial:       serial,
-		certNonce:    certNonce,
+		serial:       cloneBytes(serial),
+		certNonce:    cloneBytes(certNonce),
 		nodeID:       nid,
 	}, nil
 }
@@ -68,12 +75,12 @@ func (n *NodeCertImpl) ValidUntil() int64 { // A
 
 // Serial returns the certificate serial number.
 func (n *NodeCertImpl) Serial() []byte { // A
-	return n.serial
+	return cloneBytes(n.serial)
 }
 
 // CertNonce returns the certificate nonce.
 func (n *NodeCertImpl) CertNonce() []byte { // A
-	return n.certNonce
+	return cloneBytes(n.certNonce)
 }
 
 // NodeID returns the derived node identifier.
