@@ -15,6 +15,32 @@ The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a represe
 
 ## Development Notes
 
+### Environmental Constraints
+
+#### Hardware Constraints
+
+##### Server
+- Must run with 4GB of RAM and 2 CPU cores
+- WAL files must not be larger than 10GB
+
+##### Mobile
+- RAM
+  - Dynamic available RAM via `os_proc_available_memory` iOS and `ActivityManager.getMemoryClass()` Android
+  - Full Mode must run with 128MB of RAM and 1 CPU core
+  - For background mode, RAM might be as low as 24MB
+- WAL files must not be larger than 100MB
+- ValueLog must not be larger than 50MB
+- Optimize for startup time
+- Silent Push Notification Constraints (Background Sync)
+  - Sync time must be minimal
+  - Available RAM 24MB
+  - max [30 seconds](https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app#:~:text=Your%20app%20has%2030%20seconds%20to%20perform%20any%20tasks%20and%20call%20the%20provided%20completion%20handler.) to sync on iOS
+  - max [10 seconds](https://firebase.google.com/docs/cloud-messaging/android/receive-messages#:~:text=//%20Handle%20message%20within%2010%20seconds%0A%20%20%20%20%20%20%20%20%20%20%20%20handleNow()) to sync on Android or [10 Minutes](https://developer.android.com/develop/background-work/background-tasks/persistent#:~:text=potentially%20longer%20than-,10%20minutes,-.) with `WorkManager`
+- Battery usage must be minimal
+  - No or very little background compactions
+  - Consider CPU usage
+- Write Amplification is not a problem since all mobile devices use NAND 
+
 ### Legend
 
 #### Annotation legend for function comments:
@@ -74,6 +100,7 @@ func manyParametersFunction( // AC
 **All logging in this repository should use the `pkg/clusterlog` package.** This ensures logs are recorded in the cluster-wide log, emitted to the configured `slog.Logger`, and delivered to subscribers via the Carrier transport where applicable.
 
 Exceptions: an exception is allowed **only** when using `pkg/clusterlog` would create or risk a subscription loop (circular subscriptions) that could cause self-delivery or unbounded propagation. In such cases, document the justification with a clear `// LOGGER` referencing the potential subscription loop.
+
 
 ## License
 ouroboros-db © 2026 Mia Heidenstedt and contributors   
