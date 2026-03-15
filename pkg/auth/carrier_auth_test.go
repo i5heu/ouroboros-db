@@ -716,12 +716,11 @@ func TestRevokeUserCA(t *testing.T) { // A
 	// Create and add a UserCA.
 	userAC, _ := keys.NewAsyncCrypt()
 	userPub := userAC.GetPublicKey()
-	signBytes, _ := userPub.MarshalBinarySign()
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, signBytes)
-	anchorSig, _ := s.adminAC.Sign(anchorMsg)
 	kem, _ := userPub.MarshalBinaryKEM()
 	sign, _ := userPub.MarshalBinarySign()
 	combined := append(kem, sign...)
+	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, combined)
+	anchorSig, _ := s.adminAC.Sign(anchorMsg)
 
 	err := s.ca.AddUserPubKey(
 		combined, anchorSig, s.adminCA.Hash(),
@@ -836,10 +835,10 @@ func TestUserScopedVerification(t *testing.T) { // A
 	userAC, _ := keys.NewAsyncCrypt()
 	userPub := userAC.GetPublicKey()
 	userSign, _ := userPub.MarshalBinarySign()
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userSign)
-	anchorSig, _ := adminAC.Sign(anchorMsg)
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userBytes := append(userKEM, userSign...)
+	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorSig, _ := adminAC.Sign(anchorMsg)
 	err := ca.AddUserPubKey(
 		userBytes, anchorSig, adminCA.Hash(),
 	)
@@ -990,10 +989,10 @@ func TestUserCAInvalidWhenAnchorAdminRemoved( // A
 	userAC := mustKeyPair(t)
 	userPub := userAC.GetPublicKey()
 	userSign, _ := userPub.MarshalBinarySign()
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userSign)
-	anchorSig, _ := adminAC.Sign(anchorMsg)
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userBytes := append(userKEM, userSign...)
+	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorSig, _ := adminAC.Sign(anchorMsg)
 	if err := ca.AddUserPubKey(
 		userBytes,
 		anchorSig,
@@ -1071,5 +1070,57 @@ func TestUserCAInvalidWhenAnchorAdminRemoved( // A
 	)
 	if err != ErrNoValidCerts {
 		t.Errorf("got %v, want ErrNoValidCerts", err)
+	}
+}
+
+func TestAddUserPubKeyRejectsKEMSubstitution( // A
+	t *testing.T,
+) {
+	s := buildScenario(t)
+
+	userAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userPub := userAC.GetPublicKey()
+	userKEM, err := userPub.MarshalBinaryKEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userSign, err := userPub.MarshalBinarySign()
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchoredBytes := append(userKEM, userSign...)
+	anchorMsg := DomainSeparate(
+		CTXUserCAAnchorV1,
+		anchoredBytes,
+	)
+	anchorSig, err := s.adminAC.Sign(anchorMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attackerAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attackerPub := attackerAC.GetPublicKey()
+	attackerKEM, err := attackerPub.MarshalBinaryKEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	substitutedBytes := append(attackerKEM, userSign...)
+
+	err = s.ca.AddUserPubKey(
+		substitutedBytes,
+		anchorSig,
+		s.adminCA.Hash(),
+	)
+	if err != ErrInvalidAnchorSig {
+		t.Fatalf(
+			"got %v, want ErrInvalidAnchorSig",
+			err,
+		)
 	}
 }

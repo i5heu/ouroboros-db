@@ -584,8 +584,10 @@ func TestPropertyUserScopeFromUserCert(t *testing.T) {
 		}
 		adminCA, _ := auth.NewAdminCA(adminKP.combined)
 
-		userSign, _ := userKP.pubKey.MarshalBinarySign()
-		anchorMsg := auth.DomainSeparate(auth.CTXUserCAAnchorV1, userSign)
+		anchorMsg := auth.DomainSeparate(
+			auth.CTXUserCAAnchorV1,
+			userKP.combined,
+		)
 		anchorSig, _ := adminKP.ac.Sign(anchorMsg)
 		if err := ca.AddUserPubKey(
 			userKP.combined, anchorSig, adminCA.Hash(),
@@ -658,8 +660,10 @@ func TestPropertyAdminDominatesUserScope(t *testing.T) {
 		}
 		adminCA, _ := auth.NewAdminCA(adminKP.combined)
 
-		userSign, _ := userKP.pubKey.MarshalBinarySign()
-		anchorMsg := auth.DomainSeparate(auth.CTXUserCAAnchorV1, userSign)
+		anchorMsg := auth.DomainSeparate(
+			auth.CTXUserCAAnchorV1,
+			userKP.combined,
+		)
 		anchorSig, _ := adminKP.ac.Sign(anchorMsg)
 		if err := ca.AddUserPubKey(
 			userKP.combined, anchorSig, adminCA.Hash(),
@@ -761,8 +765,10 @@ func TestPropertyAnchorAdminRemovalInvalidatesUserCA(t *testing.T) {
 		}
 		adminCA, _ := auth.NewAdminCA(adminKP.combined)
 
-		userSign, _ := userKP.pubKey.MarshalBinarySign()
-		anchorMsg := auth.DomainSeparate(auth.CTXUserCAAnchorV1, userSign)
+		anchorMsg := auth.DomainSeparate(
+			auth.CTXUserCAAnchorV1,
+			userKP.combined,
+		)
 		anchorSig, _ := adminKP.ac.Sign(anchorMsg)
 		if err := ca.AddUserPubKey(
 			userKP.combined, anchorSig, adminCA.Hash(),

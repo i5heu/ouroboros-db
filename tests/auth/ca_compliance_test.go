@@ -198,11 +198,10 @@ func TestPropertyUserCAValidAnchorAccepted(t *testing.T) {
 		}
 
 		userKP := getKeyFromPool(rt)
-		signBytes, err := userKP.pubKey.MarshalBinarySign()
-		if err != nil {
-			rt.Fatalf("MarshalBinarySign: %v", err)
-		}
-		anchorMsg := auth.DomainSeparate(auth.CTXUserCAAnchorV1, signBytes)
+		anchorMsg := auth.DomainSeparate(
+			auth.CTXUserCAAnchorV1,
+			userKP.combined,
+		)
 		anchorSig, err := adminKP.ac.Sign(anchorMsg)
 		if err != nil {
 			rt.Fatalf("Sign anchor: %v", err)

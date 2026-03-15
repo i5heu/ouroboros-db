@@ -17,13 +17,14 @@ func mustUserCA( // A
 		t.Fatal(err)
 	}
 	userPub := userAC.GetPublicKey()
-	signBytes, err := userPub.MarshalBinarySign()
+	pubKeyBytes, err := marshalPubKeyBytes(&userPub)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// AdminCA signs the UserCA sign key as anchor.
-	anchorSig, err := adminAC.Sign(signBytes)
+	// AdminCA signs the full UserCA public key as anchor.
+	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, pubKeyBytes)
+	anchorSig, err := adminAC.Sign(anchorMsg)
 	if err != nil {
 		t.Fatal(err)
 	}

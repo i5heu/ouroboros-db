@@ -97,7 +97,8 @@ func (ca *carrierAuth) AddUserPubKey( // A
 }
 
 // verifyAnchor checks the anchor signature against
-// the referenced AdminCA. Must be called under lock.
+// the referenced AdminCA over the full composite
+// UserCA public key. Must be called under lock.
 func (ca *carrierAuth) verifyAnchor( // A
 	user *UserCAImpl,
 	anchorAdminHash string,
@@ -109,13 +110,13 @@ func (ca *carrierAuth) verifyAnchor( // A
 	if _, rev := ca.revokedAdminCAs[anchorAdminHash]; rev {
 		return ErrAnchorAdminRevoked
 	}
-	signBytes, err := user.pubKey.MarshalBinarySign()
+	pubKeyBytes, err := marshalPubKeyBytes(user.pubKey)
 	if err != nil {
 		return fmt.Errorf(
-			"user CA sign key marshal: %w", err,
+			"user CA public key marshal: %w", err,
 		)
 	}
-	msg := DomainSeparate(CTXUserCAAnchorV1, signBytes)
+	msg := DomainSeparate(CTXUserCAAnchorV1, pubKeyBytes)
 	if !admin.pubKey.Verify(msg, user.anchorSig) {
 		return ErrInvalidAnchorSig
 	}
