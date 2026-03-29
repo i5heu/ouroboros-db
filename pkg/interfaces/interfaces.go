@@ -6,13 +6,14 @@ package interfaces
 import (
 	"context"
 
+	oldproto "github.com/golang/protobuf/proto"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 )
 
 // MessageType enumerates the kinds of messages
 // exchanged between cluster nodes.
-type MessageType int // AC
+type MessageType int32 // AC
 
 const ( // AC
 	MessageTypeBlockSliceRequest MessageType = iota
@@ -40,19 +41,21 @@ type UserMessagePayload struct { // A
 	Text string `json:"text"`
 }
 
-// Message is the envelope sent over the Carrier
-// transport.
-type Message struct { // AC
-	Type    MessageType
-	Payload []byte
+// Message is the protobuf-native envelope sent over
+// the Carrier transport.
+type Message interface { // A
+	oldproto.Message
+	GetType() int32
+	GetPayload() []byte
 }
 
-// Response is the handler response envelope returned
-// to the caller after message processing.
-type Response struct { // A
-	Payload  []byte
-	Error    error
-	Metadata map[string]string
+// Response is the protobuf-native handler response
+// envelope returned after message processing.
+type Response interface { // A
+	oldproto.Message
+	GetPayload() []byte
+	GetErrorText() string
+	GetMetadata() map[string]string
 }
 
 // AccessDecision is the result of an authorization
@@ -63,16 +66,14 @@ type AccessDecision struct { // A
 }
 
 // MessageHandler is the function signature for
-// HTTP-style message handlers. Context carries
-// request lifecycle and cancellation. Message
-// contains the deserialized request payload. Peer
-// identifies the authenticated remote node. Scope
-// indicates the authenticated trust level.
+// carrier-delivered message handlers. Context carries
+// request lifecycle and cancellation. Message is the
+// deserialized protobuf request envelope. Auth is the
+// authenticated peer context.
 type MessageHandler func( // A
 	ctx context.Context,
 	msg Message,
-	peer keys.NodeID,
-	scope auth.TrustScope,
+	authCtx auth.AuthContext,
 ) (Response, error)
 
 // HandlerRegistration stores a registered handler
@@ -115,11 +116,9 @@ type Carrier interface { // A
 		nodeID keys.NodeID,
 		message Message,
 	) error
-	JoinCluster(
-		clusterNode PeerNode,
-		cert NodeCert,
-	) error
+	JoinCluster(clusterNode PeerNode) error
 	LeaveCluster(clusterNode PeerNode) error
 	RemoveNode(nodeID keys.NodeID) error
 	IsConnected(nodeID keys.NodeID) bool
+	Close() error
 }

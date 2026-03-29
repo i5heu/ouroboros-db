@@ -1,15 +1,12 @@
 package interfaces
 
-import (
-	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
-)
+import "github.com/i5heu/ouroboros-db/pkg/auth"
 
 // ClusterController is the central control layer for
 // node cluster operations. It manages HTTP-style
 // message handler registration with TrustScope-based
-// access control. Handlers are invoked with peer
-// authentication context (NodeID + TrustScope).
+// access control. Handlers are invoked with the full
+// authenticated peer context.
 type ClusterController interface { // A
 	// RegisterHandler associates a MessageType with
 	// a handler function and allowed TrustScopes.
@@ -35,8 +32,7 @@ type ClusterController interface { // A
 	// error if access is denied or no handler exists.
 	HandleIncomingMessage(
 		msg Message,
-		peer keys.NodeID,
-		peerScope auth.TrustScope,
+		authCtx auth.AuthContext,
 	) (Response, error)
 
 	// CheckAccess validates whether a peer with the
@@ -53,4 +49,7 @@ type ClusterController interface { // A
 	GetEffectiveScopes(
 		scope auth.TrustScope,
 	) []auth.TrustScope
+
+	// Carrier returns the underlying cluster transport.
+	Carrier() Carrier
 }

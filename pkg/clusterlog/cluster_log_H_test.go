@@ -284,11 +284,11 @@ func TestSubscribeUnsubscribe(t *testing.T) { // AC
 				}
 				// verify each push payload contains the log message
 				for _, m := range new {
-					if m.Msg.Type != interfaces.MessageTypeLogPush {
-						t.Fatalf("expected LogPush, got %v", m.Msg.Type)
+					if m.msgType() != interfaces.MessageTypeLogPush {
+						t.Fatalf("expected LogPush, got %v", m.msgType())
 					}
 					var ents []LogEntry
-					if err := json.Unmarshal(m.Msg.Payload, &ents); err != nil {
+					if err := json.Unmarshal(m.payload(), &ents); err != nil {
 						t.Fatalf("unmarshal payload: %v", err)
 					}
 					if len(ents) == 0 || ents[len(ents)-1].Message != msg {
@@ -318,11 +318,11 @@ func TestSubscribeUnsubscribe(t *testing.T) { // AC
 					t.Fatalf("expected 1 send, got %d", len(new))
 				}
 				if new[0].Target != target ||
-					new[0].Msg.Type != interfaces.MessageTypeLogSendResponse {
+					new[0].msgType() != interfaces.MessageTypeLogSendResponse {
 					t.Fatalf("unexpected send message: %v", new[0])
 				}
 				var ents []LogEntry
-				if err := json.Unmarshal(new[0].Msg.Payload, &ents); err != nil {
+				if err := json.Unmarshal(new[0].payload(), &ents); err != nil {
 					t.Fatalf("unmarshal send payload: %v", err)
 				}
 				if len(ents) == 0 {

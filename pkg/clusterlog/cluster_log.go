@@ -418,10 +418,10 @@ func (cl *ClusterLog) SendLog( // AC
 		return err
 	}
 
-	msg := interfaces.Message{
-		Type:    interfaces.MessageTypeLogSendResponse,
-		Payload: payload,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeLogSendResponse,
+		payload,
+	)
 	return cl.carrier.SendMessageToNode(
 		targetNodeID, msg,
 	)
@@ -449,10 +449,10 @@ func (cl *ClusterLog) push( // AC
 		return
 	}
 
-	msg := interfaces.Message{
-		Type:    interfaces.MessageTypeLogPush,
-		Payload: payload,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeLogPush,
+		payload,
+	)
 
 	for _, target := range targets {
 		if target == cl.selfID {

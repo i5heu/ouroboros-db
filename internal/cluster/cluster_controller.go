@@ -10,10 +10,13 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/node"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/pkg/carrier"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
+
+const defaultListenAddress = "127.0.0.1:0" // A
 
 // clusterController is the concrete implementation
 // of interfaces.ClusterController.
@@ -30,14 +33,19 @@ type clusterController struct { // A
 }
 
 // NewClusterController creates a new
-// ClusterController backed by the given Carrier.
+// ClusterController and the underlying carrier.
 func NewClusterController( // A
-	carrier interfaces.Carrier,
+	nodeIdentity *node.Node,
 	logger *slog.Logger,
+	listenAddress string,
+	trustedAdminPubKeys [][]byte,
+	localNodeCerts []interfaces.NodeCert,
+	localCASignatures [][]byte,
+	bootstrapPeers []interfaces.PeerNode,
 ) (*clusterController, error) {
-	if carrier == nil {
+	if nodeIdentity == nil {
 		return nil, fmt.Errorf(
-			"carrier must not be nil",
+			"node identity must not be nil",
 		)
 	}
 	if logger == nil {
@@ -45,13 +53,46 @@ func NewClusterController( // A
 			"logger must not be nil",
 		)
 	}
+	if listenAddress == "" {
+		listenAddress = defaultListenAddress
+	}
+	cc := newClusterControllerWithCarrier(nil, logger)
+	transport, err := carrier.New(carrier.Config{
+		Logger:              logger,
+		ListenAddress:       listenAddress,
+		LocalSigner:         nodeIdentity.Crypt().Keys,
+		LocalNodeCerts:      localNodeCerts,
+		LocalCASignatures:   localCASignatures,
+		TrustedAdminPubKeys: trustedAdminPubKeys,
+		BootstrapPeers:      bootstrapPeers,
+		Dispatcher:          cc.dispatchIncomingMessage,
+	})
+	if err != nil {
+		return nil, err
+	}
+	cc.carrier = transport
+	return cc, nil
+}
+
+func newClusterControllerWithCarrier( // A
+	carrier interfaces.Carrier,
+	logger *slog.Logger,
+) *clusterController {
 	return &clusterController{
 		handlers: make(
 			map[interfaces.MessageType]*interfaces.HandlerRegistration,
 		),
 		carrier: carrier,
 		logger:  logger,
-	}, nil
+	}
+}
+
+func (cc *clusterController) dispatchIncomingMessage( // A
+	_ context.Context,
+	msg interfaces.Message,
+	authCtx auth.AuthContext,
+) (interfaces.Response, error) {
+	return cc.HandleIncomingMessage(msg, authCtx)
 }
 
 // RegisterHandler associates a MessageType with a
@@ -149,6 +190,13 @@ func (cc *clusterController) GetEffectiveScopes( // A
 	}
 }
 
+// Carrier returns the underlying transport.
+func (cc *clusterController) Carrier() interfaces.Carrier { // A
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	return cc.carrier
+}
+
 // CheckAccess validates whether a peer with the
 // given TrustScope may invoke the handler registered
 // for msgType. The peer's effective scopes are
@@ -203,25 +251,28 @@ func (cc *clusterController) CheckAccess( // A
 // is denied or no handler exists.
 func (cc *clusterController) HandleIncomingMessage( // A
 	msg interfaces.Message,
-	peer keys.NodeID,
-	peerScope auth.TrustScope,
+	authCtx auth.AuthContext,
 ) (interfaces.Response, error) {
 	decision := cc.CheckAccess(
-		msg.Type,
-		peerScope,
+		interfaces.MessageType(msg.GetType()),
+		authCtx.EffectiveScope,
 	)
 	if !decision.Allowed {
-		return interfaces.Response{}, fmt.Errorf(
-			"access denied: %s", decision.Reason,
-		)
+		return interfaces.NewWireResponse(
+				nil,
+				"",
+				nil,
+			), fmt.Errorf(
+				"access denied: %s", decision.Reason,
+			)
 	}
 
 	cc.mu.RLock()
-	reg := cc.handlers[msg.Type]
+	reg := cc.handlers[interfaces.MessageType(msg.GetType())]
 	cc.mu.RUnlock()
 
 	ctx := context.Background()
-	return reg.Handler(ctx, msg, peer, peerScope)
+	return reg.Handler(ctx, msg, authCtx)
 }
 
 // getEffectiveScopesUnlocked is the internal helper

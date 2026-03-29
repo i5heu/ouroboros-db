@@ -26,6 +26,20 @@ type sentMessage struct { // A
 	Msg    interfaces.Message
 }
 
+func (s sentMessage) payload() []byte { // A
+	if s.Msg == nil {
+		return nil
+	}
+	return s.Msg.GetPayload()
+}
+
+func (s sentMessage) msgType() interfaces.MessageType { // A
+	if s.Msg == nil {
+		return 0
+	}
+	return interfaces.MessageType(s.Msg.GetType())
+}
+
 func (m *mockCarrier) GetNodes() []interfaces.PeerNode { // A
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -119,7 +133,6 @@ func (m *mockCarrier) SendMessageToNode( // A
 
 func (m *mockCarrier) JoinCluster( // A
 	_ interfaces.PeerNode,
-	_ interfaces.NodeCert,
 ) error {
 	return nil
 }
@@ -140,6 +153,10 @@ func (m *mockCarrier) IsConnected( // A
 	_ keys.NodeID,
 ) bool {
 	return true
+}
+
+func (m *mockCarrier) Close() error { // A
+	return nil
 }
 
 func (m *mockCarrier) getMessages() []sentMessage { // A
@@ -286,15 +303,15 @@ func TestSubscribeAndPush(t *testing.T) { // A
 		t.Errorf("expected target %v, got %v",
 			sub, msgs[0].Target)
 	}
-	if msgs[0].Msg.Type !=
+	if msgs[0].msgType() !=
 		interfaces.MessageTypeLogPush {
 		t.Errorf("expected LogPush type, got %d",
-			msgs[0].Msg.Type)
+			msgs[0].msgType())
 	}
 
 	var entries []LogEntry
 	if err := json.Unmarshal(
-		msgs[0].Msg.Payload, &entries,
+		msgs[0].payload(), &entries,
 	); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
@@ -423,10 +440,10 @@ func TestSendLog(t *testing.T) { // A
 		t.Fatalf("expected 1 send, got %d",
 			len(msgs))
 	}
-	if msgs[0].Msg.Type !=
+	if msgs[0].msgType() !=
 		interfaces.MessageTypeLogSendResponse {
 		t.Errorf("expected LogSendResponse, got %d",
-			msgs[0].Msg.Type)
+			msgs[0].msgType())
 	}
 }
 

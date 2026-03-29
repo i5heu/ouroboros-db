@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 
+	crypt "github.com/i5heu/ouroboros-crypt"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/cluster"
 	"github.com/i5heu/ouroboros-db/internal/node"
+	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
 const (
@@ -17,9 +20,10 @@ const (
 )
 
 type OuroborosDB struct {
-	log    *slog.Logger
-	config Config
-	node   *node.Node
+	log     *slog.Logger
+	config  Config
+	node    *node.Node
+	cluster interfaces.ClusterController
 }
 
 func New(conf Config) (*OuroborosDB, error) { // AC
@@ -37,11 +41,27 @@ func New(conf Config) (*OuroborosDB, error) { // AC
 			err,
 		)
 	}
+	clusterController, err := cluster.NewClusterController(
+		n,
+		conf.Logger,
+		conf.ClusterListenAddress,
+		conf.TrustedAdminPubKeys,
+		conf.LocalNodeCerts,
+		conf.LocalCASignatures,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"init cluster controller: %w",
+			err,
+		)
+	}
 
 	return &OuroborosDB{
-		log:    conf.Logger,
-		config: conf,
-		node:   n,
+		log:     conf.Logger,
+		config:  conf,
+		node:    n,
+		cluster: clusterController,
 	}, nil
 }
 
@@ -49,6 +69,19 @@ func New(conf Config) (*OuroborosDB, error) { // AC
 // database node.
 func (db *OuroborosDB) NodeID() keys.NodeID { // H
 	return db.node.ID()
+}
+
+// ClusterController exposes the cluster controller for
+// integration and demos.
+func (db *OuroborosDB) ClusterController( // A
+) interfaces.ClusterController {
+	return db.cluster
+}
+
+// Crypt exposes the node cryptographic identity for
+// integration and demos.
+func (db *OuroborosDB) Crypt() *crypt.Crypt { // A
+	return db.node.Crypt()
 }
 
 func GetVersion() string {

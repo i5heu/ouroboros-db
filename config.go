@@ -3,6 +3,8 @@ package ouroboros
 import (
 	"log/slog"
 	"os"
+
+	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
 // Config configures the database instance. Only Paths[0] is used at the
@@ -17,6 +19,17 @@ type Config struct {
 	// UiPort specifies the port for the built-in web UI. If 0, the UI is
 	// disabled.
 	UiPort uint16
+	// ClusterListenAddress is the QUIC listen address used by the cluster
+	// transport. If empty, a local ephemeral port is used.
+	ClusterListenAddress string
+	// TrustedAdminPubKeys contains concatenated KEM+sign admin public keys
+	// trusted for carrier peer authentication.
+	TrustedAdminPubKeys [][]byte
+	// LocalNodeCerts optionally provides the local carrier node cert bundle.
+	LocalNodeCerts []interfaces.NodeCert
+	// LocalCASignatures optionally provides the CA signatures matching
+	// LocalNodeCerts.
+	LocalCASignatures [][]byte
 }
 
 func defaultLogger() *slog.Logger { // A

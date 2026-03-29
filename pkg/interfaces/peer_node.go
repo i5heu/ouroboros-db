@@ -42,19 +42,19 @@ func (s ConnectionStatus) String() string { // A
 // from the local node. It carries the peer identity,
 // network addresses, and certificate material.
 type PeerNode struct { // A
-	NodeID    keys.NodeID
-	Addresses []string
-	Cert      NodeCert
+	NodeID       keys.NodeID
+	Addresses    []string
+	NodeCerts    []NodeCert
+	CASignatures [][]byte
 }
 
 // NodeInfo holds complete node data for registry
 // storage and sync operations.
 type NodeInfo struct { // A
 	Peer             PeerNode
-	CASignature      []byte
 	DelegationProof  DelegationProof
 	DelegationSig    []byte
 	LastSeen         time.Time
 	ConnectionStatus ConnectionStatus
-	TrustScope       auth.TrustScope
+	AuthContext      auth.AuthContext
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/node"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	"pgregory.net/rapid"
@@ -85,7 +86,6 @@ func (m *mockCarrier) SendMessageToNode( // A
 
 func (m *mockCarrier) JoinCluster( // A
 	_ interfaces.PeerNode,
-	_ interfaces.NodeCert,
 ) error {
 	return nil
 }
@@ -108,6 +108,10 @@ func (m *mockCarrier) IsConnected( // A
 	return false
 }
 
+func (m *mockCarrier) Close() error { // A
+	return nil
+}
+
 func testLogger() *slog.Logger { // A
 	return slog.New(
 		slog.NewTextHandler(os.Stderr, nil),
@@ -118,8 +122,19 @@ func newTestController( // A
 	t *testing.T,
 ) *clusterController {
 	t.Helper()
+	dir := t.TempDir()
+	nodeIdentity, err := node.New(dir)
+	if err != nil {
+		t.Fatalf("new node identity: %v", err)
+	}
 	cc, err := NewClusterController(
-		&mockCarrier{}, testLogger(),
+		nodeIdentity,
+		testLogger(),
+		"127.0.0.1:0",
+		nil,
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("new controller: %v", err)
@@ -136,12 +151,23 @@ func nodeID(b byte) keys.NodeID { // A
 func echoHandler( // A
 	_ context.Context,
 	msg interfaces.Message,
-	_ keys.NodeID,
-	_ auth.TrustScope,
+	_ auth.AuthContext,
 ) (interfaces.Response, error) {
-	return interfaces.Response{
-		Payload: msg.Payload,
-	}, nil
+	return interfaces.NewWireResponse(
+		msg.GetPayload(),
+		"",
+		nil,
+	), nil
+}
+
+func authCtx( // A
+	peer keys.NodeID,
+	scope auth.TrustScope,
+) auth.AuthContext {
+	return auth.AuthContext{
+		NodeID:         peer,
+		EffectiveScope: scope,
+	}
 }
 
 // TestNewClusterControllerNilCarrier verifies that
@@ -151,10 +177,16 @@ func TestNewClusterControllerNilCarrier( // A
 ) {
 	t.Parallel()
 	_, err := NewClusterController(
-		nil, testLogger(),
+		nil,
+		testLogger(),
+		"127.0.0.1:0",
+		nil,
+		nil,
+		nil,
+		nil,
 	)
 	if err == nil {
-		t.Fatal("expected error for nil carrier")
+		t.Fatal("expected error for nil node identity")
 	}
 }
 
@@ -164,8 +196,19 @@ func TestNewClusterControllerNilLogger( // A
 	t *testing.T,
 ) {
 	t.Parallel()
-	_, err := NewClusterController(
-		&mockCarrier{}, nil,
+	dir := t.TempDir()
+	nodeIdentity, err := node.New(dir)
+	if err != nil {
+		t.Fatalf("new node identity: %v", err)
+	}
+	_, err = NewClusterController(
+		nodeIdentity,
+		nil,
+		"127.0.0.1:0",
+		nil,
+		nil,
+		nil,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error for nil logger")
@@ -522,20 +565,20 @@ func TestHandleIncomingMessageAuthorized( // A
 		echoHandler,
 	)
 
-	msg := interfaces.Message{
-		Type:    interfaces.MessageTypeHeartbeat,
-		Payload: payload,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		payload,
+	)
 	resp, err := cc.HandleIncomingMessage(
-		msg, nodeID(1), auth.ScopeAdmin,
+		msg, authCtx(nodeID(1), auth.ScopeAdmin),
 	)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if string(resp.Payload) != string(payload) {
+	if string(resp.GetPayload()) != string(payload) {
 		t.Fatalf(
 			"payload: got %q, want %q",
-			resp.Payload,
+			resp.GetPayload(),
 			payload,
 		)
 	}
@@ -555,12 +598,12 @@ func TestHandleIncomingMessageDenied( // A
 		echoHandler,
 	)
 
-	msg := interfaces.Message{
-		Type:    interfaces.MessageTypeHeartbeat,
-		Payload: []byte("denied"),
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		[]byte("denied"),
+	)
 	_, err := cc.HandleIncomingMessage(
-		msg, nodeID(1), auth.ScopeUser,
+		msg, authCtx(nodeID(1), auth.ScopeUser),
 	)
 	if err == nil {
 		t.Fatal("expected access denied error")
@@ -575,12 +618,12 @@ func TestHandleIncomingMessageNoHandler( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	msg := interfaces.Message{
-		Type:    interfaces.MessageTypeHeartbeat,
-		Payload: []byte("no-handler"),
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		[]byte("no-handler"),
+	)
 	_, err := cc.HandleIncomingMessage(
-		msg, nodeID(1), auth.ScopeAdmin,
+		msg, authCtx(nodeID(1), auth.ScopeAdmin),
 	)
 	if err == nil {
 		t.Fatal("expected error for missing handler")
@@ -598,10 +641,13 @@ func TestHandleIncomingMessageHandlerError( // A
 	errHandler := func( // A
 		_ context.Context,
 		_ interfaces.Message,
-		_ keys.NodeID,
-		_ auth.TrustScope,
+		_ auth.AuthContext,
 	) (interfaces.Response, error) {
-		return interfaces.Response{},
+		return interfaces.NewWireResponse(
+				nil,
+				"",
+				nil,
+			),
 			fmt.Errorf("handler failed")
 	}
 
@@ -611,11 +657,12 @@ func TestHandleIncomingMessageHandlerError( // A
 		errHandler,
 	)
 
-	msg := interfaces.Message{
-		Type: interfaces.MessageTypeHeartbeat,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		nil,
+	)
 	_, err := cc.HandleIncomingMessage(
-		msg, nodeID(1), auth.ScopeAdmin,
+		msg, authCtx(nodeID(1), auth.ScopeAdmin),
 	)
 	if err == nil {
 		t.Fatal("expected handler error")
@@ -637,11 +684,14 @@ func TestHandleIncomingMessagePeerIDPassed( // A
 	h := func( // A
 		_ context.Context,
 		_ interfaces.Message,
-		peer keys.NodeID,
-		_ auth.TrustScope,
+		authCtx auth.AuthContext,
 	) (interfaces.Response, error) {
-		receivedPeer = peer
-		return interfaces.Response{}, nil
+		receivedPeer = authCtx.NodeID
+		return interfaces.NewWireResponse(
+			nil,
+			"",
+			nil,
+		), nil
 	}
 
 	_ = cc.RegisterHandler(
@@ -650,11 +700,12 @@ func TestHandleIncomingMessagePeerIDPassed( // A
 		h,
 	)
 
-	msg := interfaces.Message{
-		Type: interfaces.MessageTypeHeartbeat,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		nil,
+	)
 	_, err := cc.HandleIncomingMessage(
-		msg, expectedPeer, auth.ScopeAdmin,
+		msg, authCtx(expectedPeer, auth.ScopeAdmin),
 	)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
@@ -679,11 +730,14 @@ func TestHandleIncomingMessageScopePassed( // A
 	h := func( // A
 		_ context.Context,
 		_ interfaces.Message,
-		_ keys.NodeID,
-		scope auth.TrustScope,
+		authCtx auth.AuthContext,
 	) (interfaces.Response, error) {
-		receivedScope = scope
-		return interfaces.Response{}, nil
+		receivedScope = authCtx.EffectiveScope
+		return interfaces.NewWireResponse(
+			nil,
+			"",
+			nil,
+		), nil
 	}
 
 	_ = cc.RegisterHandler(
@@ -695,11 +749,12 @@ func TestHandleIncomingMessageScopePassed( // A
 		h,
 	)
 
-	msg := interfaces.Message{
-		Type: interfaces.MessageTypeHeartbeat,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		nil,
+	)
 	_, err := cc.HandleIncomingMessage(
-		msg, nodeID(1), auth.ScopeUser,
+		msg, authCtx(nodeID(1), auth.ScopeUser),
 	)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
@@ -723,14 +778,13 @@ func TestHandleIncomingMessageResponseMetadata( // A
 	h := func( // A
 		_ context.Context,
 		_ interfaces.Message,
-		_ keys.NodeID,
-		_ auth.TrustScope,
+		_ auth.AuthContext,
 	) (interfaces.Response, error) {
-		return interfaces.Response{
-			Metadata: map[string]string{
-				"key": "value",
-			},
-		}, nil
+		return interfaces.NewWireResponse(
+			nil,
+			"",
+			map[string]string{"key": "value"},
+		), nil
 	}
 
 	_ = cc.RegisterHandler(
@@ -739,19 +793,20 @@ func TestHandleIncomingMessageResponseMetadata( // A
 		h,
 	)
 
-	msg := interfaces.Message{
-		Type: interfaces.MessageTypeHeartbeat,
-	}
+	msg := interfaces.NewWireMessage(
+		interfaces.MessageTypeHeartbeat,
+		nil,
+	)
 	resp, err := cc.HandleIncomingMessage(
-		msg, nodeID(1), auth.ScopeAdmin,
+		msg, authCtx(nodeID(1), auth.ScopeAdmin),
 	)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if resp.Metadata["key"] != "value" {
+	if resp.GetMetadata()["key"] != "value" {
 		t.Fatalf(
 			"metadata: got %q, want %q",
-			resp.Metadata["key"], "value",
+			resp.GetMetadata()["key"], "value",
 		)
 	}
 }
@@ -794,14 +849,13 @@ func TestConcurrentRegisterAndHandle( // A
 		go func(i int) {
 			defer wg.Done()
 			mt := msgTypes[i%len(msgTypes)]
-			msg := interfaces.Message{
-				Type:    mt,
-				Payload: []byte("concurrent"),
-			}
+			msg := interfaces.NewWireMessage(
+				mt,
+				[]byte("concurrent"),
+			)
 			_, _ = cc.HandleIncomingMessage(
 				msg,
-				nodeID(byte(i)),
-				auth.ScopeAdmin,
+				authCtx(nodeID(byte(i)), auth.ScopeAdmin),
 			)
 		}(i)
 	}
