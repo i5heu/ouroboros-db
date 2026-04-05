@@ -96,3 +96,55 @@ func TestNodeIDDeterministic(t *testing.T) { // A
 		t.Fatal("NodeID should be deterministic")
 	}
 }
+
+func TestConfigPrimaryPathUsesStorage(t *testing.T) { // A
+	t.Parallel()
+
+	dir := t.TempDir()
+	path, err := (Config{
+		Storage: StorageConfig{
+			Paths: []string{dir},
+		},
+	}).PrimaryPath()
+	if err != nil {
+		t.Fatalf("PrimaryPath: %v", err)
+	}
+	if path != dir {
+		t.Fatalf("PrimaryPath = %q, want %q", path, dir)
+	}
+}
+
+func TestNewNormalizesStorageConfig(t *testing.T) { // A
+	t.Parallel()
+
+	dir := t.TempDir()
+	db, err := New(Config{
+		Paths: []string{dir},
+		Network: NetworkConfig{
+			ListenAddress: ":0",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if len(db.config.Storage.Paths) != 1 {
+		t.Fatalf(
+			"normalized storage paths = %d, want 1",
+			len(db.config.Storage.Paths),
+		)
+	}
+	if db.config.Storage.Paths[0] != dir {
+		t.Fatalf(
+			"storage path = %q, want %q",
+			db.config.Storage.Paths[0],
+			dir,
+		)
+	}
+	if db.config.EffectiveListenAddress() != ":0" {
+		t.Fatalf(
+			"listen address = %q, want %q",
+			db.config.EffectiveListenAddress(),
+			":0",
+		)
+	}
+}

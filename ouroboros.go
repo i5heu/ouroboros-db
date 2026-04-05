@@ -23,14 +23,17 @@ type OuroborosDB struct {
 }
 
 func New(conf Config) (*OuroborosDB, error) { // AC
-	if len(conf.Paths) == 0 {
-		return nil, fmt.Errorf("at least one path must be provided in config")
+	primaryPath, err := conf.PrimaryPath()
+	if err != nil {
+		return nil, err
 	}
 	if conf.Logger == nil {
 		conf.Logger = defaultLogger()
 	}
+	conf.Storage.Paths = conf.EffectivePaths()
+	conf.Storage.MinimumFreeGB = conf.EffectiveMinimumFreeGB()
 
-	n, err := node.New(conf.Paths[0])
+	n, err := node.New(primaryPath)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"init node: %w",
@@ -51,6 +54,6 @@ func (db *OuroborosDB) NodeID() keys.NodeID { // H
 	return db.node.ID()
 }
 
-func GetVersion() string {
+func GetVersion() string { // A
 	return CurrentDbVersion
 }

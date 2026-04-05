@@ -18,6 +18,7 @@ type QuicTransport interface { // A
 
 type Connection interface { // A
 	NodeID() keys.NodeID
+	RemoteAddr() string
 	TLSBindings() TLSBindings
 	ExportKeyingMaterial(
 		label string, ctx []byte, length int,

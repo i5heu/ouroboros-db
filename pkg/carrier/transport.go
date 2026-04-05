@@ -155,6 +155,15 @@ func (qt *quicTransport) Close() error { // A
 	return qt.transport.Close()
 }
 
+func (qt *quicTransport) listenAddress() string { // A
+	qt.mu.RLock()
+	defer qt.mu.RUnlock()
+	if qt.transport == nil || qt.transport.Conn == nil {
+		return ""
+	}
+	return qt.transport.Conn.LocalAddr().String()
+}
+
 // GetActiveConnections returns all tracked
 // connections.
 func (qt *quicTransport) GetActiveConnections() []interfaces.Connection { // A
@@ -193,6 +202,11 @@ func newQuicConnection( // A
 // Zero until the auth handshake completes.
 func (qc *quicConnection) NodeID() keys.NodeID { // A
 	return qc.nodeID
+}
+
+// RemoteAddr returns the peer's QUIC remote address.
+func (qc *quicConnection) RemoteAddr() string { // A
+	return qc.conn.RemoteAddr().String()
 }
 
 // TLSBindings returns the static TLS binding values
