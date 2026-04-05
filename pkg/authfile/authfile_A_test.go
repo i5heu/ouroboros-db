@@ -372,6 +372,234 @@ func TestNodeCertToIdentity(t *testing.T) { // A
 	}
 }
 
+func TestBuildEmbeddedTrustChainAdmin( // A
+	t *testing.T,
+) {
+	adminAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("admin key: %v", err)
+	}
+	adminJSON, err := authfile.MarshalKeyJSON(adminAC)
+	if err != nil {
+		t.Fatalf("admin marshal: %v", err)
+	}
+	chain, err := authfile.BuildEmbeddedTrustChain(
+		adminAC,
+		&authfile.CAKeyFile{
+			Type:    "admin-ca",
+			KeyJSON: adminJSON,
+		},
+	)
+	if err != nil {
+		t.Fatalf("BuildEmbeddedTrustChain: %v", err)
+	}
+	if len(chain) != 1 {
+		t.Fatalf("chain len = %d, want 1", len(chain))
+	}
+	if chain[0].Type != "admin-ca" {
+		t.Fatalf("chain[0].Type = %q, want admin-ca", chain[0].Type)
+	}
+}
+
+func TestBuildEmbeddedTrustChainUser( // A
+	t *testing.T,
+) {
+	adminAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("admin key: %v", err)
+	}
+	adminPub := adminAC.GetPublicKey()
+	adminPubBytes, err := auth.MarshalPubKeyBytes(&adminPub)
+	if err != nil {
+		t.Fatalf("admin pub: %v", err)
+	}
+	adminCA, err := auth.NewAdminCA(adminPubBytes)
+	if err != nil {
+		t.Fatalf("NewAdminCA: %v", err)
+	}
+	adminPubKEM, err := adminPub.MarshalBinaryKEM()
+	if err != nil {
+		t.Fatalf("admin KEM pub: %v", err)
+	}
+	adminPubSign, err := adminPub.MarshalBinarySign()
+	if err != nil {
+		t.Fatalf("admin Sign pub: %v", err)
+	}
+
+	userAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("user key: %v", err)
+	}
+	userPub := userAC.GetPublicKey()
+	userPubBytes, err := auth.MarshalPubKeyBytes(&userPub)
+	if err != nil {
+		t.Fatalf("user pub: %v", err)
+	}
+	anchorMsg := auth.DomainSeparate(
+		auth.CTXUserCAAnchorV1,
+		userPubBytes,
+	)
+	anchorSig, err := adminAC.Sign(anchorMsg)
+	if err != nil {
+		t.Fatalf("anchor sign: %v", err)
+	}
+	userJSON, err := authfile.MarshalKeyJSON(userAC)
+	if err != nil {
+		t.Fatalf("user marshal: %v", err)
+	}
+	chain, err := authfile.BuildEmbeddedTrustChain(
+		userAC,
+		&authfile.CAKeyFile{
+			Type:               "user-ca",
+			KeyJSON:            userJSON,
+			AnchorSig:          anchorSig,
+			AnchorAdmin:        adminCA.Hash(),
+			AnchorAdminPubKEM:  adminPubKEM,
+			AnchorAdminPubSign: adminPubSign,
+		},
+	)
+	if err != nil {
+		t.Fatalf("BuildEmbeddedTrustChain: %v", err)
+	}
+	if len(chain) != 2 {
+		t.Fatalf("chain len = %d, want 2", len(chain))
+	}
+	if chain[0].Type != "admin-ca" {
+		t.Fatalf("chain[0].Type = %q, want admin-ca", chain[0].Type)
+	}
+	if chain[1].Type != "user-ca" {
+		t.Fatalf("chain[1].Type = %q, want user-ca", chain[1].Type)
+	}
+	if chain[1].AnchorAdmin != adminCA.Hash() {
+		t.Fatalf(
+			"chain[1].AnchorAdmin = %q, want %q",
+			chain[1].AnchorAdmin,
+			adminCA.Hash(),
+		)
+	}
+}
+
+func TestAddEmbeddedTrustLegacyAdmin( // A
+	t *testing.T,
+) {
+	adminAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("admin key: %v", err)
+	}
+	adminPub := adminAC.GetPublicKey()
+	adminPubBytes, err := auth.MarshalPubKeyBytes(&adminPub)
+	if err != nil {
+		t.Fatalf("admin pub: %v", err)
+	}
+	adminCA, err := auth.NewAdminCA(adminPubBytes)
+	if err != nil {
+		t.Fatalf("NewAdminCA: %v", err)
+	}
+	caPubKEM, err := adminPub.MarshalBinaryKEM()
+	if err != nil {
+		t.Fatalf("admin KEM pub: %v", err)
+	}
+	caPubSign, err := adminPub.MarshalBinarySign()
+	if err != nil {
+		t.Fatalf("admin Sign pub: %v", err)
+	}
+	trust := auth.NewCarrierAuth(nil)
+	err = authfile.AddEmbeddedTrust(trust, &authfile.NodeCertFile{
+		Type:      "node-cert",
+		CAPubKEM:  caPubKEM,
+		CAPubSign: caPubSign,
+	})
+	if err != nil {
+		t.Fatalf("AddEmbeddedTrust: %v", err)
+	}
+	if err := trust.RemoveAdminPubKey(adminCA.Hash()); err != nil {
+		t.Fatalf("RemoveAdminPubKey: %v", err)
+	}
+}
+
+func TestAddEmbeddedTrustUserChain( // A
+	t *testing.T,
+) {
+	adminAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("admin key: %v", err)
+	}
+	adminPub := adminAC.GetPublicKey()
+	adminPubBytes, err := auth.MarshalPubKeyBytes(&adminPub)
+	if err != nil {
+		t.Fatalf("admin pub: %v", err)
+	}
+	adminCA, err := auth.NewAdminCA(adminPubBytes)
+	if err != nil {
+		t.Fatalf("NewAdminCA: %v", err)
+	}
+	adminPubKEM, err := adminPub.MarshalBinaryKEM()
+	if err != nil {
+		t.Fatalf("admin KEM pub: %v", err)
+	}
+	adminPubSign, err := adminPub.MarshalBinarySign()
+	if err != nil {
+		t.Fatalf("admin Sign pub: %v", err)
+	}
+
+	userAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("user key: %v", err)
+	}
+	userPub := userAC.GetPublicKey()
+	userPubBytes, err := auth.MarshalPubKeyBytes(&userPub)
+	if err != nil {
+		t.Fatalf("user pub: %v", err)
+	}
+	userCA, err := auth.NewAdminCA(userPubBytes)
+	if err != nil {
+		t.Fatalf("NewAdminCA user hash: %v", err)
+	}
+	anchorMsg := auth.DomainSeparate(
+		auth.CTXUserCAAnchorV1,
+		userPubBytes,
+	)
+	anchorSig, err := adminAC.Sign(anchorMsg)
+	if err != nil {
+		t.Fatalf("anchor sign: %v", err)
+	}
+	userPubKEM, err := userPub.MarshalBinaryKEM()
+	if err != nil {
+		t.Fatalf("user KEM pub: %v", err)
+	}
+	userPubSign, err := userPub.MarshalBinarySign()
+	if err != nil {
+		t.Fatalf("user Sign pub: %v", err)
+	}
+	trust := auth.NewCarrierAuth(nil)
+	err = authfile.AddEmbeddedTrust(trust, &authfile.NodeCertFile{
+		Type: "node-cert",
+		Authorities: []authfile.EmbeddedCAFile{
+			{
+				Type:    "admin-ca",
+				PubKEM:  adminPubKEM,
+				PubSign: adminPubSign,
+			},
+			{
+				Type:        "user-ca",
+				PubKEM:      userPubKEM,
+				PubSign:     userPubSign,
+				AnchorSig:   anchorSig,
+				AnchorAdmin: adminCA.Hash(),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddEmbeddedTrust: %v", err)
+	}
+	if err := trust.RemoveUserPubKey(userCA.Hash()); err != nil {
+		t.Fatalf("RemoveUserPubKey: %v", err)
+	}
+	if err := trust.RemoveAdminPubKey(adminCA.Hash()); err != nil {
+		t.Fatalf("RemoveAdminPubKey: %v", err)
+	}
+}
+
 func TestReadCAKeyRejectsNodeCert(t *testing.T) { // A
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.oukey")

@@ -363,6 +363,22 @@ func loadCarrierAuth( // A
 	logger *slog.Logger,
 ) (interfaces.CarrierAuth, error) {
 	carrierAuth := auth.NewCarrierAuth(logger)
+	if len(conf.Identity.AdminCAPaths) == 0 &&
+		len(conf.Identity.UserCAPaths) == 0 {
+		_, certFile, err := authfile.ReadNodeCert(
+			conf.Identity.NodeCertPath,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := authfile.AddEmbeddedTrust(
+			carrierAuth,
+			certFile,
+		); err != nil {
+			return nil, err
+		}
+		return carrierAuth, nil
+	}
 	for _, path := range conf.Identity.AdminCAPaths {
 		if err := addCAFile(carrierAuth, path); err != nil {
 			return nil, err

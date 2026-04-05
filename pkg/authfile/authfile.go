@@ -9,12 +9,26 @@ import (
 	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
 // CAKeyFile is the CBOR-encoded .oukey format.
 type CAKeyFile struct { // A
+	Type               string `cbor:"type"`
+	KeyJSON            []byte `cbor:"keyJSON"`
+	AnchorSig          []byte `cbor:"anchorSig,omitempty"`
+	AnchorAdmin        string `cbor:"anchorAdmin,omitempty"`
+	AnchorAdminPubKEM  []byte `cbor:"anchorAdminPubKEM,omitempty"`
+	AnchorAdminPubSign []byte `cbor:"anchorAdminPubSign,omitempty"`
+}
+
+// EmbeddedCAFile stores public-only CA data that can
+// be embedded inside a node cert for runtime trust
+// bootstrapping without shipping CA private keys.
+type EmbeddedCAFile struct { // A
 	Type        string `cbor:"type"`
-	KeyJSON     []byte `cbor:"keyJSON"`
+	PubKEM      []byte `cbor:"pubKEM"`
+	PubSign     []byte `cbor:"pubSign"`
 	AnchorSig   []byte `cbor:"anchorSig,omitempty"`
 	AnchorAdmin string `cbor:"anchorAdmin,omitempty"`
 }
@@ -24,16 +38,17 @@ type CAKeyFile struct { // A
 // its private key, the CA pubkey, and the CA signature
 // over the NodeCert.
 type NodeCertFile struct { // A
-	Type         string `cbor:"type"`
-	KeyJSON      []byte `cbor:"keyJSON"`
-	CAPubKEM     []byte `cbor:"caPubKEM"`
-	CAPubSign    []byte `cbor:"caPubSign"`
-	CASignature  []byte `cbor:"caSignature"`
-	IssuerCAHash string `cbor:"issuerCAHash"`
-	ValidFrom    int64  `cbor:"validFrom"`
-	ValidUntil   int64  `cbor:"validUntil"`
-	Serial       []byte `cbor:"serial"`
-	CertNonce    []byte `cbor:"certNonce"`
+	Type         string           `cbor:"type"`
+	KeyJSON      []byte           `cbor:"keyJSON"`
+	CAPubKEM     []byte           `cbor:"caPubKEM"`
+	CAPubSign    []byte           `cbor:"caPubSign"`
+	CASignature  []byte           `cbor:"caSignature"`
+	Authorities  []EmbeddedCAFile `cbor:"authorities,omitempty"`
+	IssuerCAHash string           `cbor:"issuerCAHash"`
+	ValidFrom    int64            `cbor:"validFrom"`
+	ValidUntil   int64            `cbor:"validUntil"`
+	Serial       []byte           `cbor:"serial"`
+	CertNonce    []byte           `cbor:"certNonce"`
 }
 
 var cborEnc cbor.EncMode // A
@@ -185,4 +200,117 @@ func NodeCertToIdentity( // A
 	certs := []auth.NodeCertLike{cert}
 	sigs := [][]byte{f.CASignature}
 	return auth.NewNodeIdentity(ac, certs, sigs)
+}
+
+// BuildEmbeddedTrustChain derives the public trust
+// chain to embed in a node cert from the issuing CA
+// material used at signing time.
+func BuildEmbeddedTrustChain( // A
+	ac *keys.AsyncCrypt,
+	f *CAKeyFile,
+) ([]EmbeddedCAFile, error) {
+	pub := ac.GetPublicKey()
+	pubKEM, err := pub.MarshalBinaryKEM()
+	if err != nil {
+		return nil, fmt.Errorf("marshal CA KEM pubkey: %w", err)
+	}
+	pubSign, err := pub.MarshalBinarySign()
+	if err != nil {
+		return nil, fmt.Errorf("marshal CA sign pubkey: %w", err)
+	}
+	switch f.Type {
+	case "admin-ca":
+		return []EmbeddedCAFile{{
+			Type:    "admin-ca",
+			PubKEM:  pubKEM,
+			PubSign: pubSign,
+		}}, nil
+	case "user-ca":
+		if len(f.AnchorAdminPubKEM) == 0 ||
+			len(f.AnchorAdminPubSign) == 0 {
+			return nil, fmt.Errorf(
+				"user CA is missing anchor admin public key",
+			)
+		}
+		return []EmbeddedCAFile{
+			{
+				Type:    "admin-ca",
+				PubKEM:  append([]byte(nil), f.AnchorAdminPubKEM...),
+				PubSign: append([]byte(nil), f.AnchorAdminPubSign...),
+			},
+			{
+				Type:        "user-ca",
+				PubKEM:      pubKEM,
+				PubSign:     pubSign,
+				AnchorSig:   append([]byte(nil), f.AnchorSig...),
+				AnchorAdmin: f.AnchorAdmin,
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported CA key type %q", f.Type)
+	}
+}
+
+// AddEmbeddedTrust populates a trust store from the
+// public chain embedded in a node cert. Legacy node
+// certs without Authorities fall back to trusting the
+// single issuer pubkey stored at the top level.
+func AddEmbeddedTrust( // A
+	store interfaces.TrustStore,
+	f *NodeCertFile,
+) error {
+	authorities := f.Authorities
+	if len(authorities) == 0 {
+		authorities = []EmbeddedCAFile{{
+			Type:    "admin-ca",
+			PubKEM:  append([]byte(nil), f.CAPubKEM...),
+			PubSign: append([]byte(nil), f.CAPubSign...),
+		}}
+	}
+	for _, authority := range authorities {
+		if authority.Type != "admin-ca" {
+			continue
+		}
+		pubBytes, err := embeddedCAPubKeyBytes(authority)
+		if err != nil {
+			return err
+		}
+		if err := store.AddAdminPubKey(pubBytes); err != nil {
+			return err
+		}
+	}
+	for _, authority := range authorities {
+		if authority.Type != "user-ca" {
+			continue
+		}
+		pubBytes, err := embeddedCAPubKeyBytes(authority)
+		if err != nil {
+			return err
+		}
+		if err := store.AddUserPubKey(
+			pubBytes,
+			authority.AnchorSig,
+			authority.AnchorAdmin,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func embeddedCAPubKeyBytes( // A
+	authority EmbeddedCAFile,
+) ([]byte, error) {
+	pub, err := keys.NewPublicKeyFromBinary(
+		authority.PubKEM,
+		authority.PubSign,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("rebuild embedded CA pubkey: %w", err)
+	}
+	pubBytes, err := auth.MarshalPubKeyBytes(pub)
+	if err != nil {
+		return nil, fmt.Errorf("marshal embedded CA pubkey: %w", err)
+	}
+	return pubBytes, nil
 }

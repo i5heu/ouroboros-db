@@ -163,11 +163,21 @@ func cmdUserCA(args []string) error { // A
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
+	adminPubKEM, err := adminPub.MarshalBinaryKEM()
+	if err != nil {
+		return fmt.Errorf("admin pubkey KEM: %w", err)
+	}
+	adminPubSign, err := adminPub.MarshalBinarySign()
+	if err != nil {
+		return fmt.Errorf("admin pubkey Sign: %w", err)
+	}
 	f := authfile.CAKeyFile{
-		Type:        "user-ca",
-		KeyJSON:     keyJSON,
-		AnchorSig:   anchorSig,
-		AnchorAdmin: adminCA.Hash(),
+		Type:               "user-ca",
+		KeyJSON:            keyJSON,
+		AnchorSig:          anchorSig,
+		AnchorAdmin:        adminCA.Hash(),
+		AnchorAdminPubKEM:  adminPubKEM,
+		AnchorAdminPubSign: adminPubSign,
 	}
 	data, err := authfile.MarshalCAKey(&f)
 	if err != nil {
@@ -204,7 +214,7 @@ func cmdSignNode(args []string) error { // A
 		validity = v
 	}
 
-	caAC, _, err := authfile.ReadCAKey(caPath)
+	caAC, caFile, err := authfile.ReadCAKey(caPath)
 	if err != nil {
 		return err
 	}
@@ -279,12 +289,20 @@ func cmdSignNode(args []string) error { // A
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
+	authorities, err := authfile.BuildEmbeddedTrustChain(
+		caAC,
+		caFile,
+	)
+	if err != nil {
+		return fmt.Errorf("embedded trust chain: %w", err)
+	}
 	f := authfile.NodeCertFile{
 		Type:         "node-cert",
 		KeyJSON:      keyJSON,
 		CAPubKEM:     caPubKEM,
 		CAPubSign:    caPubSign,
 		CASignature:  caSig,
+		Authorities:  authorities,
 		IssuerCAHash: caHash,
 		ValidFrom:    now.Unix(),
 		ValidUntil:   now.Add(validity).Unix(),
@@ -374,6 +392,7 @@ func showNode( // A
 	fmt.Printf("type:      node-cert\n")
 	fmt.Printf("node ID:   %x\n", nodeID[:])
 	fmt.Printf("issuer CA: %s\n", f.IssuerCAHash)
+	fmt.Printf("authorities: %d\n", len(f.Authorities))
 	fmt.Printf("valid:     %s to %s\n",
 		time.Unix(f.ValidFrom, 0).Format(
 			time.DateOnly,

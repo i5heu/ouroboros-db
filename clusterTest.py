@@ -106,7 +106,6 @@ class NodeRuntime:
     number: int
     data_dir: Path
     cert_path: Path
-    admin_ca_path: Path
     use_color: bool = True
     bootstrap_addresses: list[str] = field(default_factory=list)
     process: subprocess.Popen[str] | None = None
@@ -140,8 +139,6 @@ class NodeRuntime:
             "127.0.0.1:0",
             "-node-cert",
             str(self.cert_path),
-            "-admin-ca",
-            str(self.admin_ca_path),
         ]
         if self.bootstrap_addresses:
             command.extend([
@@ -388,7 +385,6 @@ class ClusterHarness:
                     number=node_number,
                     data_dir=data_dir,
                     cert_path=cert_path,
-                    admin_ca_path=self.admin_ca_path,
                     use_color=self.use_color,
                 )
             )
