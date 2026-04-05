@@ -312,7 +312,7 @@ func (ca *carrierAuth) verifyFreshness( // A
 		)
 	}
 	ttl := proof.NotAfter() - proof.NotBefore()
-	if ttl > MaxDelegationTTL {
+	if ttl < 0 || ttl > MaxDelegationTTL {
 		return authErr(
 			ErrDelegationTooLong,
 			"TTL exceeds maximum",

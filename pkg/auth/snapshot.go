@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -69,7 +70,7 @@ func snapshotCert(c NodeCertLike) (*certSnapshot, error) { // A
 		)
 	}
 	pub := c.NodePubKey()
-	derivedNID, err := pub.NodeID()
+	derivedNID, err := safeNodeID(pub)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"node ID derivation: %w", err,
@@ -116,6 +117,22 @@ func snapshotCerts( // A
 		out[i] = snap
 	}
 	return out, nil
+}
+
+// safeNodeID derives a NodeID from a PublicKey,
+// recovering from nil-pointer panics caused by
+// zero-value or malformed public keys.
+func safeNodeID( // A
+	pub keys.PublicKey,
+) (nid keys.NodeID, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New(
+				"invalid public key: nil dereference",
+			)
+		}
+	}()
+	return pub.NodeID()
 }
 
 // delegationSnapshot is a frozen copy of a
