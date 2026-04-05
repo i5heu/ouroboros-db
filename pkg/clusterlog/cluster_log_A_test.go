@@ -3,6 +3,7 @@ package clusterlog
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -140,6 +141,20 @@ func (m *mockCarrier) IsConnected( // A
 	_ keys.NodeID,
 ) bool {
 	return true
+}
+
+func (m *mockCarrier) StartListener( // A
+	_ context.Context,
+) error {
+	return nil
+}
+
+func (m *mockCarrier) GetNodeConnection( // A
+	_ keys.NodeID,
+) (interfaces.NodeConnection, error) {
+	return interfaces.NodeConnection{}, fmt.Errorf(
+		"node not found",
+	)
 }
 
 func (m *mockCarrier) getMessages() []sentMessage { // A

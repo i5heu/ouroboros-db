@@ -108,6 +108,20 @@ func (m *mockCarrier) IsConnected( // A
 	return false
 }
 
+func (m *mockCarrier) StartListener( // A
+	_ context.Context,
+) error {
+	return nil
+}
+
+func (m *mockCarrier) GetNodeConnection( // A
+	_ keys.NodeID,
+) (interfaces.NodeConnection, error) {
+	return interfaces.NodeConnection{}, fmt.Errorf(
+		"node not found",
+	)
+}
+
 func testLogger() *slog.Logger { // A
 	return slog.New(
 		slog.NewTextHandler(os.Stderr, nil),

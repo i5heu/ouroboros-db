@@ -58,3 +58,25 @@ type NodeInfo struct { // A
 	ConnectionStatus ConnectionStatus
 	TrustScope       auth.TrustScope
 }
+
+// NodeConnection wraps a PeerNode together with its
+// active QUIC connection. It is returned by Carrier so
+// callers can interact with a specific peer without a
+// separate lookup step.
+//
+// The Connection field is nil when the peer is known to
+// the registry but has no currently active transport
+// connection (e.g. temporarily disconnected). Always
+// check Connection != nil before using it.
+//
+// NodeConnection is a snapshot: the underlying connection
+// may close concurrently. Callers should handle a nil or
+// closed Connection gracefully.
+type NodeConnection struct { // A
+	// Peer is the authenticated peer identity.
+	Peer PeerNode
+
+	// Conn is the active QUIC connection to the peer,
+	// or nil if the peer is not currently connected.
+	Conn Connection
+}
