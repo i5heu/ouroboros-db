@@ -19,44 +19,8 @@ import (
 	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )
-
-// caKeyFile is the CBOR-encoded .oukey format.
-// KeyJSON holds the ouroboros-crypt JSON key blob.
-type caKeyFile struct { // A
-	Type        string `cbor:"type"`
-	KeyJSON     []byte `cbor:"keyJSON"`
-	AnchorSig   []byte `cbor:"anchorSig,omitempty"`
-	AnchorAdmin string `cbor:"anchorAdmin,omitempty"`
-}
-
-// nodeCertFile is the CBOR-encoded .oucert format.
-// It bundles everything a node needs to authenticate:
-// its private key, the CA pubkey, and the CA signature
-// over the NodeCert.
-type nodeCertFile struct { // A
-	Type         string `cbor:"type"`
-	KeyJSON      []byte `cbor:"keyJSON"`
-	CAPubKEM     []byte `cbor:"caPubKEM"`
-	CAPubSign    []byte `cbor:"caPubSign"`
-	CASignature  []byte `cbor:"caSignature"`
-	IssuerCAHash string `cbor:"issuerCAHash"`
-	ValidFrom    int64  `cbor:"validFrom"`
-	ValidUntil   int64  `cbor:"validUntil"`
-	Serial       []byte `cbor:"serial"`
-	CertNonce    []byte `cbor:"certNonce"`
-}
-
-var cborEnc cbor.EncMode // A
-
-func init() { // A
-	opts := cbor.CanonicalEncOptions()
-	var err error
-	cborEnc, err = opts.EncMode()
-	if err != nil {
-		panic(err)
-	}
-}
 
 func main() { // A
 	if len(os.Args) < 2 {
@@ -104,42 +68,6 @@ func parseFlag( // A
 	return "", false
 }
 
-func marshalKeyJSON( // A
-	ac *keys.AsyncCrypt,
-) ([]byte, error) {
-	tmp, err := os.CreateTemp("", "oukey-*.json")
-	if err != nil {
-		return nil, err
-	}
-	name := tmp.Name()
-	tmp.Close()
-	defer os.Remove(name)
-	if err := ac.SaveToFile(name); err != nil {
-		return nil, err
-	}
-	return os.ReadFile(name)
-}
-
-func loadKeyFromJSON(data []byte) ( // A
-	*keys.AsyncCrypt, error,
-) {
-	tmp, err := os.CreateTemp("", "oukey-*.json")
-	if err != nil {
-		return nil, err
-	}
-	name := tmp.Name()
-	tmp.Close()
-	defer os.Remove(name)
-	if err := os.WriteFile(name, data, 0o600); err != nil {
-		return nil, err
-	}
-	return keys.NewCryptFromFile(name)
-}
-
-func writeFile(path string, data []byte) error { // A
-	return os.WriteFile(path, data, 0o600)
-}
-
 func cmdAdminCA(args []string) error { // A
 	out, ok := parseFlag(args, "-out")
 	if !ok {
@@ -149,19 +77,19 @@ func cmdAdminCA(args []string) error { // A
 	if err != nil {
 		return fmt.Errorf("key generation: %w", err)
 	}
-	keyJSON, err := marshalKeyJSON(ac)
+	keyJSON, err := authfile.MarshalKeyJSON(ac)
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
-	f := caKeyFile{
+	f := authfile.CAKeyFile{
 		Type:    "admin-ca",
 		KeyJSON: keyJSON,
 	}
-	data, err := cborEnc.Marshal(f)
+	data, err := authfile.MarshalCAKey(&f)
 	if err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
-	if err := writeFile(out, data); err != nil {
+	if err := authfile.WriteFile(out, data); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
 	pub := ac.GetPublicKey()
@@ -178,35 +106,6 @@ func cmdAdminCA(args []string) error { // A
 	return nil
 }
 
-func loadCAKey(path string) ( // A
-	*keys.AsyncCrypt, *caKeyFile, error,
-) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"read %s: %w", path, err,
-		)
-	}
-	var f caKeyFile
-	if err := cbor.Unmarshal(data, &f); err != nil {
-		return nil, nil, fmt.Errorf(
-			"decode %s: %w", path, err,
-		)
-	}
-	if f.Type != "admin-ca" && f.Type != "user-ca" {
-		return nil, nil, fmt.Errorf(
-			"%s: not a CA key (type=%q)", path, f.Type,
-		)
-	}
-	ac, err := loadKeyFromJSON(f.KeyJSON)
-	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"load key: %w", err,
-		)
-	}
-	return ac, &f, nil
-}
-
 func cmdUserCA(args []string) error { // A
 	adminPath, ok := parseFlag(args, "-admin-key")
 	if !ok {
@@ -216,7 +115,9 @@ func cmdUserCA(args []string) error { // A
 	if !ok {
 		return fmt.Errorf("missing -out flag")
 	}
-	adminAC, adminFile, err := loadCAKey(adminPath)
+	adminAC, adminFile, err := authfile.ReadCAKey(
+		adminPath,
+	)
 	if err != nil {
 		return err
 	}
@@ -250,7 +151,6 @@ func cmdUserCA(args []string) error { // A
 		return fmt.Errorf("user pubkey: %w", err)
 	}
 
-	// Sign anchor: admin signs user CA's pubkey.
 	anchorMsg := auth.DomainSeparate(
 		auth.CTXUserCAAnchorV1, userPubBytes,
 	)
@@ -259,21 +159,21 @@ func cmdUserCA(args []string) error { // A
 		return fmt.Errorf("anchor sign: %w", err)
 	}
 
-	keyJSON, err := marshalKeyJSON(userAC)
+	keyJSON, err := authfile.MarshalKeyJSON(userAC)
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
-	f := caKeyFile{
+	f := authfile.CAKeyFile{
 		Type:        "user-ca",
 		KeyJSON:     keyJSON,
 		AnchorSig:   anchorSig,
 		AnchorAdmin: adminCA.Hash(),
 	}
-	data, err := cborEnc.Marshal(f)
+	data, err := authfile.MarshalCAKey(&f)
 	if err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
-	if err := writeFile(out, data); err != nil {
+	if err := authfile.WriteFile(out, data); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
 	fmt.Printf("user CA created: %s\n", out)
@@ -304,7 +204,7 @@ func cmdSignNode(args []string) error { // A
 		validity = v
 	}
 
-	caAC, _, err := loadCAKey(caPath)
+	caAC, _, err := authfile.ReadCAKey(caPath)
 	if err != nil {
 		return err
 	}
@@ -322,11 +222,11 @@ func cmdSignNode(args []string) error { // A
 		return fmt.Errorf("ca pubkey Sign: %w", err)
 	}
 
-	// Derive CA hash for the cert's IssuerCAHash.
-	h := sha256.Sum256(caPubBytes[auth.KEMPublicKeySize:])
+	h := sha256.Sum256(
+		caPubBytes[auth.KEMPublicKeySize:],
+	)
 	caHash := fmt.Sprintf("%x", h)
 
-	// Generate the node keypair.
 	nodeAC, err := keys.NewAsyncCrypt()
 	if err != nil {
 		return fmt.Errorf("node key gen: %w", err)
@@ -355,7 +255,6 @@ func cmdSignNode(args []string) error { // A
 		return fmt.Errorf("node cert: %w", err)
 	}
 
-	// Sign the canonical NodeCert.
 	canonical, err := auth.CanonicalNodeCert(cert)
 	if err != nil {
 		return fmt.Errorf("canonical cert: %w", err)
@@ -368,7 +267,6 @@ func cmdSignNode(args []string) error { // A
 		return fmt.Errorf("sign cert: %w", err)
 	}
 
-	// Verify the signature round-trips.
 	ca, err := auth.NewAdminCA(caPubBytes)
 	if err != nil {
 		return fmt.Errorf("verify CA: %w", err)
@@ -377,11 +275,11 @@ func cmdSignNode(args []string) error { // A
 		return fmt.Errorf("verify failed: %w", err)
 	}
 
-	keyJSON, err := marshalKeyJSON(nodeAC)
+	keyJSON, err := authfile.MarshalKeyJSON(nodeAC)
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
-	f := nodeCertFile{
+	f := authfile.NodeCertFile{
 		Type:         "node-cert",
 		KeyJSON:      keyJSON,
 		CAPubKEM:     caPubKEM,
@@ -393,11 +291,11 @@ func cmdSignNode(args []string) error { // A
 		Serial:       serial,
 		CertNonce:    certNonce,
 	}
-	data, err := cborEnc.Marshal(f)
+	data, err := authfile.MarshalNodeCert(&f)
 	if err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
-	if err := writeFile(out, data); err != nil {
+	if err := authfile.WriteFile(out, data); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
 	nodeID := cert.NodeID()
@@ -421,16 +319,15 @@ func cmdShow(args []string) error { // A
 		return fmt.Errorf("read: %w", err)
 	}
 
-	// Try caKeyFile first.
-	var ca caKeyFile
+	var ca authfile.CAKeyFile
 	if err := cbor.Unmarshal(data, &ca); err == nil {
-		if ca.Type == "admin-ca" || ca.Type == "user-ca" {
+		if ca.Type == "admin-ca" ||
+			ca.Type == "user-ca" {
 			return showCA(&ca)
 		}
 	}
 
-	// Try nodeCertFile.
-	var nc nodeCertFile
+	var nc authfile.NodeCertFile
 	if err := cbor.Unmarshal(data, &nc); err == nil {
 		if nc.Type == "node-cert" {
 			return showNode(&nc)
@@ -440,8 +337,8 @@ func cmdShow(args []string) error { // A
 	return fmt.Errorf("unrecognized file format")
 }
 
-func showCA(f *caKeyFile) error { // A
-	ac, err := loadKeyFromJSON(f.KeyJSON)
+func showCA(f *authfile.CAKeyFile) error { // A
+	ac, err := authfile.LoadKeyFromJSON(f.KeyJSON)
 	if err != nil {
 		return fmt.Errorf("load key: %w", err)
 	}
@@ -462,8 +359,10 @@ func showCA(f *caKeyFile) error { // A
 	return nil
 }
 
-func showNode(f *nodeCertFile) error { // A
-	ac, err := loadKeyFromJSON(f.KeyJSON)
+func showNode( // A
+	f *authfile.NodeCertFile,
+) error {
+	ac, err := authfile.LoadKeyFromJSON(f.KeyJSON)
 	if err != nil {
 		return fmt.Errorf("load key: %w", err)
 	}
@@ -476,8 +375,12 @@ func showNode(f *nodeCertFile) error { // A
 	fmt.Printf("node ID:   %x\n", nodeID[:])
 	fmt.Printf("issuer CA: %s\n", f.IssuerCAHash)
 	fmt.Printf("valid:     %s to %s\n",
-		time.Unix(f.ValidFrom, 0).Format(time.DateOnly),
-		time.Unix(f.ValidUntil, 0).Format(time.DateOnly),
+		time.Unix(f.ValidFrom, 0).Format(
+			time.DateOnly,
+		),
+		time.Unix(f.ValidUntil, 0).Format(
+			time.DateOnly,
+		),
 	)
 	return nil
 }
