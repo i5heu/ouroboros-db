@@ -1104,6 +1104,294 @@ func TestUserScopedVerificationWithEmbeddedAuthorities( // A
 	}
 }
 
+func TestVerifyPeerCertRejectsDifferentRootSignature( // A
+	t *testing.T,
+) {
+	trustedCA := NewCarrierAuth(testLogger())
+
+	rootAC1, _ := keys.NewAsyncCrypt()
+	rootPub1 := rootAC1.GetPublicKey()
+	rootKEM1, _ := rootPub1.MarshalBinaryKEM()
+	rootSign1, _ := rootPub1.MarshalBinarySign()
+	rootBytes1 := append(rootKEM1, rootSign1...)
+	if err := trustedCA.AddAdminPubKey(rootBytes1); err != nil {
+		t.Fatal(err)
+	}
+	rootCA1, _ := NewAdminCA(rootBytes1)
+
+	rootAC2, _ := keys.NewAsyncCrypt()
+	nodeAC, _ := keys.NewAsyncCrypt()
+	nodePub := nodeAC.GetPublicKey()
+	now := time.Now().Unix()
+	cert, _ := NewNodeCert(
+		nodePub,
+		rootCA1.Hash(),
+		now-10,
+		now+600,
+		[]byte("serial-root-mismatch"),
+		[]byte("nonce-root-mismatch"),
+	)
+	canonical, _ := CanonicalNodeCert(cert)
+	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	wrongSig, _ := rootAC2.Sign(msg)
+
+	certHashSum := sha256.Sum256([]byte("cert-hash-root-mismatch"))
+	x509FPSum := sha256.Sum256([]byte("x509-fp-root-mismatch"))
+	transcriptSum := sha256.Sum256([]byte("transcript-root-mismatch"))
+	certHash := certHashSum[:]
+	x509FP := x509FPSum[:]
+	transcript := transcriptSum[:]
+	bundleBytes, _ := CanonicalNodeCertBundle([]NodeCertLike{cert})
+	bundleHash := sha256.Sum256(bundleBytes)
+	proof := NewDelegationProof(
+		certHash,
+		nil,
+		transcript,
+		x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	exporter := deriveTestExporter(expCtx)
+	proof = NewDelegationProof(
+		certHash,
+		exporter,
+		transcript,
+		x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	delCanon, _ := CanonicalDelegationProof(proof)
+	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delSig, _ := nodeAC.Sign(delMsg)
+
+	_, err := trustedCA.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{cert},
+		CASignatures:    [][]byte{wrongSig},
+		DelegationProof: proof,
+		DelegationSig:   delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  certHash,
+			ExporterBinding: exporter,
+			X509Fingerprint: x509FP,
+			TranscriptHash:  transcript,
+		},
+	})
+	if !errors.Is(err, ErrNoValidCerts) {
+		t.Fatalf("got %v, want ErrNoValidCerts", err)
+	}
+}
+
+func TestVerifyPeerCertRejectsEmbeddedUserBrokenAnchorSig( // A
+	t *testing.T,
+) {
+	ca := NewCarrierAuth(testLogger())
+
+	adminAC, _ := keys.NewAsyncCrypt()
+	adminPub := adminAC.GetPublicKey()
+	adminKEM, _ := adminPub.MarshalBinaryKEM()
+	adminSign, _ := adminPub.MarshalBinarySign()
+	adminBytes := append(adminKEM, adminSign...)
+	if err := ca.AddAdminPubKey(adminBytes); err != nil {
+		t.Fatal(err)
+	}
+	adminCA, _ := NewAdminCA(adminBytes)
+
+	userAC, _ := keys.NewAsyncCrypt()
+	userPub := userAC.GetPublicKey()
+	userKEM, _ := userPub.MarshalBinaryKEM()
+	userSign, _ := userPub.MarshalBinarySign()
+	userBytes := append(userKEM, userSign...)
+	userCA, _ := newUserCA(userBytes, []byte("ignored"), adminCA.Hash())
+
+	nodeAC, _ := keys.NewAsyncCrypt()
+	nodePub := nodeAC.GetPublicKey()
+	now := time.Now().Unix()
+	cert, _ := NewNodeCert(
+		nodePub,
+		userCA.Hash(),
+		now-10,
+		now+600,
+		[]byte("serial-bad-anchor"),
+		[]byte("nonce-bad-anchor"),
+	)
+	canonical, _ := CanonicalNodeCert(cert)
+	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	caSig, _ := userAC.Sign(msg)
+
+	certHashSum := sha256.Sum256([]byte("cert-hash-bad-anchor"))
+	x509FPSum := sha256.Sum256([]byte("x509-fp-bad-anchor"))
+	transcriptSum := sha256.Sum256([]byte("transcript-bad-anchor"))
+	certHash := certHashSum[:]
+	x509FP := x509FPSum[:]
+	transcript := transcriptSum[:]
+	bundleBytes, _ := CanonicalNodeCertBundle([]NodeCertLike{cert})
+	bundleHash := sha256.Sum256(bundleBytes)
+	proof := NewDelegationProof(
+		certHash,
+		nil,
+		transcript,
+		x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	exporter := deriveTestExporter(expCtx)
+	proof = NewDelegationProof(
+		certHash,
+		exporter,
+		transcript,
+		x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	delCanon, _ := CanonicalDelegationProof(proof)
+	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delSig, _ := nodeAC.Sign(delMsg)
+
+	_, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:        []NodeCertLike{cert},
+		CASignatures: [][]byte{caSig},
+		Authorities: []EmbeddedCA{
+			{
+				Type:    "admin-ca",
+				PubKEM:  adminKEM,
+				PubSign: adminSign,
+			},
+			{
+				Type:        "user-ca",
+				PubKEM:      userKEM,
+				PubSign:     userSign,
+				AnchorSig:   []byte("broken-anchor-sig"),
+				AnchorAdmin: adminCA.Hash(),
+			},
+		},
+		DelegationProof: proof,
+		DelegationSig:   delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  certHash,
+			ExporterBinding: exporter,
+			X509Fingerprint: x509FP,
+			TranscriptHash:  transcript,
+		},
+	})
+	if !errors.Is(err, ErrInvalidAnchorSig) {
+		t.Fatalf("got %v, want ErrInvalidAnchorSig", err)
+	}
+}
+
+func TestVerifyPeerCertRejectsEmbeddedDifferentRoot( // A
+	t *testing.T,
+) {
+	ca := NewCarrierAuth(testLogger())
+
+	trustedRootAC, _ := keys.NewAsyncCrypt()
+	trustedRootPub := trustedRootAC.GetPublicKey()
+	trustedRootKEM, _ := trustedRootPub.MarshalBinaryKEM()
+	trustedRootSign, _ := trustedRootPub.MarshalBinarySign()
+	trustedRootBytes := append(trustedRootKEM, trustedRootSign...)
+	if err := ca.AddAdminPubKey(trustedRootBytes); err != nil {
+		t.Fatal(err)
+	}
+
+	otherRootAC, _ := keys.NewAsyncCrypt()
+	otherRootPub := otherRootAC.GetPublicKey()
+	otherRootKEM, _ := otherRootPub.MarshalBinaryKEM()
+	otherRootSign, _ := otherRootPub.MarshalBinarySign()
+	otherRootBytes := append(otherRootKEM, otherRootSign...)
+	otherRootCA, _ := NewAdminCA(otherRootBytes)
+
+	userAC, _ := keys.NewAsyncCrypt()
+	userPub := userAC.GetPublicKey()
+	userKEM, _ := userPub.MarshalBinaryKEM()
+	userSign, _ := userPub.MarshalBinarySign()
+	userBytes := append(userKEM, userSign...)
+	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorSig, _ := otherRootAC.Sign(anchorMsg)
+	userCA, _ := newUserCA(userBytes, anchorSig, otherRootCA.Hash())
+
+	nodeAC, _ := keys.NewAsyncCrypt()
+	nodePub := nodeAC.GetPublicKey()
+	now := time.Now().Unix()
+	cert, _ := NewNodeCert(
+		nodePub,
+		userCA.Hash(),
+		now-10,
+		now+600,
+		[]byte("serial-different-root"),
+		[]byte("nonce-different-root"),
+	)
+	canonical, _ := CanonicalNodeCert(cert)
+	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	caSig, _ := userAC.Sign(msg)
+
+	certHashSum := sha256.Sum256([]byte("cert-hash-different-root"))
+	x509FPSum := sha256.Sum256([]byte("x509-fp-different-root"))
+	transcriptSum := sha256.Sum256([]byte("transcript-different-root"))
+	certHash := certHashSum[:]
+	x509FP := x509FPSum[:]
+	transcript := transcriptSum[:]
+	bundleBytes, _ := CanonicalNodeCertBundle([]NodeCertLike{cert})
+	bundleHash := sha256.Sum256(bundleBytes)
+	proof := NewDelegationProof(
+		certHash,
+		nil,
+		transcript,
+		x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	exporter := deriveTestExporter(expCtx)
+	proof = NewDelegationProof(
+		certHash,
+		exporter,
+		transcript,
+		x509FP,
+		bundleHash[:],
+		now-5,
+		now+MaxDelegationTTL-10,
+	)
+	delCanon, _ := CanonicalDelegationProof(proof)
+	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delSig, _ := nodeAC.Sign(delMsg)
+
+	_, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:        []NodeCertLike{cert},
+		CASignatures: [][]byte{caSig},
+		Authorities: []EmbeddedCA{
+			{
+				Type:    "admin-ca",
+				PubKEM:  otherRootKEM,
+				PubSign: otherRootSign,
+			},
+			{
+				Type:        "user-ca",
+				PubKEM:      userKEM,
+				PubSign:     userSign,
+				AnchorSig:   anchorSig,
+				AnchorAdmin: otherRootCA.Hash(),
+			},
+		},
+		DelegationProof: proof,
+		DelegationSig:   delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  certHash,
+			ExporterBinding: exporter,
+			X509Fingerprint: x509FP,
+			TranscriptHash:  transcript,
+		},
+	})
+	if !errors.Is(err, ErrUnknownIssuer) {
+		t.Fatalf("got %v, want ErrUnknownIssuer", err)
+	}
+}
+
 func TestDelegationTTLTooLong(t *testing.T) { // A
 	s := buildScenario(t)
 

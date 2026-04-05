@@ -250,10 +250,9 @@ func (ts *trustSnapshot) addEmbeddedAdmin( // A
 	if _, revoked := ts.revokedAdminCAs[hash]; revoked {
 		return ErrCARevoked
 	}
-	if _, exists := ts.adminCAs[hash]; exists {
-		return nil
+	if _, exists := ts.adminCAs[hash]; !exists {
+		return ErrUnknownIssuer
 	}
-	ts.adminCAs[hash] = admin
 	return nil
 }
 
