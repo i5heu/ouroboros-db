@@ -142,8 +142,53 @@ func readAuthHandshake( // A
 	// Convert wire delegation proof.
 	proof := wireToDelegation(msg.Delegation)
 
-	// Get TLS bindings from the transport.
+	// Derive TLS bindings. Static values come from
+	// the connection; exporter and transcript
+	// bindings are derived via EKM using the proof
+	// context so the verifier produces the same
+	// values independently of the prover.
 	tls := conn.TLSBindings()
+
+	// Transcript binding via EKM (RFC 9266).
+	transcript, err := conn.ExportKeyingMaterial(
+		auth.TranscriptBindingLabel,
+		nil,
+		auth.TLSTranscriptHashSize,
+	)
+	if err != nil {
+		return interfaces.PeerHandshake{},
+			fmt.Errorf(
+				"derive transcript binding: %w",
+				err,
+			)
+	}
+	tls.TranscriptHash = transcript
+
+	// Exporter binding uses the proof-minus-exporter
+	// as EKM context, binding the exporter value to
+	// the specific delegation proof.
+	expCtx, err := auth.CanonicalDelegationProofForExporter(
+		proof,
+	)
+	if err != nil {
+		return interfaces.PeerHandshake{},
+			fmt.Errorf(
+				"exporter context: %w", err,
+			)
+	}
+	exporter, err := conn.ExportKeyingMaterial(
+		auth.ExporterLabel,
+		expCtx,
+		auth.TLSExporterBindingSize,
+	)
+	if err != nil {
+		return interfaces.PeerHandshake{},
+			fmt.Errorf(
+				"derive exporter binding: %w",
+				err,
+			)
+	}
+	tls.ExporterBinding = exporter
 
 	return interfaces.PeerHandshake{
 		Certs:           certs,

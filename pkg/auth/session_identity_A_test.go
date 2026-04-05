@@ -97,37 +97,34 @@ func TestSignDelegation(t *testing.T) { // A
 	}
 
 	certs := []NodeCertLike{cert}
-	transcriptHash := make([]byte, 32)
-	for i := range transcriptHash {
-		transcriptHash[i] = byte(i)
-	}
 
-	// Fake exporter function.
+	// Fake exporter function that handles both
+	// TranscriptBindingLabel and ExporterLabel.
 	fakeExporter := func(
 		label string,
 		ctx []byte,
 		length int,
 	) ([]byte, error) {
-		if label != ExporterLabel {
+		out := make([]byte, length)
+		switch label {
+		case TranscriptBindingLabel:
+			for i := range out {
+				out[i] = byte(i)
+			}
+		case ExporterLabel:
+			for i := range out {
+				out[i] = 0xAB
+			}
+		default:
 			t.Fatalf(
 				"unexpected label: %s", label,
 			)
-		}
-		if length != TLSExporterBindingSize {
-			t.Fatalf(
-				"unexpected length: %d", length,
-			)
-		}
-		out := make([]byte, length)
-		for i := range out {
-			out[i] = 0xAB
 		}
 		return out, nil
 	}
 
 	proof, sig, err := SignDelegation(
-		ac, certs, si,
-		transcriptHash, fakeExporter,
+		ac, certs, si, fakeExporter,
 	)
 	if err != nil {
 		t.Fatalf("SignDelegation: %v", err)
@@ -207,7 +204,6 @@ func TestSignDelegationBundleHash(t *testing.T) { // A
 
 	proof, _, err := SignDelegation(
 		ac, certs, si,
-		make([]byte, 32),
 		func(
 			_ string, _ []byte, l int,
 		) ([]byte, error) {

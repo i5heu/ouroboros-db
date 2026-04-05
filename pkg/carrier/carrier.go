@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
@@ -59,6 +60,13 @@ type CarrierConfig struct { // A
 	// peers. If nil, all inbound connections are
 	// rejected.
 	Auth interfaces.CarrierAuth
+
+	// NodeIdentity holds the node's persistent key,
+	// ephemeral session identity, cert bundle, and
+	// CA signatures. Required for dialing peers
+	// (prover side). If nil, the carrier cannot
+	// initiate outbound authenticated connections.
+	NodeIdentity *auth.NodeIdentity
 }
 
 // Compile-time interface compliance check.
@@ -94,11 +102,26 @@ func New(conf CarrierConfig) (*carrierImpl, error) { // A
 		)
 		conf.Logger = slog.New(h)
 	}
-	return &carrierImpl{
+	c := &carrierImpl{
 		logger:      conf.Logger,
 		config:      conf,
 		connections: make(map[keys.NodeID]interfaces.Connection),
-	}, nil
+	}
+	// Initialize the QUIC transport if a
+	// NodeIdentity is provided (needed for
+	// TLS configuration).
+	if conf.NodeIdentity != nil {
+		qt, err := newQuicTransport(
+			conf.ListenAddress, conf.NodeIdentity,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"init transport: %w", err,
+			)
+		}
+		c.transport = qt
+	}
+	return c, nil
 }
 
 func (c *carrierImpl) GetNodes() []interfaces.PeerNode { // A
@@ -212,10 +235,97 @@ func (c *carrierImpl) SendMessageToNode( // A
 }
 
 func (c *carrierImpl) JoinCluster( // A
-	_ interfaces.PeerNode,
+	peer interfaces.PeerNode,
 	_ interfaces.NodeCert,
 ) error {
-	return fmt.Errorf("not implemented")
+	ni := c.config.NodeIdentity
+	if ni == nil {
+		return fmt.Errorf(
+			"NodeIdentity is required to join",
+		)
+	}
+	c.mu.RLock()
+	tp := c.transport
+	c.mu.RUnlock()
+	if tp == nil {
+		return fmt.Errorf(
+			"transport is not initialized",
+		)
+	}
+
+	// Dial the peer via QUIC/TLS.
+	node := interfaces.Node{
+		NodeID:    peer.NodeID,
+		Addresses: peer.Addresses,
+	}
+	conn, err := tp.Dial(node)
+	if err != nil {
+		return fmt.Errorf("dial peer: %w", err)
+	}
+
+	// Perform prover-side auth handshake.
+	if err := c.dialAndAuth(conn, ni); err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("auth handshake: %w", err)
+	}
+
+	// Register this node's connection.
+	c.mu.Lock()
+	c.connections[peer.NodeID] = conn
+	c.mu.Unlock()
+
+	c.logger.Info(
+		"joined cluster peer",
+		"nodeID", peer.NodeID.String(),
+	)
+	return nil
+}
+
+// dialAndAuth performs the prover-side auth
+// handshake: signs a DelegationProof and sends it
+// over a QUIC auth stream.
+func (c *carrierImpl) dialAndAuth( // A
+	conn interfaces.Connection,
+	ni *auth.NodeIdentity,
+) error {
+	// Build exporter function from the connection.
+	exporterFn := func(
+		label string, ctx []byte, length int,
+	) ([]byte, error) {
+		return conn.ExportKeyingMaterial(
+			label, ctx, length,
+		)
+	}
+
+	// Sign the DelegationProof.
+	proof, sig, err := auth.SignDelegation(
+		ni.Key(),
+		ni.Certs(),
+		ni.Session(),
+		exporterFn,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"sign delegation: %w", err,
+		)
+	}
+
+	// Open an auth stream and send the handshake.
+	stream, err := conn.OpenStream()
+	if err != nil {
+		return fmt.Errorf(
+			"open auth stream: %w", err,
+		)
+	}
+	defer func() { _ = stream.Close() }()
+
+	return writeAuthHandshake(
+		stream,
+		ni.Certs(),
+		ni.CASigs(),
+		proof,
+		sig,
+	)
 }
 
 func (c *carrierImpl) LeaveCluster( // A
@@ -268,6 +378,12 @@ func (c *carrierImpl) StartListener( // A
 		return fmt.Errorf(
 			"transport is not initialized",
 		)
+	}
+	// Ensure the QUIC listener is started.
+	if qt, ok := tp.(*quicTransport); ok {
+		if err := qt.startListener(); err != nil {
+			return err
+		}
 	}
 	for {
 		conn, err := tp.Accept()

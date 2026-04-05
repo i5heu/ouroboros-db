@@ -19,6 +19,9 @@ type QuicTransport interface { // A
 type Connection interface { // A
 	NodeID() keys.NodeID
 	TLSBindings() TLSBindings
+	ExportKeyingMaterial(
+		label string, ctx []byte, length int,
+	) ([]byte, error)
 	OpenStream() (Stream, error)
 	AcceptStream() (Stream, error)
 	SendDatagram(data []byte) error

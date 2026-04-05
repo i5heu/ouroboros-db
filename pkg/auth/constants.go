@@ -15,6 +15,13 @@ const CTXUserCAAnchorV1 = "OUROBOROS_USER_CA_ANCHOR_V1" // A
 // used for delegation binding.
 const ExporterLabel = "EXPORTER_OUROBOROS_NODE_DELEGATION_V1" // A
 
+// TranscriptBindingLabel is the TLS exporter label
+// used as a transcript hash substitute. TLS 1.3 does
+// not expose the raw handshake transcript hash; EKM
+// with a fixed label provides the same binding
+// properties (RFC 9266).
+const TranscriptBindingLabel = "EXPORTER_OUROBOROS_TRANSCRIPT_BINDING_V1" // A
+
 // MaxDelegationTTL is the maximum allowed lifetime
 // of a DelegationProof in seconds (5 minutes).
 const MaxDelegationTTL int64 = 300 // A

@@ -315,10 +315,12 @@ func (ca *carrierAuth) verifyFreshness( // A
 		)
 	}
 	// Re-derive the expected exporter context from
-	// the proof (minus TLSExporterBinding) and verify
-	// that the transport-supplied exporter matches
-	// both the proof's claim and the context-derived
-	// expectation.
+	// the proof (minus TLSExporterBinding). The
+	// transport layer (readAuthHandshake) derives
+	// the actual exporter value via EKM using this
+	// context, so the comparison below validates
+	// that the proof's exporter matches the
+	// independently-derived transport value.
 	exporterCtx, err := CanonicalDelegationProofForExporter(
 		proof,
 	)
@@ -327,10 +329,10 @@ func (ca *carrierAuth) verifyFreshness( // A
 			"exporter canonical encoding: %w", err,
 		)
 	}
-	_ = exporterCtx // Context available for future
-	// full re-derivation when transport exposes the
-	// TLS keying-material API. For now, verify that
-	// proof and transport agree.
+	// exporterCtx is available for future in-line
+	// re-derivation if VerifyPeerCert gains direct
+	// access to the TLS keying-material API.
+	_ = exporterCtx
 	if !secureEqual(
 		proof.TLSExporterBinding(),
 		tlsExporterBinding,

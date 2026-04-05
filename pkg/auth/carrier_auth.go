@@ -93,43 +93,44 @@ import (
 // │  PHASE 3: SECURE CONNECTION (runtime)           │
 // └──────────────────────────────────────────────────┘
 //
-// Crypto: IMPLEMENTED in pkg/auth/sign_delegation.go.
-// Wire I/O: IMPLEMENTED in
+// FULLY IMPLEMENTED across pkg/auth and pkg/carrier.
 //
-//	pkg/carrier/auth_handshake.go
-//	(writeAuthHandshake + readAuthHandshake).
+// Crypto:     pkg/auth/sign_delegation.go
+// Wire I/O:   pkg/carrier/auth_handshake.go
+// Transport:  pkg/carrier/transport.go (quicTransport)
+// Dial flow:  pkg/carrier/carrier.go (dialAndAuth)
 //
-// Transport: NOT YET IMPLEMENTED — the carrier must
+//  6. Prover dials verifier; QUIC/TLS handshake runs
+//     with PQ-hybrid X25519MLKEM768 key exchange.
+//     The carrier calls JoinCluster which handles
+//     the full dial → TLS → auth → register flow.
 //
-//	 wire up QUIC dial/accept and extract TLS state.
+//  7. Prover creates and signs the DelegationProof
+//     in one call:
 //
-//	6. Prover dials verifier; QUIC/TLS handshake runs.
-//	   After TLS Finished, the prover extracts the
-//	   transcript hash from the TLS connection state.
+//     proof, sig, _ := auth.SignDelegation(
+//     nodeKey,          // *keys.AsyncCrypt
+//     certs,            // []NodeCertLike
+//     si,               // *SessionIdentity
+//     conn.ExportKeyingMaterial,
+//     )
 //
-//	7. Prover creates and signs the DelegationProof
-//	   in one call:
+//     SignDelegation handles the full flow: derives
+//     the transcript binding via EKM, computes the
+//     bundle hash, builds the proof, derives the
+//     TLS exporter value, signs with ML-DSA-87.
 //
-//	   proof, sig, _ := auth.SignDelegation(
-//	       nodeKey,          // *keys.AsyncCrypt
-//	       certs,            // []NodeCertLike
-//	       si,               // *SessionIdentity
-//	       transcriptHash,   // from TLS stack
-//	       conn.ConnectionState().
-//	           ExportKeyingMaterial,
-//	   )
+//  8. Prover sends via the carrier's auth stream:
 //
-//	   SignDelegation handles the full flow: computes
-//	   the bundle hash, builds the proof, derives the
-//	   TLS exporter value, signs with ML-DSA-87.
+//     stream, _ := conn.OpenStream()
+//     carrier.WriteAuthHandshake(
+//     stream, certs, caSigs, proof, sig,
+//     )
+//     stream.Close()
 //
-//	8. Prover sends via the carrier's auth stream:
-//
-//	   stream, _ := conn.OpenStream()
-//	   carrier.WriteAuthHandshake(
-//	       stream, certs, caSigs, proof, sig,
-//	   )
-//	   stream.Close()
+//     This is handled by carrier.dialAndAuth which
+//     orchestrates the full dial → auth → register
+//     flow.
 //
 // ┌──────────────────────────────────────────────────┐
 // │  PHASE 4: CHAIN VALIDATION (verifier side)      │
@@ -162,21 +163,6 @@ import (
 //   - AllowedUserCAOwners (for data ACL checks)
 //     Register the connection and scope; reject on
 //     any error by closing the QUIC connection.
-//
-// ┌──────────────────────────────────────────────────┐
-// │  WHAT IS MISSING (transport layer TODOs)         │
-// └──────────────────────────────────────────────────┘
-//
-//   - QuicTransport implementation with PQ-hybrid TLS
-//   - Connection.TLSBindings() wired to real TLS stack
-//   - Carrier dial flow: dial → TLS → SignDelegation
-//     → writeAuthHandshake → register
-//   - JoinCluster wiring the dial flow end-to-end
-//   - Periodic re-auth / scope refresh on long-lived
-//     connections (spec lines 130-131)
-//   - Cluster-wide revocation propagation via Carrier
-//     broadcast (the RevocationHook fires locally;
-//     the integrator must broadcast the event)
 type carrierAuth struct { // A
 	logger          *slog.Logger
 	mu              sync.RWMutex

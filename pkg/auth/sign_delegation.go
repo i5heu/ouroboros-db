@@ -34,14 +34,11 @@ type ExporterFunc = func( // A
 //     that will be sent to the verifier).
 //   - session: the SessionIdentity from Phase 2
 //     (NewSessionIdentity).
-//   - transcriptHash: the TLS handshake transcript
-//     hash after TLS Finished. Obtain via:
-//     conn.ConnectionState().TLSUnique or the
-//     underlying hash from the TLS stack.
 //   - exporterFn: closure over
 //     tls.Conn.ExportKeyingMaterial; used to derive
-//     the channel-bound exporter value with label
-//     ExporterLabel.
+//     both the transcript binding (via
+//     TranscriptBindingLabel) and the channel-bound
+//     exporter value (via ExporterLabel).
 //
 // Returns the signed DelegationProof and the
 // DelegationSig. Both must be sent to the verifier
@@ -51,20 +48,20 @@ type ExporterFunc = func( // A
 // Flow:
 //
 //  1. Compute CanonicalNodeCertBundle hash.
-//  2. Build DelegationProof WITHOUT
+//  2. Derive transcript binding via EKM.
+//  3. Build DelegationProof WITHOUT
 //     TLSExporterBinding.
-//  3. Derive exporter context =
+//  4. Derive exporter context =
 //     CanonicalDelegationProofForExporter(proof).
-//  4. Call exporterFn(ExporterLabel, ctx, 32) to
+//  5. Call exporterFn(ExporterLabel, ctx, 32) to
 //     get the TLS exporter value.
-//  5. Rebuild proof WITH TLSExporterBinding.
-//  6. Canonical-encode + domain-separate.
-//  7. Sign with the node's ML-DSA-87 private key.
+//  6. Rebuild proof WITH TLSExporterBinding.
+//  7. Canonical-encode + domain-separate.
+//  8. Sign with the node's ML-DSA-87 private key.
 func SignDelegation( // A
 	nodeKey *keys.AsyncCrypt,
 	certs []NodeCertLike,
 	session *SessionIdentity,
-	transcriptHash []byte,
 	exporterFn ExporterFunc,
 ) (*DelegationProofImpl, []byte, error) {
 	// 1. Bundle hash.
@@ -76,12 +73,27 @@ func SignDelegation( // A
 	}
 	bundleHash := sha256.Sum256(bundleBytes)
 
+	// 2. Derive transcript binding via EKM.
+	// TLS 1.3 does not expose the raw transcript
+	// hash; EKM provides equivalent binding per
+	// RFC 9266.
+	transcriptHash, err := exporterFn(
+		TranscriptBindingLabel,
+		nil,
+		TLSTranscriptHashSize,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"transcript binding: %w", err,
+		)
+	}
+
 	now := time.Now().Unix()
 
-	// 2. Build proof without exporter.
+	// 3. Build proof without exporter.
 	proofNoExp := NewDelegationProof(
 		session.CertPubKeyHash[:],
-		nil, // exporter filled in step 5
+		nil, // exporter filled in step 6
 		transcriptHash,
 		session.X509Fingerprint[:],
 		bundleHash[:],
@@ -89,7 +101,7 @@ func SignDelegation( // A
 		now+MaxDelegationTTL,
 	)
 
-	// 3. Exporter context.
+	// 4. Exporter context.
 	expCtx, err := CanonicalDelegationProofForExporter(
 		proofNoExp,
 	)
@@ -99,7 +111,7 @@ func SignDelegation( // A
 		)
 	}
 
-	// 4. Derive exporter value.
+	// 5. Derive exporter value.
 	exporter, err := exporterFn(
 		ExporterLabel,
 		expCtx,
@@ -111,7 +123,7 @@ func SignDelegation( // A
 		)
 	}
 
-	// 5. Rebuild proof with exporter.
+	// 6. Rebuild proof with exporter.
 	proof := NewDelegationProof(
 		session.CertPubKeyHash[:],
 		exporter,
@@ -122,7 +134,7 @@ func SignDelegation( // A
 		now+MaxDelegationTTL,
 	)
 
-	// 6. Canonical-encode + domain-separate.
+	// 7. Canonical-encode + domain-separate.
 	canon, err := CanonicalDelegationProof(proof)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
@@ -131,7 +143,7 @@ func SignDelegation( // A
 	}
 	msg := DomainSeparate(CTXNodeDelegationV1, canon)
 
-	// 7. Sign.
+	// 8. Sign.
 	sig, err := nodeKey.Sign(msg)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
