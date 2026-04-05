@@ -187,6 +187,130 @@ func (ts *trustSnapshot) isUserCAAnchorValid( // A
 	return found
 }
 
+// withEmbeddedAuthorities returns a copy of the
+// trust snapshot augmented with peer-supplied public
+// CA chain data from the auth handshake.
+func (ts *trustSnapshot) withEmbeddedAuthorities( // A
+	authorities []EmbeddedCA,
+) (*trustSnapshot, error) {
+	clone := &trustSnapshot{
+		adminCAs:        make(map[string]*AdminCAImpl, len(ts.adminCAs)),
+		userCAs:         make(map[string]*UserCAImpl, len(ts.userCAs)),
+		revokedAdminCAs: make(map[string]struct{}, len(ts.revokedAdminCAs)),
+		revokedUserCAs:  make(map[string]struct{}, len(ts.revokedUserCAs)),
+		revokedNodes:    make(map[keys.NodeID]struct{}, len(ts.revokedNodes)),
+		logger:          ts.logger,
+	}
+	for key, value := range ts.adminCAs {
+		clone.adminCAs[key] = value
+	}
+	for key, value := range ts.userCAs {
+		clone.userCAs[key] = value
+	}
+	for key, value := range ts.revokedAdminCAs {
+		clone.revokedAdminCAs[key] = value
+	}
+	for key, value := range ts.revokedUserCAs {
+		clone.revokedUserCAs[key] = value
+	}
+	for key, value := range ts.revokedNodes {
+		clone.revokedNodes[key] = value
+	}
+	for _, authority := range authorities {
+		if authority.Type != "admin-ca" {
+			continue
+		}
+		if err := clone.addEmbeddedAdmin(authority); err != nil {
+			return nil, err
+		}
+	}
+	for _, authority := range authorities {
+		if authority.Type != "user-ca" {
+			continue
+		}
+		if err := clone.addEmbeddedUser(authority); err != nil {
+			return nil, err
+		}
+	}
+	return clone, nil
+}
+
+func (ts *trustSnapshot) addEmbeddedAdmin( // A
+	authority EmbeddedCA,
+) error {
+	pubBytes, err := embeddedAuthorityPubKeyBytes(authority)
+	if err != nil {
+		return err
+	}
+	admin, err := NewAdminCA(pubBytes)
+	if err != nil {
+		return err
+	}
+	hash := admin.Hash()
+	if _, revoked := ts.revokedAdminCAs[hash]; revoked {
+		return ErrCARevoked
+	}
+	if _, exists := ts.adminCAs[hash]; exists {
+		return nil
+	}
+	ts.adminCAs[hash] = admin
+	return nil
+}
+
+func (ts *trustSnapshot) addEmbeddedUser( // A
+	authority EmbeddedCA,
+) error {
+	pubBytes, err := embeddedAuthorityPubKeyBytes(authority)
+	if err != nil {
+		return err
+	}
+	user, err := newUserCA(
+		pubBytes,
+		authority.AnchorSig,
+		authority.AnchorAdmin,
+	)
+	if err != nil {
+		return err
+	}
+	hash := user.Hash()
+	if _, revoked := ts.revokedUserCAs[hash]; revoked {
+		return ErrCARevoked
+	}
+	if _, exists := ts.userCAs[hash]; exists {
+		return nil
+	}
+	admin, ok := ts.adminCAs[authority.AnchorAdmin]
+	if !ok {
+		return ErrAnchorAdminNotFound
+	}
+	if _, revoked := ts.revokedAdminCAs[authority.AnchorAdmin]; revoked {
+		return ErrAnchorAdminRevoked
+	}
+	msg := DomainSeparate(CTXUserCAAnchorV1, pubBytes)
+	if !admin.pubKey.Verify(msg, authority.AnchorSig) {
+		return ErrInvalidAnchorSig
+	}
+	ts.userCAs[hash] = user
+	return nil
+}
+
+func embeddedAuthorityPubKeyBytes( // A
+	authority EmbeddedCA,
+) ([]byte, error) {
+	pub, err := keys.NewPublicKeyFromBinary(
+		authority.PubKEM,
+		authority.PubSign,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded authority: %w", err)
+	}
+	pubBytes, err := marshalPubKeyBytes(pub)
+	if err != nil {
+		return nil, fmt.Errorf("marshal embedded authority: %w", err)
+	}
+	return pubBytes, nil
+}
+
 // verifyAuthority performs check 3: verifies CA
 // signatures and ensures all certs share the same
 // NodeID.

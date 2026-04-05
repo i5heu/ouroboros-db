@@ -77,13 +77,24 @@ type wireDelegationProof struct { // A
 	NotAfter           int64  `cbor:"7,keyasint"`
 }
 
+// wireEmbeddedCA is the CBOR on-wire representation
+// of a public CA chain entry shipped during auth.
+type wireEmbeddedCA struct { // A
+	Type        string `cbor:"1,keyasint"`
+	PubKEM      []byte `cbor:"2,keyasint"`
+	PubSign     []byte `cbor:"3,keyasint"`
+	AnchorSig   []byte `cbor:"4,keyasint,omitempty"`
+	AnchorAdmin string `cbor:"5,keyasint,omitempty"`
+}
+
 // wireAuthMessage is the top-level handshake message
 // sent by the prover over the auth stream.
 type wireAuthMessage struct { // A
 	Certs         []wireNodeCert      `cbor:"1,keyasint"`
 	CASignatures  [][]byte            `cbor:"2,keyasint"`
-	Delegation    wireDelegationProof `cbor:"3,keyasint"`
-	DelegationSig []byte              `cbor:"4,keyasint"`
+	Authorities   []wireEmbeddedCA    `cbor:"3,keyasint,omitempty"`
+	Delegation    wireDelegationProof `cbor:"4,keyasint"`
+	DelegationSig []byte              `cbor:"5,keyasint"`
 }
 
 // readAuthHandshake reads a length-prefixed CBOR
@@ -141,6 +152,16 @@ func readAuthHandshake( // A
 
 	// Convert wire delegation proof.
 	proof := wireToDelegation(msg.Delegation)
+	authorities := make([]auth.EmbeddedCA, len(msg.Authorities))
+	for i, authority := range msg.Authorities {
+		authorities[i] = auth.EmbeddedCA{
+			Type:        authority.Type,
+			PubKEM:      append([]byte(nil), authority.PubKEM...),
+			PubSign:     append([]byte(nil), authority.PubSign...),
+			AnchorSig:   append([]byte(nil), authority.AnchorSig...),
+			AnchorAdmin: authority.AnchorAdmin,
+		}
+	}
 
 	// Derive TLS bindings. Static values come from
 	// the connection; exporter and transcript
@@ -193,6 +214,7 @@ func readAuthHandshake( // A
 	return interfaces.PeerHandshake{
 		Certs:           certs,
 		CASignatures:    msg.CASignatures,
+		Authorities:     authorities,
 		DelegationProof: proof,
 		DelegationSig:   msg.DelegationSig,
 		TLS:             tls,
@@ -261,6 +283,7 @@ func writeAuthHandshake( // A
 	stream interfaces.Stream,
 	certs []auth.NodeCertLike,
 	caSigs [][]byte,
+	authorities []auth.EmbeddedCA,
 	proof *auth.DelegationProofImpl,
 	delegationSig []byte,
 ) error {
@@ -278,9 +301,23 @@ func writeAuthHandshake( // A
 		wireCerts[i] = wc
 	}
 
+	wireAuthorities := make(
+		[]wireEmbeddedCA, len(authorities),
+	)
+	for i, authority := range authorities {
+		wireAuthorities[i] = wireEmbeddedCA{
+			Type:        authority.Type,
+			PubKEM:      append([]byte(nil), authority.PubKEM...),
+			PubSign:     append([]byte(nil), authority.PubSign...),
+			AnchorSig:   append([]byte(nil), authority.AnchorSig...),
+			AnchorAdmin: authority.AnchorAdmin,
+		}
+	}
+
 	msg := wireAuthMessage{
 		Certs:        wireCerts,
 		CASignatures: caSigs,
+		Authorities:  wireAuthorities,
 		Delegation: wireDelegationProof{
 			TLSCertPubKeyHash:  proof.TLSCertPubKeyHash(),
 			TLSExporterBinding: proof.TLSExporterBinding(),

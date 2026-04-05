@@ -353,12 +353,32 @@ class ClusterHarness:
             )
 
     def provision_certificates(self) -> None:
-        """Create one admin CA and one node certificate for each test node."""
-        log("Provisioning admin CA and node certificates")
+        """Create a root CA, two user CAs, and the three node certificates."""
+        log("Provisioning root CA, user CAs, and node certificates")
         run_command(
             ["go", "run", "cmd/certgen/main.go", "admin-ca", "-out", str(self.admin_ca_path)],
             cwd=self.repo_root,
         )
+
+        user_ca_paths = {
+            2: self._temp_dir / "user-node2.oukey",
+            3: self._temp_dir / "user-node3.oukey",
+        }
+        for node_number, user_ca_path in user_ca_paths.items():
+            log(f"Provisioning user CA for node {node_number}")
+            run_command(
+                [
+                    "go",
+                    "run",
+                    "cmd/certgen/main.go",
+                    "user-ca",
+                    "-admin-key",
+                    str(self.admin_ca_path),
+                    "-out",
+                    str(user_ca_path),
+                ],
+                cwd=self.repo_root,
+            )
 
         self.nodes = []
         for node_number in (1, 2, 3):
@@ -367,6 +387,7 @@ class ClusterHarness:
             data_dir = node_dir / "data"
             data_dir.mkdir(parents=True, exist_ok=True)
             cert_path = node_dir / f"node{node_number}.oucert"
+            ca_key_path = user_ca_paths.get(node_number, self.admin_ca_path)
             run_command(
                 [
                     "go",
@@ -374,7 +395,7 @@ class ClusterHarness:
                     "cmd/certgen/main.go",
                     "sign-node",
                     "-ca-key",
-                    str(self.admin_ca_path),
+                    str(ca_key_path),
                     "-out",
                     str(cert_path),
                 ],

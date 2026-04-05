@@ -199,7 +199,12 @@ func NodeCertToIdentity( // A
 	}
 	certs := []auth.NodeCertLike{cert}
 	sigs := [][]byte{f.CASignature}
-	return auth.NewNodeIdentity(ac, certs, sigs)
+	return auth.NewNodeIdentity(
+		ac,
+		certs,
+		sigs,
+		toAuthEmbeddedCAs(f.Authorities),
+	)
 }
 
 // BuildEmbeddedTrustChain derives the public trust
@@ -313,4 +318,20 @@ func embeddedCAPubKeyBytes( // A
 		return nil, fmt.Errorf("marshal embedded CA pubkey: %w", err)
 	}
 	return pubBytes, nil
+}
+
+func toAuthEmbeddedCAs( // A
+	authorities []EmbeddedCAFile,
+) []auth.EmbeddedCA {
+	out := make([]auth.EmbeddedCA, len(authorities))
+	for index, authority := range authorities {
+		out[index] = auth.EmbeddedCA{
+			Type:        authority.Type,
+			PubKEM:      append([]byte(nil), authority.PubKEM...),
+			PubSign:     append([]byte(nil), authority.PubSign...),
+			AnchorSig:   append([]byte(nil), authority.AnchorSig...),
+			AnchorAdmin: authority.AnchorAdmin,
+		}
+	}
+	return out
 }

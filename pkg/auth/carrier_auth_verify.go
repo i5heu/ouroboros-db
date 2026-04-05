@@ -106,6 +106,12 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 	ca.mu.RLock()
 	ts := ca.snapTrustStore()
 	ca.mu.RUnlock()
+	if len(hs.Authorities) > 0 {
+		ts, err = ts.withEmbeddedAuthorities(hs.Authorities)
+		if err != nil {
+			return AuthContext{}, err
+		}
+	}
 
 	certLikes := make([]NodeCertLike, len(certs))
 	for i, c := range certs {

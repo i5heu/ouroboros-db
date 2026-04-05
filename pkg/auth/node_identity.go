@@ -22,12 +22,13 @@ import (
 //	// for QUIC transport, then call SignDelegation
 //	// with ni.ExporterFn(conn) after TLS completes.
 type NodeIdentity struct { // A
-	mu      sync.RWMutex
-	key     *keys.AsyncCrypt
-	session *SessionIdentity
-	certs   []NodeCertLike
-	caSigs  [][]byte
-	nodeID  keys.NodeID
+	mu          sync.RWMutex
+	key         *keys.AsyncCrypt
+	session     *SessionIdentity
+	certs       []NodeCertLike
+	caSigs      [][]byte
+	authorities []EmbeddedCA
+	nodeID      keys.NodeID
 }
 
 // NewNodeIdentity creates a NodeIdentity from the
@@ -38,6 +39,7 @@ func NewNodeIdentity( // A
 	key *keys.AsyncCrypt,
 	certs []NodeCertLike,
 	caSigs [][]byte,
+	authorities []EmbeddedCA,
 ) (*NodeIdentity, error) {
 	if len(certs) == 0 {
 		return nil, fmt.Errorf(
@@ -60,11 +62,12 @@ func NewNodeIdentity( // A
 		)
 	}
 	return &NodeIdentity{
-		key:     key,
-		session: session,
-		certs:   certs,
-		caSigs:  caSigs,
-		nodeID:  nodeID,
+		key:         key,
+		session:     session,
+		certs:       certs,
+		caSigs:      caSigs,
+		authorities: append([]EmbeddedCA(nil), authorities...),
+		nodeID:      nodeID,
 	}, nil
 }
 
@@ -94,6 +97,17 @@ func (ni *NodeIdentity) CASigs() [][]byte { // A
 	defer ni.mu.RUnlock()
 	out := make([][]byte, len(ni.caSigs))
 	copy(out, ni.caSigs)
+	return out
+}
+
+// Authorities returns the embedded CA chain that
+// should accompany this node's cert bundle during
+// peer authentication.
+func (ni *NodeIdentity) Authorities() []EmbeddedCA { // A
+	ni.mu.RLock()
+	defer ni.mu.RUnlock()
+	out := make([]EmbeddedCA, len(ni.authorities))
+	copy(out, ni.authorities)
 	return out
 }
 

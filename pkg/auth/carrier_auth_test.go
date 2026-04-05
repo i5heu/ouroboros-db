@@ -997,6 +997,113 @@ func TestUserScopedVerification(t *testing.T) { // A
 	}
 }
 
+func TestUserScopedVerificationWithEmbeddedAuthorities( // A
+	t *testing.T,
+) {
+	ca := NewCarrierAuth(testLogger())
+
+	adminAC, _ := keys.NewAsyncCrypt()
+	adminPub := adminAC.GetPublicKey()
+	adminSign, _ := adminPub.MarshalBinarySign()
+	adminKEM, _ := adminPub.MarshalBinaryKEM()
+	adminBytes := append(adminKEM, adminSign...)
+	if err := ca.AddAdminPubKey(adminBytes); err != nil {
+		t.Fatal(err)
+	}
+	adminCA, _ := NewAdminCA(adminBytes)
+
+	userAC, _ := keys.NewAsyncCrypt()
+	userPub := userAC.GetPublicKey()
+	userSign, _ := userPub.MarshalBinarySign()
+	userKEM, _ := userPub.MarshalBinaryKEM()
+	userBytes := append(userKEM, userSign...)
+	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorSig, _ := adminAC.Sign(anchorMsg)
+	userCA, _ := newUserCA(
+		userBytes,
+		anchorSig,
+		adminCA.Hash(),
+	)
+
+	nodeAC, _ := keys.NewAsyncCrypt()
+	nodePub := nodeAC.GetPublicKey()
+	now := time.Now().Unix()
+	cert, _ := NewNodeCert(
+		nodePub,
+		userCA.Hash(),
+		now-10,
+		now+600,
+		[]byte("s1"),
+		[]byte("n1"),
+	)
+	canonical, _ := CanonicalNodeCert(cert)
+	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	caSig, _ := userAC.Sign(msg)
+
+	certHashSum := sha256.Sum256([]byte("cert-hash"))
+	x509FPSum := sha256.Sum256([]byte("x509-fp"))
+	transcriptSum := sha256.Sum256([]byte("transcript"))
+	certHash := certHashSum[:]
+	x509FP := x509FPSum[:]
+	transcript := transcriptSum[:]
+	certs := []NodeCertLike{cert}
+	bundleBytes, _ := CanonicalNodeCertBundle(certs)
+	bh := sha256.Sum256(bundleBytes)
+
+	proof := NewDelegationProof(
+		certHash, nil, transcript, x509FP,
+		bh[:], now-5, now+MaxDelegationTTL-10,
+	)
+	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	exporter := deriveTestExporter(expCtx)
+	proof = NewDelegationProof(
+		certHash, exporter, transcript, x509FP,
+		bh[:], now-5, now+MaxDelegationTTL-10,
+	)
+	delCanon, _ := CanonicalDelegationProof(proof)
+	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delSig, _ := nodeAC.Sign(delMsg)
+
+	ctx, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:        certs,
+		CASignatures: [][]byte{caSig},
+		Authorities: []EmbeddedCA{
+			{
+				Type:    "admin-ca",
+				PubKEM:  adminKEM,
+				PubSign: adminSign,
+			},
+			{
+				Type:        "user-ca",
+				PubKEM:      userKEM,
+				PubSign:     userSign,
+				AnchorSig:   anchorSig,
+				AnchorAdmin: adminCA.Hash(),
+			},
+		},
+		DelegationProof: proof,
+		DelegationSig:   delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  certHash,
+			ExporterBinding: exporter,
+			X509Fingerprint: x509FP,
+			TranscriptHash:  transcript,
+		},
+	})
+	if err != nil {
+		t.Fatalf("VerifyPeerCert: %v", err)
+	}
+	if ctx.EffectiveScope != ScopeUser {
+		t.Errorf("scope = %v, want ScopeUser", ctx.EffectiveScope)
+	}
+	if len(ctx.AllowedUserCAOwners) != 1 {
+		t.Fatalf("want 1 owner, got %d", len(ctx.AllowedUserCAOwners))
+	}
+	if ctx.AllowedUserCAOwners[0] != userCA.Hash() {
+		t.Error("wrong UserCA owner hash")
+	}
+}
+
 func TestDelegationTTLTooLong(t *testing.T) { // A
 	s := buildScenario(t)
 

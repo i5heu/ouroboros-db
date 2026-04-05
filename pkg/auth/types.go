@@ -33,6 +33,17 @@ type TLSBindings struct { // A
 	TranscriptHash  []byte
 }
 
+// EmbeddedCA carries public-only CA chain material
+// that can be shipped alongside a node certificate
+// bundle during peer authentication.
+type EmbeddedCA struct { // A
+	Type        string
+	PubKEM      []byte
+	PubSign     []byte
+	AnchorSig   []byte
+	AnchorAdmin string
+}
+
 // PeerHandshake bundles all inputs required by
 // VerifyPeerCert into a single value. This prevents
 // argument-ordering mistakes and makes the API
@@ -40,6 +51,7 @@ type TLSBindings struct { // A
 type PeerHandshake struct { // A
 	Certs           []NodeCertLike
 	CASignatures    [][]byte
+	Authorities     []EmbeddedCA
 	DelegationProof DelegationProofLike
 	DelegationSig   []byte
 	TLS             TLSBindings

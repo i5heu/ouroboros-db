@@ -348,6 +348,7 @@ func (c *carrierImpl) dialAndAuth( // A
 		stream,
 		ni.Certs(),
 		ni.CASigs(),
+		ni.Authorities(),
 		proof,
 		sig,
 	)
@@ -599,6 +600,7 @@ func (c *carrierImpl) writeLocalAuth( // A
 		stream,
 		ni.Certs(),
 		ni.CASigs(),
+		ni.Authorities(),
 		proof,
 		sig,
 	)
