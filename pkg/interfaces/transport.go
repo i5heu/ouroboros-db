@@ -18,6 +18,7 @@ type QuicTransport interface { // A
 
 type Connection interface { // A
 	NodeID() keys.NodeID
+	TLSBindings() TLSBindings
 	OpenStream() (Stream, error)
 	AcceptStream() (Stream, error)
 	SendDatagram(data []byte) error

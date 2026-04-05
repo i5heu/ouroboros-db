@@ -23,8 +23,16 @@ func newUserCA( // A
 	if err != nil {
 		return nil, err
 	}
+	cached, err := marshalPubKeyBytes(pub)
+	if err != nil {
+		return nil, err
+	}
 	return &UserCAImpl{
-		caBase:          caBase{pubKey: pub, hash: h},
+		caBase: caBase{
+			pubKey:      pub,
+			pubKeyBytes: cached,
+			hash:        h,
+		},
 		anchorSig:       anchorSig,
 		anchorAdminHash: anchorAdminHash,
 	}, nil

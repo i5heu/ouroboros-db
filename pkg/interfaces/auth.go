@@ -77,6 +77,7 @@ type TrustStore interface { // A
 	RevokeAdminCA(adminCAHash string) error
 	RevokeUserCA(userCAHash string) error
 	RevokeNode(nodeID keys.NodeID) error
+	SetRevocationHook(hook auth.RevocationHook)
 }
 
 // CarrierAuth combines verification and trust store

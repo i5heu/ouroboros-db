@@ -195,7 +195,16 @@ func TestCanonicalDelegationProofForExporter( // A
 func TestDomainSeparate(t *testing.T) { // A
 	data := []byte("payload")
 	sep := DomainSeparate("CTX_", data)
-	expected := append([]byte("CTX_"), data...)
+	// Length-prefixed: 4-byte big-endian len + ctx + data.
+	prefix := []byte("CTX_")
+	l := len(prefix)
+	expected := make([]byte, 4+l+len(data))
+	expected[0] = byte(l >> 24)
+	expected[1] = byte(l >> 16)
+	expected[2] = byte(l >> 8)
+	expected[3] = byte(l)
+	copy(expected[4:], prefix)
+	copy(expected[4+l:], data)
 	if string(sep) != string(expected) {
 		t.Fatalf("got %q, want %q", sep, expected)
 	}

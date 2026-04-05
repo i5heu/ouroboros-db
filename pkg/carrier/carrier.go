@@ -54,6 +54,11 @@ type CarrierConfig struct { // A
 	// Logger is an optional structured logger. If nil a
 	// default stderr logger is used.
 	Logger *slog.Logger
+
+	// Auth is the CarrierAuth used to verify inbound
+	// peers. If nil, all inbound connections are
+	// rejected.
+	Auth interfaces.CarrierAuth
 }
 
 // Compile-time interface compliance check.
@@ -282,12 +287,65 @@ func (c *carrierImpl) StartListener( // A
 
 // handleIncomingConn authenticates an inbound connection
 // and adds the peer to the registry on success.
+// Connections are always rejected when no CarrierAuth is
+// configured.
 func (c *carrierImpl) handleIncomingConn( // A
-	_ context.Context,
-	_ interfaces.Connection,
+	ctx context.Context,
+	conn interfaces.Connection,
 ) {
-	// TODO: authenticate via CarrierAuth, add to
-	// registry.
+	if c.config.Auth == nil {
+		c.logger.WarnContext(ctx,
+			"rejecting connection, no CarrierAuth configured",
+		)
+		_ = conn.Close()
+		return
+	}
+
+	// Accept the peer's auth stream.
+	stream, err := conn.AcceptStream()
+	if err != nil {
+		c.logger.WarnContext(ctx,
+			"auth stream accept failed",
+			"error", err.Error(),
+		)
+		_ = conn.Close()
+		return
+	}
+
+	// Read the handshake message from the stream.
+	hs, err := readAuthHandshake(stream, conn)
+	if err != nil {
+		c.logger.WarnContext(ctx,
+			"auth handshake read failed",
+			"error", err.Error(),
+		)
+		_ = stream.Close()
+		_ = conn.Close()
+		return
+	}
+	_ = stream.Close()
+
+	// Verify peer identity and authorization.
+	authCtx, err := c.config.Auth.VerifyPeerCert(hs)
+	if err != nil {
+		c.logger.WarnContext(ctx,
+			"peer auth verification failed",
+			"error", err.Error(),
+		)
+		_ = conn.Close()
+		return
+	}
+
+	// Register authenticated peer.
+	c.mu.Lock()
+	c.connections[authCtx.NodeID] = conn
+	c.mu.Unlock()
+
+	c.logger.InfoContext(ctx,
+		"peer authenticated and registered",
+		"nodeID", authCtx.NodeID.String(),
+		"scope", authCtx.EffectiveScope.String(),
+	)
 }
 
 // getNodesUnlocked returns all registry nodes as

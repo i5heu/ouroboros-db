@@ -9,17 +9,14 @@ import (
 // caBase holds the shared public key and hash fields
 // common to AdminCAImpl and UserCAImpl.
 type caBase struct { // A
-	pubKey *keys.PublicKey
-	hash   string
+	pubKey      *keys.PublicKey
+	pubKeyBytes []byte
+	hash        string
 }
 
 // PubKey returns the concatenated KEM+Sign bytes.
 func (b *caBase) PubKey() []byte { // A
-	out, err := marshalPubKeyBytes(b.pubKey)
-	if err != nil {
-		return nil
-	}
-	return out
+	return append([]byte(nil), b.pubKeyBytes...)
 }
 
 // Hash returns hex(SHA-256(signPubKeyBytes)).

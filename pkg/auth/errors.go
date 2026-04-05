@@ -150,6 +150,18 @@ var ( // A
 	ErrStatefulCert = errors.New(
 		"stateful certificate detected",
 	)
+
+	// ErrUnsupportedCertVersion is returned when a
+	// cert has an unknown version number.
+	ErrUnsupportedCertVersion = errors.New(
+		"unsupported certificate version",
+	)
+
+	// ErrRevocationStoreFull is returned when the
+	// revocation map exceeds MaxRevocationEntries.
+	ErrRevocationStoreFull = errors.New(
+		"revocation store capacity exceeded",
+	)
 )
 
 // AuthError wraps a sentinel error with runtime

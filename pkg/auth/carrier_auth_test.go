@@ -252,7 +252,7 @@ func TestVerifyPeerCertUnknownIssuer( // A
 		DelegationProof: NewDelegationProof(
 			nil, nil, nil, nil, nil, 0, 0,
 		),
-		DelegationSig: nil,
+		DelegationSig: []byte("placeholder"),
 		TLS: TLSBindings{
 			CertPubKeyHash:  nil,
 			ExporterBinding: nil,

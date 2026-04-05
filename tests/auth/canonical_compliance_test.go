@@ -224,7 +224,17 @@ func TestPropertyDomainSeparationPrepends(t *testing.T) {
 		).Draw(rt, "data")
 
 		result := auth.DomainSeparate(ctx, data)
-		expected := append([]byte(ctx), data...)
+
+		// Expect 4-byte big-endian length prefix.
+		prefix := []byte(ctx)
+		l := len(prefix)
+		expected := make([]byte, 4+l+len(data))
+		expected[0] = byte(l >> 24)
+		expected[1] = byte(l >> 16)
+		expected[2] = byte(l >> 8)
+		expected[3] = byte(l)
+		copy(expected[4:], prefix)
+		copy(expected[4+l:], data)
 
 		if !bytes.Equal(result, expected) {
 			rt.Fatalf(
@@ -247,7 +257,7 @@ func TestPropertyDomainSeparationLength(t *testing.T) {
 		).Draw(rt, "data")
 
 		result := auth.DomainSeparate(ctx, data)
-		expectedLen := len(ctx) + len(data)
+		expectedLen := 4 + len(ctx) + len(data)
 
 		if len(result) != expectedLen {
 			rt.Fatalf(

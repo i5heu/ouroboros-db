@@ -172,14 +172,22 @@ func CanonicalDelegationProofForExporter( // A
 	return cborEncMode.Marshal(d)
 }
 
-// DomainSeparate prepends a domain-separation context
-// string to data: ctx || data.
+// DomainSeparate prepends a length-prefixed
+// domain-separation context to data:
+// bigEndian(len(ctx)) || ctx || data.
+// The 4-byte length prefix removes ambiguity when
+// context strings have variable lengths.
 func DomainSeparate( // A
 	ctx string, data []byte,
 ) []byte {
 	prefix := []byte(ctx)
-	out := make([]byte, len(prefix)+len(data))
-	copy(out, prefix)
-	copy(out[len(prefix):], data)
+	l := len(prefix)
+	out := make([]byte, 4+l+len(data))
+	out[0] = byte(l >> 24)
+	out[1] = byte(l >> 16)
+	out[2] = byte(l >> 8)
+	out[3] = byte(l)
+	copy(out[4:], prefix)
+	copy(out[4+l:], data)
 	return out
 }

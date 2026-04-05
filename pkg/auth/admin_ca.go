@@ -31,8 +31,16 @@ func NewAdminCA( // A
 	if err != nil {
 		return nil, err
 	}
+	cached, err := marshalPubKeyBytes(pub)
+	if err != nil {
+		return nil, err
+	}
 	return &AdminCAImpl{
-		caBase: caBase{pubKey: pub, hash: h},
+		caBase: caBase{
+			pubKey:      pub,
+			pubKeyBytes: cached,
+			hash:        h,
+		},
 	}, nil
 }
 

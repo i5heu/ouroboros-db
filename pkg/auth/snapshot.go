@@ -60,6 +60,14 @@ func (s *certSnapshot) NodeID() keys.NodeID { // A
 // from NodePubKey and compares with NodeID(). If
 // they differ, the cert is stateful/malicious.
 func snapshotCert(c NodeCertLike) (*certSnapshot, error) { // A
+	ver := c.CertVersion()
+	if ver != DefaultCertVersion {
+		return nil, authErr(
+			ErrUnsupportedCertVersion,
+			"unknown cert version",
+			"version", ver,
+		)
+	}
 	pub := c.NodePubKey()
 	derivedNID, err := pub.NodeID()
 	if err != nil {
