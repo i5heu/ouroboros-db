@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/sha256"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -161,16 +162,18 @@ func TestVerifyPeerCertRejectsInvalidBindingFieldLength( // A
 ) {
 	s := buildScenario(t)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		s.proof,
-		s.delSig,
-		[]byte("short"),
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: s.proof,
+		DelegationSig:   s.delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  []byte("short"),
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
 	if err == nil {
 		t.Fatal("expected invalid binding field length")
 	}
@@ -185,16 +188,18 @@ func TestVerifyPeerCertRejectsInvalidBindingFieldLength( // A
 func TestVerifyPeerCertSuccess(t *testing.T) { // A
 	s := buildScenario(t)
 
-	ctx, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		s.proof,
-		s.delSig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
+	ctx, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: s.proof,
+		DelegationSig:   s.delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
 	if err != nil {
 		t.Fatalf("VerifyPeerCert: %v", err)
 	}
@@ -216,10 +221,19 @@ func TestVerifyPeerCertSuccess(t *testing.T) { // A
 
 func TestVerifyPeerCertNoCerts(t *testing.T) { // A
 	ca := NewCarrierAuth(testLogger())
-	_, err := ca.VerifyPeerCert(
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
-	if err != ErrNoCerts {
+	_, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:           nil,
+		CASignatures:    nil,
+		DelegationProof: nil,
+		DelegationSig:   nil,
+		TLS: TLSBindings{
+			CertPubKeyHash:  nil,
+			ExporterBinding: nil,
+			X509Fingerprint: nil,
+			TranscriptHash:  nil,
+		},
+	})
+	if !errors.Is(err, ErrNoCerts) {
 		t.Errorf("got %v, want ErrNoCerts", err)
 	}
 }
@@ -232,15 +246,21 @@ func TestVerifyPeerCertUnknownIssuer( // A
 	cert := mustNodeCert(
 		t, ac.GetPublicKey(), "unknown-hash",
 	)
-	_, err := ca.VerifyPeerCert(
-		[]NodeCertLike{cert},
-		[][]byte{[]byte("sig")},
-		NewDelegationProof(
+	_, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:        []NodeCertLike{cert},
+		CASignatures: [][]byte{[]byte("sig")},
+		DelegationProof: NewDelegationProof(
 			nil, nil, nil, nil, nil, 0, 0,
 		),
-		nil, nil, nil, nil, nil,
-	)
-	if err != ErrNoValidCerts {
+		DelegationSig: nil,
+		TLS: TLSBindings{
+			CertPubKeyHash:  nil,
+			ExporterBinding: nil,
+			X509Fingerprint: nil,
+			TranscriptHash:  nil,
+		},
+	})
+	if !errors.Is(err, ErrNoValidCerts) {
 		t.Errorf(
 			"got %v, want ErrNoValidCerts", err,
 		)
@@ -262,17 +282,19 @@ func TestVerifyPeerCertExpiredCert( // A
 	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
 	sig, _ := s.adminAC.Sign(msg)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{expired},
-		[][]byte{sig},
-		s.proof,
-		s.delSig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
-	if err != ErrNoValidCerts {
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{expired},
+		CASignatures:    [][]byte{sig},
+		DelegationProof: s.proof,
+		DelegationSig:   s.delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrNoValidCerts) {
 		t.Errorf(
 			"got %v, want ErrNoValidCerts", err,
 		)
@@ -284,17 +306,19 @@ func TestVerifyPeerCertBadDelegationSig( // A
 ) {
 	s := buildScenario(t)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		s.proof,
-		[]byte("bad-delegation-sig"),
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
-	if err != ErrInvalidDelegationSig {
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: s.proof,
+		DelegationSig:   []byte("bad-delegation-sig"),
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrInvalidDelegationSig) {
 		t.Errorf(
 			"got %v, want ErrInvalidDelegationSig", err,
 		)
@@ -309,17 +333,19 @@ func TestVerifyPeerCertTLSBindingMismatch( // A
 		[]byte("wrong-cert-hash"),
 	)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		s.proof,
-		s.delSig,
-		wrongCertHash[:],
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
-	if err != ErrTLSBindingMismatch {
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: s.proof,
+		DelegationSig:   s.delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  wrongCertHash[:],
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrTLSBindingMismatch) {
 		t.Errorf(
 			"got %v, want ErrTLSBindingMismatch", err,
 		)
@@ -350,17 +376,19 @@ func TestVerifyPeerCertBundleHashMismatch( // A
 	msg := DomainSeparate(CTXNodeDelegationV1, canon)
 	sig, _ := s.nodeAC.Sign(msg)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		tampered,
-		sig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
-	if err != ErrBundleHashMismatch {
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: tampered,
+		DelegationSig:   sig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrBundleHashMismatch) {
 		t.Errorf(
 			"got %v, want ErrBundleHashMismatch", err,
 		)
@@ -443,14 +471,7 @@ func (c *switchingNodeCert) NodeID() keys.NodeID { // A
 func mustVerifyPeerCertWithoutPanic( // A
 	t *testing.T,
 	ca *carrierAuth,
-	peerCerts []NodeCertLike,
-	caSignatures [][]byte,
-	delegationProof DelegationProofLike,
-	delegationSig []byte,
-	tlsCertPubKeyHash []byte,
-	tlsExporterBinding []byte,
-	tlsX509Fingerprint []byte,
-	tlsTranscriptHash []byte,
+	hs PeerHandshake,
 ) (AuthContext, error) {
 	t.Helper()
 	defer func() {
@@ -458,16 +479,7 @@ func mustVerifyPeerCertWithoutPanic( // A
 			t.Fatalf("VerifyPeerCert panicked: %v", recovered)
 		}
 	}()
-	return ca.VerifyPeerCert(
-		peerCerts,
-		caSignatures,
-		delegationProof,
-		delegationSig,
-		tlsCertPubKeyHash,
-		tlsExporterBinding,
-		tlsX509Fingerprint,
-		tlsTranscriptHash,
-	)
+	return ca.VerifyPeerCert(hs)
 }
 
 func TestVerifyPeerCertNilDelegationProofRejected( // A
@@ -478,14 +490,18 @@ func TestVerifyPeerCertNilDelegationProofRejected( // A
 	_, err := mustVerifyPeerCertWithoutPanic(
 		t,
 		s.ca,
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		nil,
-		s.delSig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
+		PeerHandshake{
+			Certs:           []NodeCertLike{s.cert},
+			CASignatures:    [][]byte{s.caSig},
+			DelegationProof: nil,
+			DelegationSig:   s.delSig,
+			TLS: TLSBindings{
+				CertPubKeyHash:  s.certHash,
+				ExporterBinding: s.exporter,
+				X509Fingerprint: s.x509FP,
+				TranscriptHash:  s.transcript,
+			},
+		},
 	)
 	if err == nil {
 		t.Fatal("expected nil delegation proof to be rejected")
@@ -500,14 +516,18 @@ func TestVerifyPeerCertNilBundleEntryRejected( // A
 	_, err := mustVerifyPeerCertWithoutPanic(
 		t,
 		s.ca,
-		[]NodeCertLike{nil},
-		[][]byte{s.caSig},
-		s.proof,
-		s.delSig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
+		PeerHandshake{
+			Certs:           []NodeCertLike{nil},
+			CASignatures:    [][]byte{s.caSig},
+			DelegationProof: s.proof,
+			DelegationSig:   s.delSig,
+			TLS: TLSBindings{
+				CertPubKeyHash:  s.certHash,
+				ExporterBinding: s.exporter,
+				X509Fingerprint: s.x509FP,
+				TranscriptHash:  s.transcript,
+			},
+		},
 	)
 	if err == nil {
 		t.Fatal("expected nil certificate entry to be rejected")
@@ -618,14 +638,18 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 	ctx, err := mustVerifyPeerCertWithoutPanic(
 		t,
 		s.ca,
-		[]NodeCertLike{maliciousCert},
-		[][]byte{caSig},
-		proof,
-		delegationSig,
-		s.certHash,
-		exporter,
-		s.x509FP,
-		s.transcript,
+		PeerHandshake{
+			Certs:           []NodeCertLike{maliciousCert},
+			CASignatures:    [][]byte{caSig},
+			DelegationProof: proof,
+			DelegationSig:   delegationSig,
+			TLS: TLSBindings{
+				CertPubKeyHash:  s.certHash,
+				ExporterBinding: exporter,
+				X509Fingerprint: s.x509FP,
+				TranscriptHash:  s.transcript,
+			},
+		},
 	)
 	if err == nil {
 		t.Fatalf(
@@ -692,14 +716,18 @@ func TestVerifyPeerCertRejectsOversizedBundle( // A
 	ctx, err := mustVerifyPeerCertWithoutPanic(
 		t,
 		s.ca,
-		peerCerts,
-		caSignatures,
-		proof,
-		delegationSig,
-		s.certHash,
-		exporter,
-		s.x509FP,
-		s.transcript,
+		PeerHandshake{
+			Certs:           peerCerts,
+			CASignatures:    caSignatures,
+			DelegationProof: proof,
+			DelegationSig:   delegationSig,
+			TLS: TLSBindings{
+				CertPubKeyHash:  s.certHash,
+				ExporterBinding: exporter,
+				X509Fingerprint: s.x509FP,
+				TranscriptHash:  s.transcript,
+			},
+		},
 	)
 	if err == nil {
 		t.Fatalf(
@@ -720,7 +748,7 @@ func TestAddAdminPubKeyDuplicate(t *testing.T) { // A
 	if err := ca.AddAdminPubKey(combined); err != nil {
 		t.Fatal(err)
 	}
-	if err := ca.AddAdminPubKey(combined); err != ErrCAAlreadyExists {
+	if err := ca.AddAdminPubKey(combined); !errors.Is(err, ErrCAAlreadyExists) {
 		t.Errorf(
 			"got %v, want ErrCAAlreadyExists", err,
 		)
@@ -746,7 +774,7 @@ func TestRemoveAdminPubKey(t *testing.T) { // A
 	}
 
 	err = ca.RemoveAdminPubKey(admin.Hash())
-	if err != ErrCANotFound {
+	if !errors.Is(err, ErrCANotFound) {
 		t.Errorf("got %v, want ErrCANotFound", err)
 	}
 }
@@ -782,7 +810,7 @@ func TestRevokeUserCA(t *testing.T) { // A
 	err = s.ca.AddUserPubKey(
 		combined, anchorSig, s.adminCA.Hash(),
 	)
-	if err != ErrCARevoked {
+	if !errors.Is(err, ErrCARevoked) {
 		t.Errorf("got %v, want ErrCARevoked", err)
 	}
 }
@@ -798,17 +826,19 @@ func TestRevokeNode(t *testing.T) { // A
 	}
 
 	// Verification should fail with revoked node.
-	_, err = s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		s.proof,
-		s.delSig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
-	if err != ErrNoValidCerts {
+	_, err = s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: s.proof,
+		DelegationSig:   s.delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrNoValidCerts) {
 		t.Errorf(
 			"got %v, want ErrNoValidCerts", err,
 		)
@@ -830,7 +860,7 @@ func TestAddUserPubKeyAnchorVerification( // A
 	err := s.ca.AddUserPubKey(
 		combined, []byte("bad-sig"), s.adminCA.Hash(),
 	)
-	if err != ErrInvalidAnchorSig {
+	if !errors.Is(err, ErrInvalidAnchorSig) {
 		t.Errorf(
 			"got %v, want ErrInvalidAnchorSig", err,
 		)
@@ -850,7 +880,7 @@ func TestAddUserPubKeyBadAnchorAdmin( // A
 	err := ca.AddUserPubKey(
 		combined, []byte("sig"), "nonexistent",
 	)
-	if err != ErrAnchorAdminNotFound {
+	if !errors.Is(err, ErrAnchorAdminNotFound) {
 		t.Errorf(
 			"got %v, want ErrAnchorAdminNotFound",
 			err,
@@ -932,12 +962,18 @@ func TestUserScopedVerification(t *testing.T) { // A
 	)
 	delSig, _ := nodeAC.Sign(delMsg)
 
-	ctx, err := ca.VerifyPeerCert(
-		certs,
-		[][]byte{caSig},
-		proof, delSig,
-		certHash, exporter, x509FP, transcript,
-	)
+	ctx, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:           certs,
+		CASignatures:    [][]byte{caSig},
+		DelegationProof: proof,
+		DelegationSig:   delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  certHash,
+			ExporterBinding: exporter,
+			X509Fingerprint: x509FP,
+			TranscriptHash:  transcript,
+		},
+	})
 	if err != nil {
 		t.Fatalf("VerifyPeerCert: %v", err)
 	}
@@ -978,14 +1014,19 @@ func TestDelegationTTLTooLong(t *testing.T) { // A
 	msg := DomainSeparate(CTXNodeDelegationV1, canon)
 	sig, _ := s.nodeAC.Sign(msg)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		[][]byte{s.caSig},
-		longProof, sig,
-		s.certHash, s.exporter,
-		s.x509FP, s.transcript,
-	)
-	if err != ErrDelegationTooLong {
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    [][]byte{s.caSig},
+		DelegationProof: longProof,
+		DelegationSig:   sig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrDelegationTooLong) {
 		t.Errorf(
 			"got %v, want ErrDelegationTooLong", err,
 		)
@@ -997,17 +1038,19 @@ func TestVerifyPeerCertSignatureCountMismatch( // A
 ) {
 	s := buildScenario(t)
 
-	_, err := s.ca.VerifyPeerCert(
-		[]NodeCertLike{s.cert},
-		nil,
-		s.proof,
-		s.delSig,
-		s.certHash,
-		s.exporter,
-		s.x509FP,
-		s.transcript,
-	)
-	if err != ErrSignatureCountMismatch {
+	_, err := s.ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{s.cert},
+		CASignatures:    nil,
+		DelegationProof: s.proof,
+		DelegationSig:   s.delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  s.certHash,
+			ExporterBinding: s.exporter,
+			X509Fingerprint: s.x509FP,
+			TranscriptHash:  s.transcript,
+		},
+	})
+	if !errors.Is(err, ErrSignatureCountMismatch) {
 		t.Errorf(
 			"got %v, want ErrSignatureCountMismatch",
 			err,
@@ -1102,17 +1145,19 @@ func TestUserCAInvalidWhenAnchorAdminRemoved( // A
 	)
 	delSig, _ := nodeAC.Sign(proofMsg)
 
-	_, err := ca.VerifyPeerCert(
-		[]NodeCertLike{cert},
-		[][]byte{caSig},
-		proof,
-		delSig,
-		[]byte("cert-hash"),
-		exporter,
-		[]byte("x509-fp"),
-		[]byte("transcript"),
-	)
-	if err != ErrNoValidCerts {
+	_, err := ca.VerifyPeerCert(PeerHandshake{
+		Certs:           []NodeCertLike{cert},
+		CASignatures:    [][]byte{caSig},
+		DelegationProof: proof,
+		DelegationSig:   delSig,
+		TLS: TLSBindings{
+			CertPubKeyHash:  []byte("cert-hash"),
+			ExporterBinding: exporter,
+			X509Fingerprint: []byte("x509-fp"),
+			TranscriptHash:  []byte("transcript"),
+		},
+	})
+	if !errors.Is(err, ErrNoValidCerts) {
 		t.Errorf("got %v, want ErrNoValidCerts", err)
 	}
 }
@@ -1161,7 +1206,7 @@ func TestAddUserPubKeyRejectsKEMSubstitution( // A
 		anchorSig,
 		s.adminCA.Hash(),
 	)
-	if err != ErrInvalidAnchorSig {
+	if !errors.Is(err, ErrInvalidAnchorSig) {
 		t.Fatalf(
 			"got %v, want ErrInvalidAnchorSig",
 			err,

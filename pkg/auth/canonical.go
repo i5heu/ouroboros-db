@@ -113,7 +113,7 @@ func CanonicalNodeCertBundle( // A
 	certs []NodeCertLike,
 ) ([]byte, error) {
 	type sortEntry struct {
-		encoded    []byte
+		encoded []byte
 	}
 	entries := make([]sortEntry, len(certs))
 	for i, cert := range certs {

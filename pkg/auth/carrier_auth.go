@@ -10,6 +10,8 @@ import (
 )
 
 // carrierAuth implements interfaces.CarrierAuth.
+// Compile-time checks live in pkg/interfaces/auth.go
+// to avoid circular imports.
 // LOGGER: Uses *slog.Logger directly because
 // pkg/auth -> pkg/clusterlog -> pkg/interfaces ->
 // pkg/auth would create a circular import.

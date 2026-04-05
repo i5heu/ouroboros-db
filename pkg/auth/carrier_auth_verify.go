@@ -45,46 +45,40 @@ type bindingField struct { // A
 }
 
 // VerifyPeerCert validates all certs in the bundle
-// and derives effective authorization. Each step is a
-// separate method to stay under complexity limits.
+// and derives effective authorization. Inputs are
+// defensively snapshotted to prevent stateful-cert
+// attacks.
 func (ca *carrierAuth) VerifyPeerCert( // A
-	peerCerts []NodeCertLike,
-	caSignatures [][]byte,
-	delegationProof DelegationProofLike,
-	delegationSig []byte,
-	tlsCertPubKeyHash []byte,
-	tlsExporterBinding []byte,
-	tlsX509Fingerprint []byte,
-	tlsTranscriptHash []byte,
+	hs PeerHandshake,
 ) (AuthContext, error) {
-	if len(peerCerts) == 0 {
-		return AuthContext{}, ErrNoCerts
+	if err := validateHandshake(hs); err != nil {
+		return AuthContext{}, err
 	}
-	if len(peerCerts) > MaxPeerCertBundleSize {
-		return AuthContext{}, ErrBundleTooLarge
+
+	// Snapshot all inputs to freeze interface reads.
+	certs, err := snapshotCerts(hs.Certs)
+	if err != nil {
+		return AuthContext{}, err
 	}
-	if len(caSignatures) != len(peerCerts) {
-		return AuthContext{}, ErrSignatureCountMismatch
+	proof := snapshotDelegation(hs.DelegationProof)
+	tls := &TLSBindings{
+		CertPubKeyHash:  cloneBytes(hs.TLS.CertPubKeyHash),
+		ExporterBinding: cloneBytes(hs.TLS.ExporterBinding),
+		X509Fingerprint: cloneBytes(hs.TLS.X509Fingerprint),
+		TranscriptHash:  cloneBytes(hs.TLS.TranscriptHash),
 	}
-	if delegationProof == nil {
-		return AuthContext{}, ErrNilDelegationProof
-	}
-	for i, cert := range peerCerts {
-		if cert == nil {
-			ca.logger.WarnContext(
-				context.TODO(),
-				"nil entry in peer cert bundle",
-				LogKeyCertIndex, i,
-			)
-			return AuthContext{}, ErrNilCertEntry
-		}
-	}
+
 	nowUnix := time.Now().Unix()
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
 
+	certLikes := make([]NodeCertLike, len(certs))
+	for i, c := range certs {
+		certLikes[i] = c
+	}
+
 	result, err := ca.verifyChain(
-		peerCerts, caSignatures, nowUnix,
+		certLikes, hs.CASignatures, nowUnix,
 	)
 	if err != nil {
 		return AuthContext{}, err
@@ -92,47 +86,47 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 	err = validateBindingFields([]bindingField{
 		{
 			name:      "proof TLS cert pubkey hash",
-			value:     delegationProof.TLSCertPubKeyHash(),
+			value:     proof.TLSCertPubKeyHash(),
 			expectedL: TLSCertPubKeyHashSize,
 		},
 		{
 			name:      "proof TLS exporter binding",
-			value:     delegationProof.TLSExporterBinding(),
+			value:     proof.TLSExporterBinding(),
 			expectedL: TLSExporterBindingSize,
 		},
 		{
 			name:      "proof TLS transcript hash",
-			value:     delegationProof.TLSTranscriptHash(),
+			value:     proof.TLSTranscriptHash(),
 			expectedL: TLSTranscriptHashSize,
 		},
 		{
 			name:      "proof X.509 fingerprint",
-			value:     delegationProof.X509Fingerprint(),
+			value:     proof.X509Fingerprint(),
 			expectedL: X509FingerprintSize,
 		},
 		{
 			name:      "proof node cert bundle hash",
-			value:     delegationProof.NodeCertBundleHash(),
+			value:     proof.NodeCertBundleHash(),
 			expectedL: NodeCertBundleHashSize,
 		},
 		{
 			name:      "transport TLS cert pubkey hash",
-			value:     tlsCertPubKeyHash,
+			value:     tls.CertPubKeyHash,
 			expectedL: TLSCertPubKeyHashSize,
 		},
 		{
 			name:      "transport TLS exporter binding",
-			value:     tlsExporterBinding,
+			value:     tls.ExporterBinding,
 			expectedL: TLSExporterBindingSize,
 		},
 		{
 			name:      "transport X.509 fingerprint",
-			value:     tlsX509Fingerprint,
+			value:     tls.X509Fingerprint,
 			expectedL: X509FingerprintSize,
 		},
 		{
 			name:      "transport TLS transcript hash",
-			value:     tlsTranscriptHash,
+			value:     tls.TranscriptHash,
 			expectedL: TLSTranscriptHashSize,
 		},
 	})
@@ -140,16 +134,16 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 		return AuthContext{}, err
 	}
 	err = ca.verifyDelegation(
-		result, delegationProof, delegationSig,
-		peerCerts, tlsCertPubKeyHash,
-		tlsX509Fingerprint,
+		result, proof, hs.DelegationSig,
+		certLikes, tls.CertPubKeyHash,
+		tls.X509Fingerprint,
 	)
 	if err != nil {
 		return AuthContext{}, err
 	}
 	err = ca.verifyFreshness(
-		delegationProof, tlsExporterBinding,
-		tlsTranscriptHash, nowUnix,
+		proof, tls.ExporterBinding,
+		tls.TranscriptHash, nowUnix,
 	)
 	if err != nil {
 		return AuthContext{}, err
@@ -162,24 +156,46 @@ func validateBindingFields( // A
 ) error {
 	for _, field := range fields {
 		if len(field.value) != field.expectedL {
-			return fmt.Errorf(
-				"%w: %s",
+			return authErr(
 				ErrInvalidBindingField,
 				field.name,
+				"expectedLen", field.expectedL,
+				"actualLen", len(field.value),
 			)
 		}
 	}
 	return nil
 }
 
+// validateHandshake checks PeerHandshake invariants
+// before expensive cryptographic operations.
+func validateHandshake(hs PeerHandshake) error { // A
+	if len(hs.Certs) == 0 {
+		return ErrNoCerts
+	}
+	if len(hs.Certs) > MaxPeerCertBundleSize {
+		return ErrBundleTooLarge
+	}
+	if len(hs.CASignatures) != len(hs.Certs) {
+		return ErrSignatureCountMismatch
+	}
+	if hs.DelegationProof == nil {
+		return ErrNilDelegationProof
+	}
+	return nil
+}
+
 // verifyChain performs checks 1-3: issuer discovery,
-// validity/revocation filtering, authority verification.
+// validity/revocation filtering, authority
+// verification.
 func (ca *carrierAuth) verifyChain( // A
 	certs []NodeCertLike,
 	sigs [][]byte,
 	nowUnix int64,
 ) (*authResult, error) {
-	validIdxs, err := ca.filterValidCerts(certs, nowUnix)
+	validIdxs, err := ca.filterValidCerts(
+		certs, nowUnix,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +204,8 @@ func (ca *carrierAuth) verifyChain( // A
 	)
 }
 
-// lookupIssuer finds the CA for a cert's IssuerCAHash.
+// lookupIssuer finds the CA for a cert's
+// IssuerCAHash.
 func (ca *carrierAuth) lookupIssuer( // A
 	caHash string,
 ) (issuerInfo, bool) {
@@ -224,24 +241,41 @@ func (ca *carrierAuth) filterValidCerts( // A
 	return valid, nil
 }
 
+// isCARevoked checks whether a CA hash is in either
+// admin or user revocation lists.
+func (ca *carrierAuth) isCARevoked( // A
+	caHash string,
+) bool {
+	if _, r := ca.revokedAdminCAs[caHash]; r {
+		return true
+	}
+	_, r := ca.revokedUserCAs[caHash]
+	return r
+}
+
+// isNodeRevoked checks whether a node is revoked.
+func (ca *carrierAuth) isNodeRevoked( // A
+	nid keys.NodeID,
+) bool {
+	_, r := ca.revokedNodes[nid]
+	return r
+}
+
 // isCertValid checks a single cert's time window,
 // issuer existence, and revocation status.
 func (ca *carrierAuth) isCertValid( // A
 	cert NodeCertLike,
 	now int64,
 ) bool {
-	if now < cert.ValidFrom() || now > cert.ValidUntil() {
+	if now < cert.ValidFrom() ||
+		now > cert.ValidUntil() {
 		return false
 	}
 	caHash := cert.IssuerCAHash()
-	_, found := ca.lookupIssuer(caHash)
-	if !found {
+	if _, found := ca.lookupIssuer(caHash); !found {
 		return false
 	}
-	if _, revoked := ca.revokedAdminCAs[caHash]; revoked {
-		return false
-	}
-	if _, revoked := ca.revokedUserCAs[caHash]; revoked {
+	if ca.isCARevoked(caHash) {
 		return false
 	}
 	if !ca.isUserCAAnchorValid(caHash) {
@@ -252,15 +286,13 @@ func (ca *carrierAuth) isCertValid( // A
 	if err != nil {
 		return false
 	}
-	if _, revoked := ca.revokedNodes[nid]; revoked {
-		return false
-	}
-	return true
+	return !ca.isNodeRevoked(nid)
 }
 
 // isUserCAAnchorValid checks whether the anchor
 // AdminCA for a UserCA issuer is present and not
-// revoked. Returns true if the issuer is not a UserCA.
+// revoked. Returns true if the issuer is not a
+// UserCA.
 func (ca *carrierAuth) isUserCAAnchorValid( // A
 	caHash string,
 ) bool {
@@ -268,10 +300,11 @@ func (ca *carrierAuth) isUserCAAnchorValid( // A
 	if !ok {
 		return true
 	}
-	if _, revoked := ca.revokedAdminCAs[issuer.anchorAdminHash]; revoked {
+	ah := issuer.anchorAdminHash
+	if _, revoked := ca.revokedAdminCAs[ah]; revoked {
 		return false
 	}
-	_, found := ca.adminCAs[issuer.anchorAdminHash]
+	_, found := ca.adminCAs[ah]
 	return found
 }
 
@@ -295,6 +328,8 @@ func (ca *carrierAuth) verifyAuthority( // A
 			certs[idx], sigs[idx],
 		)
 		if err != nil {
+			// LOGGER: direct slog to avoid circular
+			// import with pkg/clusterlog.
 			ca.logger.WarnContext(
 				context.TODO(),
 				"certificate authority verification failed",
@@ -309,7 +344,11 @@ func (ca *carrierAuth) verifyAuthority( // A
 			firstPub = pub
 			nidSet = true
 		} else if firstNID != nid {
-			return nil, ErrMismatchedNodeID
+			return nil, authErr(
+				ErrMismatchedNodeID,
+				"certs bind to different nodes",
+				LogKeyCertIndex, idx,
+			)
 		}
 		if iTyp == issuerAdmin {
 			adminValid = true
@@ -337,11 +376,16 @@ func (ca *carrierAuth) verifySingleCert( // A
 	cert NodeCertLike,
 	sig []byte,
 ) (keys.NodeID, *keys.PublicKey, issuerType, error) {
-	issuer, found := ca.lookupIssuer(cert.IssuerCAHash())
+	issuer, found := ca.lookupIssuer(
+		cert.IssuerCAHash(),
+	)
 	if !found {
-		return keys.NodeID{}, nil, 0, ErrUnknownIssuer
+		return keys.NodeID{}, nil, 0,
+			ErrUnknownIssuer
 	}
-	nid, err := issuer.verifier.VerifyNodeCert(cert, sig)
+	nid, err := issuer.verifier.VerifyNodeCert(
+		cert, sig,
+	)
 	if err != nil {
 		return keys.NodeID{}, nil, 0, err
 	}
@@ -353,7 +397,8 @@ func (ca *carrierAuth) verifySingleCert( // A
 		)
 	}
 	if nid != pubKeyNID {
-		return keys.NodeID{}, nil, 0, ErrMismatchedNodeID
+		return keys.NodeID{}, nil, 0,
+			ErrMismatchedNodeID
 	}
 	return nid, &pubKey, issuer.typ, nil
 }
@@ -374,19 +419,29 @@ func (ca *carrierAuth) verifyDelegation( // A
 			"delegation canonical encoding: %w", err,
 		)
 	}
-	msg := DomainSeparate(CTXNodeDelegationV1, canonical)
+	msg := DomainSeparate(
+		CTXNodeDelegationV1, canonical,
+	)
 	if !result.nodePubKey.Verify(msg, sig) {
 		return ErrInvalidDelegationSig
 	}
 	if !secureEqual(
-		proof.TLSCertPubKeyHash(), tlsCertPubKeyHash,
+		proof.TLSCertPubKeyHash(),
+		tlsCertPubKeyHash,
 	) {
-		return ErrTLSBindingMismatch
+		return authErr(
+			ErrTLSBindingMismatch,
+			"TLS cert pubkey hash mismatch",
+		)
 	}
 	if !secureEqual(
-		proof.X509Fingerprint(), tlsX509Fingerprint,
+		proof.X509Fingerprint(),
+		tlsX509Fingerprint,
 	) {
-		return ErrTLSBindingMismatch
+		return authErr(
+			ErrTLSBindingMismatch,
+			"X.509 fingerprint mismatch",
+		)
 	}
 	return ca.verifyBundleHash(proof, certs)
 }
@@ -411,29 +466,49 @@ func (ca *carrierAuth) verifyBundleHash( // A
 	return nil
 }
 
-// verifyFreshness performs check 5: replay/UKS defense.
+// verifyFreshness performs check 5: replay/UKS
+// defense.
 func (ca *carrierAuth) verifyFreshness( // A
 	proof DelegationProofLike,
 	tlsExporterBinding []byte,
 	tlsTranscriptHash []byte,
 	now int64,
 ) error {
-	if now < proof.NotBefore() || now > proof.NotAfter() {
-		return ErrDelegationExpired
+	if now < proof.NotBefore() ||
+		now > proof.NotAfter() {
+		return authErr(
+			ErrDelegationExpired,
+			"delegation outside time window",
+			"now", now,
+			"notBefore", proof.NotBefore(),
+			"notAfter", proof.NotAfter(),
+		)
 	}
 	ttl := proof.NotAfter() - proof.NotBefore()
 	if ttl > MaxDelegationTTL {
-		return ErrDelegationTooLong
+		return authErr(
+			ErrDelegationTooLong,
+			"TTL exceeds maximum",
+			"ttl", ttl,
+			"max", MaxDelegationTTL,
+		)
 	}
 	if !secureEqual(
-		proof.TLSExporterBinding(), tlsExporterBinding,
+		proof.TLSExporterBinding(),
+		tlsExporterBinding,
 	) {
-		return ErrTLSBindingMismatch
+		return authErr(
+			ErrTLSBindingMismatch,
+			"TLS exporter binding mismatch",
+		)
 	}
 	if !secureEqual(
 		proof.TLSTranscriptHash(), tlsTranscriptHash,
 	) {
-		return ErrTLSBindingMismatch
+		return authErr(
+			ErrTLSBindingMismatch,
+			"TLS transcript hash mismatch",
+		)
 	}
 	return nil
 }
@@ -453,6 +528,8 @@ func (ca *carrierAuth) deriveScope( // A
 		ctx.EffectiveScope = ScopeUser
 		ctx.AllowedUserCAOwners = result.userHashes
 	}
+	// LOGGER: direct slog to avoid circular import
+	// with pkg/clusterlog.
 	ca.logger.InfoContext(
 		context.TODO(),
 		"peer verified",

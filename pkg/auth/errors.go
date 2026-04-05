@@ -144,4 +144,54 @@ var ( // A
 	ErrAnchorAdminRevoked = errors.New(
 		"anchor admin CA has been revoked",
 	)
+
+	// ErrStatefulCert is returned when a cert returns
+	// inconsistent values across reads (attack).
+	ErrStatefulCert = errors.New(
+		"stateful certificate detected",
+	)
 )
+
+// AuthError wraps a sentinel error with runtime
+// context while preserving errors.Is() compatibility.
+type AuthError struct { // A
+	Sentinel error
+	Detail   string
+	Context  map[string]any
+}
+
+// Error returns the sentinel message plus detail.
+func (e *AuthError) Error() string { // A
+	if e.Detail == "" {
+		return e.Sentinel.Error()
+	}
+	return e.Sentinel.Error() + ": " + e.Detail
+}
+
+// Unwrap returns the sentinel for errors.Is().
+func (e *AuthError) Unwrap() error { // A
+	return e.Sentinel
+}
+
+// authErr creates a new AuthError with optional
+// key-value context pairs.
+func authErr( // A
+	sentinel error,
+	detail string,
+	kvs ...any,
+) *AuthError {
+	var ctx map[string]any
+	if len(kvs) > 1 {
+		ctx = make(map[string]any, len(kvs)/2)
+		for i := 0; i+1 < len(kvs); i += 2 {
+			if k, ok := kvs[i].(string); ok {
+				ctx[k] = kvs[i+1]
+			}
+		}
+	}
+	return &AuthError{
+		Sentinel: sentinel,
+		Detail:   detail,
+		Context:  ctx,
+	}
+}

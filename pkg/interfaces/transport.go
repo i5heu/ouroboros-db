@@ -60,7 +60,7 @@ func (b *BootstrapConfig) SaveToFile(path string) error { // A
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 type NodeRegistry interface { // A
