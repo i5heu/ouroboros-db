@@ -61,72 +61,75 @@ import (
 // │  PHASE 2: SESSION DELEGATION (node startup)     │
 // └──────────────────────────────────────────────────┘
 //
-// NOT YET IMPLEMENTED — transport layer must do this.
+// IMPLEMENTED in pkg/auth/session_identity.go.
 //
-//  4. The PROVER node generates an ephemeral session
-//     key pair (X25519Kyber768 hybrid PQ) and creates
-//     a short-lived self-signed X.509 certificate
-//     containing the session public key.
+//  4. Each node creates an ephemeral session before
+//     accepting or dialing connections:
 //
-//  5. The node configures the QUIC/TLS stack to use
-//     this X.509 cert with PQ-hybrid cipher suites
-//     ONLY. No downgrade is allowed.
+//     si, _ := auth.NewSessionIdentity(
+//     5 * time.Minute,
+//     )
+//
+//     This generates an Ed25519 key pair + self-signed
+//     X.509 cert with a short TTL. PQ confidentiality
+//     comes from the X25519Kyber768 key exchange
+//     group configured in the TLS stack (Phase 3).
+//
+//  5. The carrier configures TLS with the session:
+//
+//     tlsCfg := &tls.Config{
+//     Certificates: []tls.Certificate{
+//     si.TLSCertificate,
+//     },
+//     CurvePreferences: []tls.CurveID{
+//     tls.X25519Kyber768Draft00,
+//     },
+//     // InsecureSkipVerify: true because we
+//     // authenticate via DelegationProof, not
+//     // X.509 chain.
+//     }
 //
 // ┌──────────────────────────────────────────────────┐
 // │  PHASE 3: SECURE CONNECTION (runtime)           │
 // └──────────────────────────────────────────────────┘
 //
-// NOT YET IMPLEMENTED — transport layer must do this.
+// Crypto: IMPLEMENTED in pkg/auth/sign_delegation.go.
+// Wire I/O: IMPLEMENTED in
 //
-//  6. Prover dials verifier; QUIC/TLS handshake runs.
-//     After TLS Finished, the prover extracts four
-//     binding values from the TLS stack:
+//	pkg/carrier/auth_handshake.go
+//	(writeAuthHandshake + readAuthHandshake).
 //
-//     tlsBindings := auth.TLSBindings{
-//     CertPubKeyHash:  sha256(TLS cert SPKI),
-//     ExporterBinding: tls.ExportKeyingMaterial(
-//     auth.ExporterLabel, exporterCtx, 32,
-//     ),
-//     X509Fingerprint: sha256(x509 DER),
-//     TranscriptHash:  tls handshake hash,
-//     }
+// Transport: NOT YET IMPLEMENTED — the carrier must
 //
-//     Connection.TLSBindings() must return these.
+//	 wire up QUIC dial/accept and extract TLS state.
 //
-// 7. Prover builds and signs a DelegationProof:
+//	6. Prover dials verifier; QUIC/TLS handshake runs.
+//	   After TLS Finished, the prover extracts the
+//	   transcript hash from the TLS connection state.
 //
-//		bundleHash := sha256(
-//		    auth.CanonicalNodeCertBundle(certs),
-//		)
-//		proof := auth.NewDelegationProof(
-//		    certPubKeyHash, nil, transcriptHash,
-//		    x509FP, bundleHash[:],
-//		    now, now+300,
-//		)
-//		// Derive exporter context from proof-without
-//		// -exporter:
-//		expCtx, _ := auth.CanonicalDelegationProofForExporter(proof)
-//		exporter := tls.ExportKeyingMaterial(
-//		    auth.ExporterLabel, expCtx, 32,
-//		)
-//		// Rebuild proof WITH exporter:
-//		proof = auth.NewDelegationProof(
-//		    certPubKeyHash, exporter,
-//		    transcriptHash, x509FP,
-//		    bundleHash[:], now, now+300,
-//		)
-//		delCanon, _ := auth.CanonicalDelegationProof(proof)
-//		delMsg := auth.DomainSeparate(
-//		    auth.CTXNodeDelegationV1, delCanon,
-//		)
-//		delSig, _ := nodePrivKey.Sign(delMsg)
+//	7. Prover creates and signs the DelegationProof
+//	   in one call:
 //
-//	 8. Prover sends over a QUIC auth stream:
-//	    [4-byte big-endian length][CBOR wireAuthMessage]
-//	    containing: certs, CA signatures, proof, delSig.
-//	    (see pkg/carrier/auth_handshake.go for the
-//	    receiver side; a writeAuthHandshake() must be
-//	    implemented to mirror it)
+//	   proof, sig, _ := auth.SignDelegation(
+//	       nodeKey,          // *keys.AsyncCrypt
+//	       certs,            // []NodeCertLike
+//	       si,               // *SessionIdentity
+//	       transcriptHash,   // from TLS stack
+//	       conn.ConnectionState().
+//	           ExportKeyingMaterial,
+//	   )
+//
+//	   SignDelegation handles the full flow: computes
+//	   the bundle hash, builds the proof, derives the
+//	   TLS exporter value, signs with ML-DSA-87.
+//
+//	8. Prover sends via the carrier's auth stream:
+//
+//	   stream, _ := conn.OpenStream()
+//	   carrier.WriteAuthHandshake(
+//	       stream, certs, caSigs, proof, sig,
+//	   )
+//	   stream.Close()
 //
 // ┌──────────────────────────────────────────────────┐
 // │  PHASE 4: CHAIN VALIDATION (verifier side)      │
@@ -166,8 +169,9 @@ import (
 //
 //   - QuicTransport implementation with PQ-hybrid TLS
 //   - Connection.TLSBindings() wired to real TLS stack
-//   - Prover-side writeAuthHandshake()
-//   - JoinCluster: dial → TLS → send auth → register
+//   - Carrier dial flow: dial → TLS → SignDelegation
+//     → writeAuthHandshake → register
+//   - JoinCluster wiring the dial flow end-to-end
 //   - Periodic re-auth / scope refresh on long-lived
 //     connections (spec lines 130-131)
 //   - Cluster-wide revocation propagation via Carrier

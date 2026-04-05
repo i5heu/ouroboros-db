@@ -62,6 +62,15 @@ func splitAndParsePubKey( // A
 
 // marshalPubKeyBytes returns concatenated KEM+Sign
 // public key bytes from a keys.PublicKey.
+// MarshalPubKeyBytes serializes a composite public
+// key into the KEM || Sign binary concatenation
+// used on the wire and in canonical encoding.
+func MarshalPubKeyBytes( // A
+	pub *keys.PublicKey,
+) ([]byte, error) {
+	return marshalPubKeyBytes(pub)
+}
+
 func marshalPubKeyBytes( // A
 	pub *keys.PublicKey,
 ) ([]byte, error) {

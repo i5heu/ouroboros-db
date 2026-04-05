@@ -13,14 +13,21 @@ import (
 
 // ─── AUTH HANDSHAKE WIRE PROTOCOL ───
 //
-// This file implements the VERIFIER (receiver) side
-// of the auth handshake wire protocol. The prover
-// side (writeAuthHandshake) does NOT exist yet and
-// must be implemented in the transport layer.
+// This file implements BOTH sides of the auth
+// handshake wire protocol:
 //
-// Wire format (sent by the prover over a dedicated
-// QUIC auth stream opened immediately after TLS
-// Finished):
+//   - readAuthHandshake (VERIFIER/receiver side):
+//     reads the length-prefixed CBOR message, decodes
+//     wire types, combines with TLS bindings, and
+//     returns a PeerHandshake for VerifyPeerCert.
+//
+//   - writeAuthHandshake (PROVER/sender side):
+//     converts auth types to wire format, CBOR-
+//     encodes, and writes the length-prefixed
+//     message to the auth stream.
+//
+// Wire format (over a dedicated QUIC auth stream
+// opened immediately after TLS Finished):
 //
 //   ┌────────────────────────────────────────┐
 //   │  4 bytes: big-endian message length N  │
@@ -33,14 +40,6 @@ import (
 //   │                          signature)    │
 //   └────────────────────────────────────────┘
 //
-// The verifier calls readAuthHandshake() which:
-//   1. Reads the length-prefixed CBOR message
-//   2. Decodes wire types into auth.NodeCertImpl /
-//      auth.DelegationProofImpl
-//   3. Extracts TLS bindings from conn.TLSBindings()
-//   4. Returns a PeerHandshake ready for
-//      CarrierAuth.VerifyPeerCert()
-//
 // SECURITY NOTES:
 //   - Message size capped at 1 MiB (maxAuthMessageSize)
 //   - TLS bindings are read from the connection, NOT
@@ -48,24 +47,6 @@ import (
 //   - The prover MUST NOT send TLS bindings; the
 //     verifier derives them independently from the
 //     transport
-//
-// TO IMPLEMENT writeAuthHandshake (prover side):
-//
-//   func writeAuthHandshake(
-//       stream interfaces.Stream,
-//       certs []auth.NodeCertLike,
-//       caSigs [][]byte,
-//       proof *auth.DelegationProofImpl,
-//       delegationSig []byte,
-//   ) error {
-//       // 1. Convert certs to []wireNodeCert
-//       // 2. Convert proof to wireDelegationProof
-//       // 3. Build wireAuthMessage
-//       // 4. CBOR-encode
-//       // 5. Write 4-byte big-endian length
-//       // 6. Write CBOR payload
-//       // 7. Close stream
-//   }
 //
 
 // maxAuthMessageSize limits handshake messages to
@@ -218,4 +199,100 @@ func wireToDelegation( // A
 		wd.NotBefore,
 		wd.NotAfter,
 	)
+}
+
+// writeAuthHandshake encodes the prover's auth
+// message and sends it over the stream as a
+// length-prefixed CBOR payload. This is the
+// counterpart of readAuthHandshake (verifier side).
+//
+// The caller (typically carrier.dialAndAuth) must:
+//  1. Complete TLS and extract transcript/exporter.
+//  2. Call auth.SignDelegation to get proof + sig.
+//  3. Open a QUIC auth stream.
+//  4. Call this function to send the message.
+//  5. Close the stream.
+func writeAuthHandshake( // A
+	stream interfaces.Stream,
+	certs []auth.NodeCertLike,
+	caSigs [][]byte,
+	proof *auth.DelegationProofImpl,
+	delegationSig []byte,
+) error {
+	// Convert certs to wire format.
+	wireCerts := make(
+		[]wireNodeCert, len(certs),
+	)
+	for i, c := range certs {
+		wc, err := certToWire(c)
+		if err != nil {
+			return fmt.Errorf(
+				"cert %d: %w", i, err,
+			)
+		}
+		wireCerts[i] = wc
+	}
+
+	msg := wireAuthMessage{
+		Certs:        wireCerts,
+		CASignatures: caSigs,
+		Delegation: wireDelegationProof{
+			TLSCertPubKeyHash:  proof.TLSCertPubKeyHash(),
+			TLSExporterBinding: proof.TLSExporterBinding(),
+			TLSTranscriptHash:  proof.TLSTranscriptHash(),
+			X509Fingerprint:    proof.X509Fingerprint(),
+			NodeCertBundleHash: proof.NodeCertBundleHash(),
+			NotBefore:          proof.NotBefore(),
+			NotAfter:           proof.NotAfter(),
+		},
+		DelegationSig: delegationSig,
+	}
+
+	payload, err := cbor.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("encode handshake: %w", err)
+	}
+
+	if len(payload) > maxAuthMessageSize {
+		return fmt.Errorf(
+			"auth message too large: %d bytes",
+			len(payload),
+		)
+	}
+
+	// Write 4-byte big-endian length prefix.
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(
+		lenBuf[:], uint32(len(payload)),
+	)
+	if _, err := stream.Write(lenBuf[:]); err != nil {
+		return fmt.Errorf("write length: %w", err)
+	}
+	if _, err := stream.Write(payload); err != nil {
+		return fmt.Errorf("write payload: %w", err)
+	}
+	return nil
+}
+
+// certToWire converts a NodeCertLike to the on-wire
+// CBOR representation.
+func certToWire( // A
+	c auth.NodeCertLike,
+) (wireNodeCert, error) {
+	pub := c.NodePubKey()
+	pubBytes, err := auth.MarshalPubKeyBytes(&pub)
+	if err != nil {
+		return wireNodeCert{}, fmt.Errorf(
+			"marshal public key: %w", err,
+		)
+	}
+	return wireNodeCert{
+		CertVersion:  c.CertVersion(),
+		NodePubKey:   pubBytes,
+		IssuerCAHash: c.IssuerCAHash(),
+		ValidFrom:    c.ValidFrom(),
+		ValidUntil:   c.ValidUntil(),
+		Serial:       c.Serial(),
+		CertNonce:    c.CertNonce(),
+	}, nil
 }
