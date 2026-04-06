@@ -376,7 +376,7 @@ func (ca *carrierAuth) deriveScope( // A
 	}
 	// LOGGER: direct slog to avoid circular import
 	// with pkg/clusterlog.
-	ca.logger.InfoContext(
+	ca.logger.DebugContext(
 		context.TODO(),
 		"peer cert verified",
 		LogKeyNodeID, fmt.Sprintf("%x", result.nodeID[:8]),

@@ -42,7 +42,7 @@ func (c *carrierImpl) attemptBootstrap( // A
 		}
 		connected := c.dialBootstrapAll(ctx, addrs)
 		if connected > 0 {
-			c.logger.InfoContext(
+			c.logger.DebugContext(
 				ctx,
 				"bootstrap connected",
 				logKeyPeers,
@@ -79,7 +79,7 @@ func (c *carrierImpl) dialBootstrapAll( // A
 	for _, addr := range addrs {
 		err := c.dialBootstrapAddr(addr)
 		if err != nil {
-			c.logger.DebugContext(
+			c.logger.WarnContext(
 				ctx,
 				"bootstrap dial failed",
 				logKeyAddress,

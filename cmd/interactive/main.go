@@ -66,6 +66,22 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
+// parseSlogLevel converts a string level name to the
+// corresponding slog.Level. Unknown names fall back to
+// slog.LevelInfo.
+func parseSlogLevel(name string) slog.Level { // A
+	switch strings.ToLower(name) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 // main delegates all operational work to run and
 // converts any returned error into a conventional
 // non-zero process exit.
@@ -91,12 +107,15 @@ func main() { // A
 // easy to audit when debugging transport or trust
 // initialization problems.
 func run() error { // A
-	conf := parseConfig()
+	conf, logLevel := parseConfig()
 	if conf.Identity.NodeCertPath == "" {
 		return fmt.Errorf("-node-cert is required")
 	}
 
-	resolvedLogger := slog.Default()
+	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: logLevel,
+	})
+	resolvedLogger := slog.New(h)
 	conf.Logger = resolvedLogger
 
 	db, err := ouroboros.New(conf)
@@ -139,7 +158,7 @@ func run() error { // A
 	if err := controller.RegisterHandler(
 		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeUser},
-		helloHandler(resolvedLogger),
+		helloHandler(),
 	); err != nil {
 		return err
 	}
@@ -190,7 +209,7 @@ func run() error { // A
 //     newer code can rely on StorageConfig.
 //   - Network carries carrier-facing runtime settings.
 //   - Identity carries auth/trust file locations.
-func parseConfig() ouroboros.Config { // A
+func parseConfig() (ouroboros.Config, slog.Level) { // A
 	var (
 		dataDir  string
 		listen   string
@@ -198,6 +217,7 @@ func parseConfig() ouroboros.Config { // A
 		nodeCert string
 		adminCAs string
 		userCAs  string
+		logLevel string
 	)
 	configureUsage()
 	flag.StringVar(
@@ -236,6 +256,12 @@ func parseConfig() ouroboros.Config { // A
 		"",
 		"comma-separated user CA .oukey files",
 	)
+	flag.StringVar(
+		&logLevel,
+		"log-level",
+		"info",
+		"log verbosity: debug, info, warn, error",
+	)
 	flag.Parse()
 
 	return ouroboros.Config{
@@ -252,7 +278,7 @@ func parseConfig() ouroboros.Config { // A
 			AdminCAPaths: splitCSV(adminCAs),
 			UserCAPaths:  splitCSV(userCAs),
 		},
-	}
+	}, parseSlogLevel(logLevel)
 }
 
 // configureUsage replaces the default flag package help
@@ -441,7 +467,6 @@ func repl( // A
 		default:
 		}
 
-		fmt.Print("interactive> ")
 		if !scanner.Scan() {
 			return scanner.Err()
 		}
@@ -532,9 +557,7 @@ func broadcastHello( // A
 // It decodes the JSON payload, logs the sender details,
 // and mirrors the message to stdout so the interactive
 // command behaves like a simple chat/debug console.
-func helloHandler( // A
-	logger *slog.Logger,
-) interfaces.MessageHandler {
+func helloHandler() interfaces.MessageHandler { // A
 	return func(
 		_ context.Context,
 		msg interfaces.Message,
@@ -548,13 +571,6 @@ func helloHandler( // A
 				err,
 			)
 		}
-		logger.Info(
-			"received user message",
-			"from",
-			payload.From,
-			"text",
-			payload.Text,
-		)
 		fmt.Printf(
 			"received from %s (%s): %s\n",
 			payload.From,

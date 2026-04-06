@@ -260,7 +260,7 @@ func (c *carrierImpl) connectDiscoveredPeers( // A
 			continue
 		}
 		if err := c.connectNode(node); err != nil {
-			c.logger.DebugContext(
+			c.logger.WarnContext(
 				ctx,
 				"gossip peer connect failed",
 				auth.LogKeyNodeID,
@@ -315,7 +315,7 @@ func (c *carrierImpl) retryUnreachablePeers( // A
 			continue
 		}
 		if err := c.connectNode(node); err != nil {
-			c.logger.DebugContext(
+			c.logger.WarnContext(
 				ctx,
 				"peer reconnect failed",
 				auth.LogKeyNodeID,

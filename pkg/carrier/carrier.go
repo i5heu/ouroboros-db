@@ -429,7 +429,7 @@ func (c *carrierImpl) connectNode( // A
 		authCtx.NodeID,
 		conn,
 	)
-	c.logger.InfoContext(
+	c.logger.DebugContext(
 		context.Background(),
 		"outbound peer connected",
 		auth.LogKeyNodeID,

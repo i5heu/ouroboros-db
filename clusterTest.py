@@ -110,6 +110,7 @@ class NodeRuntime:
     data_dir: Path
     cert_path: Path
     use_color: bool = True
+    log_level: str = "info"
     bootstrap_addresses: list[str] = field(default_factory=list)
     process: subprocess.Popen[str] | None = None
     lines: list[str] = field(default_factory=list)
@@ -142,6 +143,8 @@ class NodeRuntime:
             "127.0.0.1:0",
             "-node-cert",
             str(self.cert_path),
+            "-log-level",
+            self.log_level,
         ]
         if self.bootstrap_addresses:
             command.extend([
@@ -178,10 +181,15 @@ class NodeRuntime:
             line = raw_line.rstrip("\n")
             display_line = line.strip()
             if display_line:
-                print(
-                    f"{timestamp_now()} {self.prefix} {display_line}",
-                    flush=True,
-                )
+                normalized = display_line
+                if normalized.startswith("interactive> "):
+                    normalized = normalized[len("interactive> "):].strip()
+                # Peer-list entries from polling — record state but skip display.
+                if not re.match(r"^-\s+[0-9a-f]+\s+", normalized):
+                    print(
+                        f"{timestamp_now()} {self.prefix} {display_line}",
+                        flush=True,
+                    )
             self._record_line(display_line)
 
     def _record_line(self, line: str) -> None:
@@ -325,11 +333,13 @@ class ClusterHarness:
         repo_root: Path,
         keep_temp: bool = False,
         color_mode: str = "auto",
+        log_level: str = "info",
     ) -> None:
         """Create a fresh temporary workspace for one cluster test run."""
         self.repo_root = repo_root
         self.keep_temp = keep_temp
         self.use_color = should_use_color(color_mode)
+        self.log_level = log_level
         self._temp_dir = Path(tempfile.mkdtemp(prefix="ouroboros-cluster-test-"))
         self.admin_ca_path = self._temp_dir / "admin.oukey"
         self.nodes: list[NodeRuntime] = []
@@ -413,6 +423,7 @@ class ClusterHarness:
                     data_dir=data_dir,
                     cert_path=cert_path,
                     use_color=self.use_color,
+                    log_level=self.log_level,
                 )
             )
 
@@ -539,6 +550,7 @@ def run_hello_scenario(args: argparse.Namespace) -> int:
         repo_root=repo_root,
         keep_temp=args.keep_temp,
         color_mode=args.color,
+        log_level=args.log_level,
     )
 
     timed_out = threading.Event()
@@ -612,6 +624,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "always", "never"],
         default="auto",
         help="colorize node prefixes when printing live output",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warn", "error"],
+        default="info",
+        help=(
+            "log verbosity passed to each node process "
+            "(default: info)"
+        ),
     )
     return parser
 
