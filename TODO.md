@@ -1,13 +1,21 @@
 # TODO implementation tasks
 
+- [x] Check if Out and Ingoing connections are verified - Bilateral verification - So if a node initiates a connection, it should verify the peer's certificate, and if a node receives an incoming connection, it should also verify the peer's certificate. This ensures that both parties in the communication are authenticated and trusted
+- [x] Verify that the handshake is not leaking any private key in and outgoing
+- [x] Verify that the TLS cert is bind to the ML-DSA-87 identity
+- [x] Rename `JoinCluster` to `OpenPeerChannel`
+- [x] Verify Authentication with QUIC Streams and Datagrams - Ensure that Auth is always performed over reliable QUIC streams and Datagrams just pigigyback on the existing TLS connection
+- [ ] Heartbeat
+- [ ] NodeStats
+
 ## Transport Layer
 
-- [ ] Implement `Carrier` - QUIC-based cluster transport with reliable/unreliable
+- [x] Implement `Carrier` - QUIC-based cluster transport with reliable/unreliable
       delivery
-- [ ] Implement `QuicTransport` - QUIC implementation with streams + datagrams
-- [ ] Implement `Connection` - Single QUIC connection to a peer
-- [ ] Implement `Stream` - Reliable QUIC stream
-- [ ] Implement `NodeRegistry` - Tracks all known nodes with certificates
+- [x] Implement `QuicTransport` - QUIC implementation with streams + datagrams
+- [x] Implement `Connection` - Single QUIC connection to a peer
+- [x] Implement `Stream` - Reliable QUIC stream
+- [x] Implement `NodeRegistry` - Tracks all known nodes with certificates
 - [ ] Implement `NodeSync` - Periodic full sync of node registry
 
 ## Auth Layer
