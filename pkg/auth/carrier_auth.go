@@ -102,7 +102,7 @@ import (
 //
 //  6. Prover dials verifier; QUIC/TLS handshake runs
 //     with PQ-hybrid X25519MLKEM768 key exchange.
-//     The carrier calls JoinCluster which handles
+//     The carrier calls OpenPeerChannel which handles
 //     the full dial → TLS → auth → register flow.
 //
 //  7. Prover creates and signs the DelegationProof

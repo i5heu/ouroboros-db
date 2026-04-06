@@ -9,7 +9,7 @@ import (
 // Carrier is the QUIC-based cluster transport with dual-mode
 // delivery. It maintains persistent connections to all known
 // cluster nodes and provides both reliable (QUIC streams) and
-// unreliable (RFC 9221 datagrams) message delivery.
+// unreliable (RFC 9221 datagrams Extension to QUIC) message delivery.
 //
 // # Transport
 //
@@ -119,11 +119,11 @@ type Carrier interface { // A
 		message Message,
 	) error
 
-	// JoinCluster dials a cluster peer and authenticates
-	// the connection using the provided NodeCert. The peer
-	// is admitted to the registry only after CarrierAuth
+	// OpenPeerChannel dials a peer and authenticates the
+	// transport connection using the provided NodeCert. The
+	// peer is admitted to the registry only after CarrierAuth
 	// verification succeeds.
-	JoinCluster(
+	OpenPeerChannel(
 		clusterNode PeerNode,
 		cert NodeCert,
 	) error

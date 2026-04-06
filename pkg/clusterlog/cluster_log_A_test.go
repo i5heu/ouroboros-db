@@ -118,7 +118,7 @@ func (m *mockCarrier) SendMessageToNode( // A
 	return nil
 }
 
-func (m *mockCarrier) JoinCluster( // A
+func (m *mockCarrier) OpenPeerChannel( // A
 	_ interfaces.PeerNode,
 	_ interfaces.NodeCert,
 ) error {

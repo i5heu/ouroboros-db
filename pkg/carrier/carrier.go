@@ -265,13 +265,13 @@ func (c *carrierImpl) SendMessageToNode( // A
 	return c.SendMessageToNodeReliable(nodeID, message)
 }
 
-func (c *carrierImpl) JoinCluster( // A
+func (c *carrierImpl) OpenPeerChannel( // A
 	peer interfaces.PeerNode,
 	_ interfaces.NodeCert,
 ) error {
 	ni := c.config.NodeIdentity
 	if ni == nil {
-		return fmt.Errorf("NodeIdentity is required to join")
+		return fmt.Errorf("NodeIdentity is required to open peer channel")
 	}
 	c.mu.RLock()
 	tp := c.transport

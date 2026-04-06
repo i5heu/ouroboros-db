@@ -522,7 +522,7 @@ func joinPeer( // A
 	transport carrier.RuntimeCarrier,
 	address string,
 ) error {
-	return transport.JoinCluster(interfaces.PeerNode{
+	return transport.OpenPeerChannel(interfaces.PeerNode{
 		Addresses: []string{address},
 	}, nil)
 }
