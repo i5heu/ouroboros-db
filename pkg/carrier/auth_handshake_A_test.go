@@ -2,10 +2,12 @@ package carrier
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -226,5 +228,90 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 			hs.Authorities[1].AnchorAdmin,
 			adminCA.Hash(),
 		)
+	}
+}
+
+func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
+	t *testing.T,
+) {
+	adminAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("admin key: %v", err)
+	}
+	adminPub := adminAC.GetPublicKey()
+	adminBytes, err := auth.MarshalPubKeyBytes(&adminPub)
+	if err != nil {
+		t.Fatalf("admin pub: %v", err)
+	}
+	adminCA, err := auth.NewAdminCA(adminBytes)
+	if err != nil {
+		t.Fatalf("NewAdminCA: %v", err)
+	}
+
+	nodeAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("node key: %v", err)
+	}
+	nodePub := nodeAC.GetPublicKey()
+	cert, err := auth.NewNodeCert(
+		nodePub,
+		adminCA.Hash(),
+		time.Now().Unix(),
+		time.Now().Add(1*time.Hour).Unix(),
+		[]byte("serial"),
+		[]byte("nonce"),
+	)
+	if err != nil {
+		t.Fatalf("NewNodeCert: %v", err)
+	}
+
+	session, err := auth.NewSessionIdentity(5 * time.Minute)
+	if err != nil {
+		t.Fatalf("NewSessionIdentity: %v", err)
+	}
+
+	privKey, ok := session.TLSCertificate.PrivateKey.(ed25519.PrivateKey)
+	if !ok {
+		t.Fatal("session private key is not ed25519.PrivateKey")
+	}
+
+	proof, sig, err := auth.SignDelegation(
+		nodeAC,
+		[]auth.NodeCertLike{cert},
+		session,
+		func(label string, _ []byte, length int) ([]byte, error) {
+			return bytes.Repeat([]byte{0xAB}, length), nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("SignDelegation: %v", err)
+	}
+
+	stream := newTestStream(nil)
+	if err := writeAuthHandshake(
+		stream,
+		[]auth.NodeCertLike{cert},
+		[][]byte{[]byte("ca-sig")},
+		nil,
+		proof,
+		sig,
+	); err != nil {
+		t.Fatalf("writeAuthHandshake: %v", err)
+	}
+
+	payload := stream.writes.Bytes()
+	if len(payload) < 4 {
+		t.Fatal("handshake output too short")
+	}
+	if bytes.Contains(payload[4:], privKey) {
+		t.Fatal("auth handshake leaked session private key bytes")
+	}
+
+	var wire wireAuthMessage
+	if err := cbor.Unmarshal(payload[4:], &wire); err != nil {
+		t.Fatalf("decode handshake payload: %v", err)
+	}
+	if len(wire.Certs) != 1 {
+		t.Fatalf("expected 1 cert, got %d", len(wire.Certs))
 	}
 }
