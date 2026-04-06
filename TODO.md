@@ -76,6 +76,10 @@
 
 - [ ] Security audit of data encryption and key management
 - [ ] Security audit of auth and transport layers
+- [ ] Re-verify or close long-lived carrier connections after delegation TTL expiry
+- [ ] Drop active carrier connections on auth revocation events (AdminCA, UserCA, node)
+- [ ] Restrict QUIC datagrams to replay-safe/idempotent traffic or add message-level replay protection
+- [ ] Add datagram rate limiting and backpressure hardening for authenticated peer floods
 - [ ] Hardening of auth and transport against logical attacks
 - [ ] Hardening of transport against DoS attacks
 - [ ] Security review of user or public data handling code

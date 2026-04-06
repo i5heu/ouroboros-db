@@ -48,6 +48,23 @@ import (
 // not cluster-wide. Authentication is delegated to CarrierAuth
 // (pkg/auth). Dynamic CA addition/removal and node
 // addition/removal are supported at runtime.
+//
+// # Security Notes
+//
+// Authentication is performed during connection setup over
+// reliable QUIC streams. QUIC datagrams only piggyback on the
+// already authenticated and encrypted TLS connection.
+//
+// This means datagrams do not bypass peer authentication, but
+// they also inherit the lifecycle of the underlying connection.
+// Long-lived connections therefore need explicit freshness and
+// revocation handling above the initial handshake. Implementors
+// should re-verify or tear down connections after delegation TTL
+// expiry and on revocation events.
+//
+// Datagram delivery is best-effort and unordered. State-changing
+// traffic should either stay on reliable streams or add its own
+// replay, deduplication, ordering, and rate-limiting controls.
 type Carrier interface { // A
 	// GetNodes returns all currently known peer nodes
 	// in the cluster registry.

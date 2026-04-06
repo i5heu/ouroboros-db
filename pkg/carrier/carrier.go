@@ -80,8 +80,10 @@ type RuntimeCarrier interface { // A
 const logKeyMessageType = "messageType" // A
 
 // Compile-time interface compliance check.
-var _ interfaces.Carrier = (*carrierImpl)(nil)
-var _ RuntimeCarrier = (*carrierImpl)(nil)
+var (
+	_ interfaces.Carrier = (*carrierImpl)(nil)
+	_ RuntimeCarrier     = (*carrierImpl)(nil)
+)
 
 // carrierImpl implements interfaces.Carrier. It owns the
 // QUIC transport, node registry, and connection state.
@@ -634,6 +636,12 @@ func (c *carrierImpl) startConnectionLoops( // A
 	nodeID keys.NodeID,
 	conn interfaces.Connection,
 ) {
+	// Streams and datagrams are only enabled after
+	// the peer has been authenticated and registered.
+	// This gates datagrams behind the same TLS-backed
+	// connection established for the auth handshake.
+	// Freshness and revocation re-checks are still a
+	// separate hardening concern for long-lived peers.
 	go c.handleReliableStreams(ctx, nodeID, conn)
 	go c.handleDatagrams(ctx, nodeID, conn)
 }
@@ -658,6 +666,13 @@ func (c *carrierImpl) handleDatagrams( // A
 	nodeID keys.NodeID,
 	conn interfaces.Connection,
 ) {
+	// Datagrams inherit transport confidentiality and
+	// integrity from the authenticated QUIC/TLS session,
+	// but they remain unordered and best-effort. Higher
+	// layers must treat them as unsuitable for operations
+	// that require replay protection, ordering, or strong
+	// backpressure unless those properties are added
+	// separately at the message layer.
 	for {
 		data, err := conn.ReceiveDatagram()
 		if err != nil {

@@ -57,7 +57,15 @@ func NewClusterController( // A
 // RegisterHandler associates a MessageType with a
 // handler function and allowed TrustScopes. Returns
 // an error if the MessageType is already registered
-// or if the inputs are invalid.
+// or if the inputs are invalid. Handlers intended
+// for message types that may travel over unreliable
+// datagrams must tolerate missing, duplicated, and
+// out-of-order delivery. Because the system is
+// masterless and AP, handlers must also tolerate
+// split-brain conditions, unreachable peers, and
+// cases where some nodes never observe a given
+// message. Distributed state should converge via
+// CRDTs or an equivalent merge discipline.
 func (cc *clusterController) RegisterHandler( // A
 	msgType interfaces.MessageType,
 	scopes []auth.TrustScope,
@@ -200,7 +208,11 @@ func (cc *clusterController) CheckAccess( // A
 // HandleIncomingMessage validates access and
 // dispatches the message to the registered handler.
 // Returns the handler Response or an error if access
-// is denied or no handler exists.
+// is denied or no handler exists. It intentionally
+// does not add replay protection, ordering, or
+// deduplication on top of the underlying carrier,
+// and it does not solve partition or split-brain
+// convergence on behalf of handlers.
 func (cc *clusterController) HandleIncomingMessage( // A
 	msg interfaces.Message,
 	peer keys.NodeID,

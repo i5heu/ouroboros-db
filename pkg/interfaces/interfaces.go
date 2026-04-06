@@ -68,6 +68,25 @@ type AccessDecision struct { // A
 // contains the deserialized request payload. Peer
 // identifies the authenticated remote node. Scope
 // indicates the authenticated trust level.
+//
+// Handlers may be invoked for traffic delivered
+// over reliable QUIC streams or unreliable QUIC
+// datagrams. Handlers for message types that may be
+// sent unreliably MUST tolerate missing, duplicated,
+// and out-of-order delivery. State-changing logic
+// should remain on reliable streams unless the
+// message layer adds its own replay, ordering, and
+// deduplication guarantees.
+//
+// This database is a masterless AP system under the
+// CAP theorem. Handlers must therefore also tolerate
+// split-brain events, temporary partitions, and the
+// fact that some or many nodes may never receive a
+// given message or may be unreachable at runtime.
+// Distributed state changes should be modeled with
+// CRDT-style convergence semantics or an equivalent
+// merge strategy that remains correct under partial,
+// duplicated, delayed, and concurrent delivery.
 type MessageHandler func( // A
 	ctx context.Context,
 	msg Message,

@@ -13,6 +13,18 @@ import (
 type ClusterController interface { // A
 	// RegisterHandler associates a MessageType with
 	// a handler function and allowed TrustScopes.
+	//
+	// If the registered message type may be delivered
+	// through Carrier unreliable datagrams, the handler
+	// must be safe under missing, duplicated, and out-
+	// of-order message delivery.
+	//
+	// Because OuroborosDB is a masterless AP system,
+	// handlers must also remain correct during split-
+	// brain conditions, partial reachability, and cases
+	// where some nodes never receive a message at all.
+	// Handler logic should converge via CRDTs or an
+	// equivalent partition-tolerant merge model.
 	RegisterHandler(
 		msgType MessageType,
 		scopes []auth.TrustScope,
@@ -33,6 +45,13 @@ type ClusterController interface { // A
 	// dispatches the message to the registered
 	// handler. Returns the handler Response or an
 	// error if access is denied or no handler exists.
+	// The controller does not add replay protection,
+	// ordering guarantees, or deduplication for
+	// unreliable deliveries; handlers must account for
+	// that when such traffic is permitted. It also does
+	// not resolve split-brain or partition semantics for
+	// the handler; distributed state must converge at the
+	// application layer.
 	HandleIncomingMessage(
 		msg Message,
 		peer keys.NodeID,
