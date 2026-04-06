@@ -1,7 +1,7 @@
 // Command interactive starts a small operator-facing
 // OuroborosDB node process that can listen for QUIC
-// peers, join bootstrap peers, and exchange simple
-// user messages over the carrier transport.
+// peers and exchange simple user messages over the
+// carrier transport.
 //
 // The command is intended as a manual bring-up and
 // debugging tool rather than a long-running daemon.
@@ -12,8 +12,6 @@
 //
 // Supported workflows include:
 //   - binding to a fixed or random listen address
-//   - auto-joining bootstrap peers on startup
-//   - joining additional peers interactively
 //   - listing currently known peers
 //   - broadcasting a "hello world"-style message
 //
@@ -23,7 +21,8 @@
 //   - Network.ListenAddress is populated from -listen
 //     and controls the local QUIC bind address.
 //   - Network.BootstrapAddresses is populated from
-//     -bootstrap and is used for startup peer joins.
+//     -bootstrap and is passed to the carrier for
+//     automatic peer discovery.
 //   - Identity.NodeCertPath is populated from
 //     -node-cert and must point to a node .oucert file.
 //   - Identity.AdminCAPaths is populated from
@@ -86,7 +85,6 @@ func main() { // A
 //   - create the QUIC carrier and cluster controller
 //   - register the hello-world message handler
 //   - start listening for inbound peer connections
-//   - auto-join configured bootstrap peers
 //   - hand control over to the REPL loop
 //
 // Keeping the flow linear here makes the startup path
@@ -168,20 +166,6 @@ func run() error { // A
 	fmt.Printf("node started: %s\n", shortNodeID(nodeIdentity.NodeID()))
 	fmt.Printf("db node ID:   %s\n", shortNodeID(db.NodeID()))
 	fmt.Printf("listening on: %s\n", transport.ListenAddress())
-
-	for _, address := range conf.EffectiveBootstrapAddresses() {
-		if err := joinPeer(transport, address); err != nil {
-			resolvedLogger.Warn(
-				"bootstrap join failed",
-				"address",
-				address,
-				"error",
-				err.Error(),
-			)
-			continue
-		}
-		fmt.Printf("joined bootstrap peer %s\n", address)
-	}
 
 	return repl(ctx, cancel, transport, nodeIdentity.NodeID())
 }
@@ -289,7 +273,7 @@ func configureUsage() { // A
 		_, _ = fmt.Fprintf(out, "Purpose:\n")
 		_, _ = fmt.Fprintf(
 			out,
-			"  Start an interactive OuroborosDB node using QUIC transport, optional bootstrap peers, and a local REPL.\n\n",
+			"  Start an interactive OuroborosDB node using QUIC transport and a local REPL.\n\n",
 		)
 		_, _ = fmt.Fprintf(out, "Config Mapping:\n")
 		_, _ = fmt.Fprintf(
@@ -435,7 +419,6 @@ func addCAFile( // A
 //   - id: print the local node ID
 //   - listen: print the bound listen address
 //   - peers: list currently known peers
-//   - join <host:port>: dial a new peer
 //   - hello [text]: broadcast a user message
 //   - broadcast [text]: alias of hello
 //   - quit/exit: stop the process gracefully
@@ -479,16 +462,6 @@ func repl( // A
 			fmt.Printf("listening on: %s\n", transport.ListenAddress())
 		case "peers":
 			printPeers(transport.GetNodes())
-		case "join":
-			if len(args) != 1 {
-				fmt.Println("usage: join <host:port>")
-				continue
-			}
-			if err := joinPeer(transport, args[0]); err != nil {
-				fmt.Printf("join failed: %v\n", err)
-				continue
-			}
-			fmt.Printf("joined %s\n", args[0])
 		case "hello", "broadcast":
 			text := "hello world"
 			if len(args) > 0 {
@@ -509,22 +482,6 @@ func repl( // A
 			fmt.Printf("unknown command %q\n", cmd)
 		}
 	}
-}
-
-// joinPeer wraps the carrier join operation behind the
-// REPL-facing "join" command.
-//
-// Only the remote address is required at this layer.
-// Identity verification is completed by the transport
-// handshake and CarrierAuth once the QUIC connection is
-// established.
-func joinPeer( // A
-	transport carrier.RuntimeCarrier,
-	address string,
-) error {
-	return transport.OpenPeerChannel(interfaces.PeerNode{
-		Addresses: []string{address},
-	}, nil)
 }
 
 // broadcastHello sends a user-message payload to all
@@ -621,7 +578,7 @@ func printPeers(peers []interfaces.PeerNode) { // A
 
 // printHelp prints the supported REPL commands.
 func printHelp() { // A
-	fmt.Println("commands: help, id, listen, peers, join <host:port>")
+	fmt.Println("commands: help, id, listen, peers")
 	fmt.Println("          hello [text], broadcast [text], quit")
 }
 

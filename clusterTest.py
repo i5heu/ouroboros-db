@@ -26,6 +26,7 @@ from typing import Callable
 START_TIMEOUT = 60.0
 COMMAND_TIMEOUT = 30.0
 MESSAGE_TIMEOUT = 30.0
+MESH_TIMEOUT = 10.0
 PROCESS_EXIT_TIMEOUT = 10.0
 POLL_INTERVAL = 0.1
 ANSI_RESET = "\033[0m"
@@ -111,7 +112,7 @@ class NodeRuntime:
     process: subprocess.Popen[str] | None = None
     lines: list[str] = field(default_factory=list)
     received_messages: list[ReceivedMessage] = field(default_factory=list)
-    join_successes: list[str] = field(default_factory=list)
+    known_peer_ids: set[str] = field(default_factory=set)
     node_id: str | None = None
     listen_address: str | None = None
     start_event: threading.Event = field(default_factory=threading.Event)
@@ -198,25 +199,28 @@ class NodeRuntime:
                 self.node_id = normalized.split(":", 1)[1].strip()
             elif normalized.startswith("listening on:"):
                 self.listen_address = normalized.split(":", 1)[1].strip()
-            elif normalized.startswith("joined bootstrap peer "):
-                self.join_successes.append(
-                    normalized.removeprefix("joined bootstrap peer ").strip()
-                )
-            elif normalized.startswith("joined "):
-                self.join_successes.append(normalized.removeprefix("joined ").strip())
+            elif normalized == "no peers connected":
+                self.known_peer_ids.clear()
             else:
-                match = re.match(
-                    r"^received from\s+(?P<from>[^\s]+)\s+\((?P<peer>[^)]+)\):\s+(?P<text>.+)$",
+                peer_match = re.match(
+                    r"^-\s+([0-9a-f]+)\s+",
                     normalized,
                 )
-                if match is not None:
-                    self.received_messages.append(
-                        ReceivedMessage(
-                            from_label=match.group("from"),
-                            peer_id=match.group("peer"),
-                            text=match.group("text"),
-                        )
+                if peer_match is not None:
+                    self.known_peer_ids.add(peer_match.group(1))
+                else:
+                    msg_match = re.match(
+                        r"^received from\s+(?P<from>[^\s]+)\s+\((?P<peer>[^)]+)\):\s+(?P<text>.+)$",
+                        normalized,
                     )
+                    if msg_match is not None:
+                        self.received_messages.append(
+                            ReceivedMessage(
+                                from_label=msg_match.group("from"),
+                                peer_id=msg_match.group("peer"),
+                                text=msg_match.group("text"),
+                            )
+                        )
 
             if self.node_id and self.listen_address:
                 self.start_event.set()
@@ -411,7 +415,7 @@ class ClusterHarness:
             )
 
     def start_cluster(self) -> None:
-        """Start the three-node cluster and wait for bootstrap readiness."""
+        """Start the three-node cluster and wait for carrier mesh."""
         if len(self.nodes) != 3:
             raise RuntimeError("expected three provisioned nodes")
 
@@ -428,26 +432,38 @@ class ClusterHarness:
             log(f"Starting node {node.number} with bootstrap {bootstrap[0]}")
             node.start(self.repo_root)
             node.wait_until_started()
-            expected_bootstrap = bootstrap[0]
-            node.wait_for(
-                lambda current, addr=expected_bootstrap: addr in current.join_successes,
-                timeout=START_TIMEOUT,
-                description=f"bootstrap join to {expected_bootstrap}",
+
+        self._wait_for_mesh()
+
+    def _wait_for_mesh(self) -> None:
+        """Poll peers via REPL until carrier connects all nodes."""
+        expected_peers = 2
+        deadline = time.monotonic() + MESH_TIMEOUT
+        while time.monotonic() < deadline:
+            for node in self.nodes:
+                if node.is_running():
+                    node.send("peers")
+            time.sleep(1.0)
+            all_ready = True
+            for node in self.nodes:
+                with node.condition:
+                    if len(node.known_peer_ids) < expected_peers:
+                        all_ready = False
+                        break
+            if all_ready:
+                log("All nodes connected via carrier mesh")
+                return
+        details = []
+        for node in self.nodes:
+            with node.condition:
+                count = len(node.known_peer_ids)
+            details.append(
+                f"node {node.number}: {count}/{expected_peers} peers"
+                f"\nlast output:\n{node.tail_output()}"
             )
-
-        self._form_mesh()
-
-    def _form_mesh(self) -> None:
-        """Add the missing sibling link so all three nodes can broadcast to all peers."""
-        node2 = self.nodes[1]
-        node3 = self.nodes[2]
-        assert node3.listen_address is not None
-        log(f"Connecting node 2 directly to node 3 via {node3.listen_address}")
-        node2.send(f"join {node3.listen_address}")
-        node2.wait_for(
-            lambda current, addr=node3.listen_address: addr in current.join_successes,
-            timeout=COMMAND_TIMEOUT,
-            description=f"join to {node3.listen_address}",
+        raise RuntimeError(
+            f"mesh did not form within {MESH_TIMEOUT:.0f}s:\n"
+            + "\n".join(details)
         )
 
     def run_hello(self) -> None:
