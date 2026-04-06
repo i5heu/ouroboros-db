@@ -10,6 +10,27 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 )
 
+// NodeRole describes whether a node should be treated
+// as a server-class or client-class peer.
+type NodeRole int // A
+
+const ( // A
+	NodeRoleServer NodeRole = iota
+	NodeRoleClient
+)
+
+// String returns the human-readable node role.
+func (r NodeRole) String() string { // A
+	switch r {
+	case NodeRoleServer:
+		return "server"
+	case NodeRoleClient:
+		return "client"
+	default:
+		return "unknown"
+	}
+}
+
 // ConnectionStatus represents the connection state
 // of a remote peer node.
 type ConnectionStatus int // A
@@ -45,6 +66,7 @@ type PeerNode struct { // A
 	NodeID    keys.NodeID
 	Addresses []string
 	Cert      NodeCert
+	Role      NodeRole
 }
 
 // NodeInfo holds complete node data for registry
@@ -56,6 +78,7 @@ type NodeInfo struct { // A
 	DelegationSig    []byte
 	LastSeen         time.Time
 	ConnectionStatus ConnectionStatus
+	Role             NodeRole
 	TrustScope       auth.TrustScope
 }
 

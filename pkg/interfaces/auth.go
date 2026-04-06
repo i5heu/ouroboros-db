@@ -1,6 +1,8 @@
 package interfaces
 
 import (
+	"time"
+
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 )
@@ -10,9 +12,12 @@ type Cluster struct { // A
 }
 
 type Node struct { // A
-	NodeID    keys.NodeID
-	Addresses []string
-	NodeCerts []NodeCert
+	NodeID           keys.NodeID
+	Addresses        []string
+	NodeCerts        []NodeCert
+	Role             NodeRole
+	LastSeen         time.Time
+	ConnectionStatus ConnectionStatus
 }
 
 // NodeCert aliases auth.NodeCertLike to keep carrier

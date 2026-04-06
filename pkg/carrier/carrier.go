@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
@@ -67,6 +68,23 @@ type CarrierConfig struct { // A
 	// (prover side). If nil, the carrier cannot
 	// initiate outbound authenticated connections.
 	NodeIdentity *auth.NodeIdentity
+
+	// NodeRole controls whether this node behaves as a
+	// server or client peer for heartbeat scheduling.
+	NodeRole interfaces.NodeRole
+
+	// HeartbeatInterval controls how often the carrier
+	// emits heartbeat messages to eligible peers.
+	HeartbeatInterval time.Duration
+
+	// HeartbeatTimeout is the maximum age of the last
+	// inbound heartbeat or other message before a peer
+	// is considered unreachable.
+	HeartbeatTimeout time.Duration
+
+	// ReconnectInterval controls how often unreachable
+	// peers are retried across all known addresses.
+	ReconnectInterval time.Duration
 }
 
 // RuntimeCarrier extends the public carrier contract
@@ -91,17 +109,39 @@ type carrierImpl struct { // A
 	mu          sync.RWMutex
 	logger      *slog.Logger
 	config      CarrierConfig
-	registry    interfaces.NodeRegistry
+	registry    *nodeRegistry
 	transport   interfaces.QuicTransport
 	connections map[keys.NodeID]interfaces.Connection
 	controller  interfaces.ClusterController
 	peerScopes  map[keys.NodeID]auth.TrustScope
+
+	backgroundOnce   sync.Once
+	backgroundCtx    context.Context
+	backgroundCancel context.CancelFunc
 }
+
+const ( // A
+	defaultHeartbeatInterval = 5 * time.Second
+	defaultHeartbeatTimeout  = 15 * time.Second
+	defaultReconnectInterval = 5 * time.Minute
+)
 
 // New creates a new Carrier from the given configuration.
 func New(conf CarrierConfig) (*carrierImpl, error) { // A
 	if conf.SelfCert == nil {
 		return nil, fmt.Errorf("SelfCert must not be nil")
+	}
+	if conf.HeartbeatInterval <= 0 {
+		conf.HeartbeatInterval = defaultHeartbeatInterval
+	}
+	if conf.HeartbeatTimeout <= 0 {
+		conf.HeartbeatTimeout = defaultHeartbeatTimeout
+	}
+	if conf.HeartbeatTimeout < conf.HeartbeatInterval {
+		conf.HeartbeatTimeout = conf.HeartbeatInterval
+	}
+	if conf.ReconnectInterval <= 0 {
+		conf.ReconnectInterval = defaultReconnectInterval
 	}
 	if conf.Logger == nil {
 		h := slog.NewTextHandler(
@@ -160,8 +200,6 @@ func (c *carrierImpl) GetNodes() []interfaces.PeerNode { // A
 func (c *carrierImpl) GetNode( // A
 	nodeID keys.NodeID,
 ) (interfaces.PeerNode, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	node, err := c.registry.GetNode(nodeID)
 	if err != nil {
 		return interfaces.PeerNode{}, err
@@ -172,15 +210,16 @@ func (c *carrierImpl) GetNode( // A
 func (c *carrierImpl) GetNodeConnection( // A
 	nodeID keys.NodeID,
 ) (interfaces.NodeConnection, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	node, err := c.registry.GetNode(nodeID)
 	if err != nil {
 		return interfaces.NodeConnection{}, err
 	}
+	c.mu.RLock()
+	conn := c.connections[nodeID]
+	c.mu.RUnlock()
 	return interfaces.NodeConnection{
 		Peer: toPeerNode(node),
-		Conn: c.connections[nodeID],
+		Conn: conn,
 	}, nil
 }
 
@@ -271,6 +310,18 @@ func (c *carrierImpl) OpenPeerChannel( // A
 	peer interfaces.PeerNode,
 	_ interfaces.NodeCert,
 ) error {
+	c.ensureBackgroundLoops()
+	return c.connectNode(interfaces.Node{
+		NodeID:    peer.NodeID,
+		Addresses: peer.Addresses,
+		NodeCerts: nil,
+		Role:      peer.Role,
+	})
+}
+
+func (c *carrierImpl) connectNode( // A
+	node interfaces.Node,
+) error {
 	ni := c.config.NodeIdentity
 	if ni == nil {
 		return fmt.Errorf("NodeIdentity is required to open peer channel")
@@ -281,10 +332,7 @@ func (c *carrierImpl) OpenPeerChannel( // A
 	if tp == nil {
 		return fmt.Errorf("transport is not initialized")
 	}
-	conn, err := tp.Dial(interfaces.Node{
-		NodeID:    peer.NodeID,
-		Addresses: peer.Addresses,
-	})
+	conn, usedAddress, err := c.dialKnownAddresses(node)
 	if err != nil {
 		return fmt.Errorf("dial peer: %w", err)
 	}
@@ -301,7 +349,7 @@ func (c *carrierImpl) OpenPeerChannel( // A
 		authCtx,
 		conn,
 		certs,
-		[]string{peerAddress(peer, conn)},
+		[]string{usedAddress},
 	); err != nil {
 		_ = conn.Close()
 		return fmt.Errorf("register peer: %w", err)
@@ -400,6 +448,7 @@ func (c *carrierImpl) IsConnected( // A
 func (c *carrierImpl) StartListener( // A
 	ctx context.Context,
 ) error {
+	c.ensureBackgroundLoops()
 	if c.config.ListenAddress == "" {
 		return fmt.Errorf("ListenAddress is not configured")
 	}
@@ -434,6 +483,7 @@ func (c *carrierImpl) handleIncomingConn( // A
 	ctx context.Context,
 	conn interfaces.Connection,
 ) {
+	c.ensureBackgroundLoops()
 	if c.config.Auth == nil {
 		c.logger.WarnContext(
 			ctx,
@@ -529,6 +579,7 @@ func toPeerNode(n interfaces.Node) interfaces.PeerNode { // A
 		NodeID:    n.NodeID,
 		Addresses: n.Addresses,
 		Cert:      nil,
+		Role:      n.Role,
 	}
 }
 
@@ -616,10 +667,14 @@ func (c *carrierImpl) registerPeer( // A
 ) error {
 	nodeCerts := make([]interfaces.NodeCert, len(certs))
 	copy(nodeCerts, certs)
+	seenAt := time.Now()
 	node := interfaces.Node{
-		NodeID:    authCtx.NodeID,
-		Addresses: compactAddresses(addresses),
-		NodeCerts: nodeCerts,
+		NodeID:           authCtx.NodeID,
+		Addresses:        compactAddresses(addresses),
+		NodeCerts:        nodeCerts,
+		Role:             interfaces.NodeRoleServer,
+		LastSeen:         seenAt,
+		ConnectionStatus: interfaces.ConnectionStatusConnected,
 	}
 	if err := c.registry.AddNode(node, nodeCerts, nil); err != nil {
 		return err
@@ -721,6 +776,24 @@ func (c *carrierImpl) dispatchMessage( // A
 	nodeID keys.NodeID,
 	msg interfaces.Message,
 ) {
+	c.markPeerSeen(nodeID, time.Now())
+	if msg.Type == interfaces.MessageTypeHeartbeat {
+		if err := c.handleHeartbeatMessage(
+			ctx,
+			nodeID,
+			msg,
+		); err != nil {
+			c.logger.WarnContext(
+				ctx,
+				"heartbeat handling failed",
+				auth.LogKeyNodeID,
+				nodeID.String(),
+				auth.LogKeyReason,
+				err.Error(),
+			)
+		}
+		return
+	}
 	c.mu.RLock()
 	controller := c.controller
 	scope := c.peerScopes[nodeID]
@@ -767,6 +840,69 @@ func (c *carrierImpl) dropConnection( // A
 	delete(c.connections, nodeID)
 	delete(c.peerScopes, nodeID)
 	_ = conn.Close()
+	_ = c.registry.SetStatus(
+		nodeID,
+		interfaces.ConnectionStatusDisconnected,
+	)
+}
+
+func (c *carrierImpl) markPeerSeen( // A
+	nodeID keys.NodeID,
+	seenAt time.Time,
+) {
+	_ = c.registry.UpdateLastSeen(nodeID, seenAt)
+	_ = c.registry.SetStatus(
+		nodeID,
+		interfaces.ConnectionStatusConnected,
+	)
+}
+
+func (c *carrierImpl) markPeerFailed( // A
+	nodeID keys.NodeID,
+	conn interfaces.Connection,
+) {
+	c.dropConnection(nodeID, conn)
+	_ = c.registry.SetStatus(
+		nodeID,
+		interfaces.ConnectionStatusFailed,
+	)
+}
+
+func (c *carrierImpl) ensureBackgroundLoops() { // A
+	c.backgroundOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		c.mu.Lock()
+		c.backgroundCtx = ctx
+		c.backgroundCancel = cancel
+		c.mu.Unlock()
+		go c.runHeartbeatLoop(ctx)
+		go c.runReconnectLoop(ctx)
+	})
+}
+
+func (c *carrierImpl) dialKnownAddresses( // A
+	node interfaces.Node,
+) (interfaces.Connection, string, error) {
+	if len(node.Addresses) == 0 {
+		return nil, "", fmt.Errorf("node has no addresses")
+	}
+	var lastErr error
+	for _, address := range compactAddresses(node.Addresses) {
+		conn, err := c.transport.Dial(interfaces.Node{
+			NodeID:    node.NodeID,
+			Addresses: []string{address},
+			NodeCerts: node.NodeCerts,
+			Role:      node.Role,
+		})
+		if err == nil {
+			return conn, address, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no dial attempts were made")
+	}
+	return nil, "", lastErr
 }
 
 func peerAddress( // A

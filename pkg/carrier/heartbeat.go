@@ -1,0 +1,305 @@
+package carrier
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/fxamacker/cbor/v2"
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+)
+
+type heartbeatNodeEntry struct { // A
+	NodeID    keys.NodeID         `cbor:"nodeID"`
+	Addresses []string            `cbor:"addresses,omitempty"`
+	Role      interfaces.NodeRole `cbor:"role"`
+}
+
+type heartbeatPayload struct { // A
+	SentAtUnix       int64                `cbor:"sentAtUnix"`
+	SenderRole       interfaces.NodeRole  `cbor:"senderRole"`
+	KnownNodes       []heartbeatNodeEntry `cbor:"knownNodes,omitempty"`
+	Stats            map[string]uint64    `cbor:"stats,omitempty"`
+	StorageFreeBytes uint64               `cbor:"storageFreeBytes,omitempty"`
+	CustomFields     map[string][]byte    `cbor:"customFields,omitempty"`
+}
+
+func marshalHeartbeatPayload( // A
+	payload heartbeatPayload,
+) ([]byte, error) {
+	return cbor.Marshal(payload)
+}
+
+func unmarshalHeartbeatPayload( // A
+	data []byte,
+) (heartbeatPayload, error) {
+	var payload heartbeatPayload
+	if err := cbor.Unmarshal(data, &payload); err != nil {
+		return heartbeatPayload{}, err
+	}
+	return payload, nil
+}
+
+func (c *carrierImpl) runHeartbeatLoop( // A
+	ctx context.Context,
+) {
+	ticker := time.NewTicker(c.heartbeatInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.sendHeartbeatBatch(ctx)
+			c.failStalePeers(time.Now())
+		}
+	}
+}
+
+func (c *carrierImpl) runReconnectLoop( // A
+	ctx context.Context,
+) {
+	ticker := time.NewTicker(c.reconnectInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.retryUnreachablePeers(ctx)
+		}
+	}
+}
+
+func (c *carrierImpl) sendHeartbeatBatch( // A
+	ctx context.Context,
+) {
+	for _, peer := range c.GetNodes() {
+		if !c.shouldHeartbeatPeer(peer) {
+			continue
+		}
+		if err := c.sendHeartbeat(ctx, peer.NodeID); err != nil {
+			conn, connErr := c.connectionForNode(peer.NodeID)
+			if connErr == nil {
+				c.markPeerFailed(peer.NodeID, conn)
+			}
+			c.logger.WarnContext(
+				ctx,
+				"heartbeat send failed",
+				auth.LogKeyNodeID,
+				peer.NodeID.String(),
+				auth.LogKeyReason,
+				err.Error(),
+			)
+		}
+	}
+}
+
+func (c *carrierImpl) shouldHeartbeatPeer( // A
+	peer interfaces.PeerNode,
+) bool {
+	if !c.IsConnected(peer.NodeID) {
+		return false
+	}
+	if peer.Role == interfaces.NodeRoleClient {
+		return false
+	}
+	return true
+}
+
+func (c *carrierImpl) sendHeartbeat( // A
+	_ context.Context,
+	nodeID keys.NodeID,
+) error {
+	payload, err := c.buildHeartbeatPayload()
+	if err != nil {
+		return err
+	}
+	encoded, err := marshalHeartbeatPayload(payload)
+	if err != nil {
+		return fmt.Errorf("marshal heartbeat: %w", err)
+	}
+	return c.SendMessageToNodeReliable(nodeID, interfaces.Message{
+		Type:    interfaces.MessageTypeHeartbeat,
+		Payload: encoded,
+	})
+}
+
+func (c *carrierImpl) buildHeartbeatPayload( // A
+) (heartbeatPayload, error) {
+	knownNodes := c.heartbeatKnownNodes()
+	stats := map[string]uint64{
+		"connectedNodes": uint64(c.connectedCount()),
+		"knownNodes":     uint64(len(knownNodes)),
+	}
+	return heartbeatPayload{
+		SentAtUnix: time.Now().Unix(),
+		SenderRole: c.config.NodeRole,
+		KnownNodes: knownNodes,
+		Stats:      stats,
+	}, nil
+}
+
+func (c *carrierImpl) heartbeatKnownNodes() []heartbeatNodeEntry { // A
+	peers := c.registry.GetAllNodes()
+	entries := make([]heartbeatNodeEntry, 0, len(peers)+1)
+	entries = append(entries, heartbeatNodeEntry{
+		NodeID:    c.selfNodeID(),
+		Addresses: c.selfAddresses(),
+		Role:      c.config.NodeRole,
+	})
+	for _, peer := range peers {
+		entries = append(entries, heartbeatNodeEntry{
+			NodeID:    peer.NodeID,
+			Addresses: append([]string(nil), peer.Addresses...),
+			Role:      peer.Role,
+		})
+	}
+	return entries
+}
+
+func (c *carrierImpl) selfNodeID() keys.NodeID { // A
+	return c.config.SelfCert.NodeID()
+}
+
+func (c *carrierImpl) selfAddresses() []string { // A
+	addresses := []string{c.ListenAddress()}
+	return compactAddresses(addresses)
+}
+
+func (c *carrierImpl) connectedCount() int { // A
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.connections)
+}
+
+func (c *carrierImpl) handleHeartbeatMessage( // A
+	_ context.Context,
+	peerID keys.NodeID,
+	msg interfaces.Message,
+) error {
+	payload, err := unmarshalHeartbeatPayload(msg.Payload)
+	if err != nil {
+		return fmt.Errorf("unmarshal heartbeat: %w", err)
+	}
+	c.markPeerSeen(peerID, time.Now())
+	if err := c.registry.SetRole(peerID, payload.SenderRole); err != nil {
+		return err
+	}
+	return c.mergeHeartbeatNodes(payload.KnownNodes)
+}
+
+func (c *carrierImpl) mergeHeartbeatNodes( // A
+	nodes []heartbeatNodeEntry,
+) error {
+	selfID := c.selfNodeID()
+	for _, entry := range nodes {
+		if entry.NodeID.IsZero() || entry.NodeID == selfID {
+			continue
+		}
+		node, err := c.registry.GetNode(entry.NodeID)
+		if err != nil {
+			addErr := c.registry.AddNode(interfaces.Node{
+				NodeID:           entry.NodeID,
+				Addresses:        compactAddresses(entry.Addresses),
+				Role:             entry.Role,
+				ConnectionStatus: interfaces.ConnectionStatusDisconnected,
+			}, nil, nil)
+			if addErr != nil {
+				return addErr
+			}
+			continue
+		}
+		node.Addresses = compactAddresses(append(
+			node.Addresses,
+			entry.Addresses...,
+		))
+		node.Role = entry.Role
+		if addErr := c.registry.AddNode(
+			node,
+			node.NodeCerts,
+			nil,
+		); addErr != nil {
+			return addErr
+		}
+	}
+	return nil
+}
+
+func (c *carrierImpl) failStalePeers( // A
+	now time.Time,
+) {
+	peers := c.registry.GetAllNodes()
+	for _, peer := range peers {
+		if peer.LastSeen.IsZero() {
+			continue
+		}
+		if now.Sub(peer.LastSeen) <= c.heartbeatTimeout() {
+			continue
+		}
+		conn, err := c.connectionForNode(peer.NodeID)
+		if err != nil {
+			continue
+		}
+		c.markPeerFailed(peer.NodeID, conn)
+		c.logger.WarnContext(
+			context.Background(),
+			"peer heartbeat timed out",
+			auth.LogKeyNodeID,
+			peer.NodeID.String(),
+		)
+	}
+}
+
+func (c *carrierImpl) retryUnreachablePeers( // A
+	ctx context.Context,
+) {
+	for _, node := range c.registry.GetUnreachableNodes() {
+		if node.Role == interfaces.NodeRoleClient {
+			continue
+		}
+		if c.IsConnected(node.NodeID) {
+			continue
+		}
+		if err := c.connectNode(node); err != nil {
+			c.logger.DebugContext(
+				ctx,
+				"peer reconnect failed",
+				auth.LogKeyNodeID,
+				node.NodeID.String(),
+				auth.LogKeyReason,
+				err.Error(),
+			)
+			continue
+		}
+		c.logger.InfoContext(
+			ctx,
+			"peer reconnected",
+			auth.LogKeyNodeID,
+			node.NodeID.String(),
+		)
+	}
+}
+
+func (c *carrierImpl) heartbeatInterval() time.Duration { // A
+	if c.config.HeartbeatInterval > 0 {
+		return c.config.HeartbeatInterval
+	}
+	return defaultHeartbeatInterval
+}
+
+func (c *carrierImpl) heartbeatTimeout() time.Duration { // A
+	if c.config.HeartbeatTimeout > 0 {
+		return c.config.HeartbeatTimeout
+	}
+	return defaultHeartbeatTimeout
+}
+
+func (c *carrierImpl) reconnectInterval() time.Duration { // A
+	if c.config.ReconnectInterval > 0 {
+		return c.config.ReconnectInterval
+	}
+	return defaultReconnectInterval
+}
