@@ -378,8 +378,8 @@ func (ca *carrierAuth) deriveScope( // A
 	// with pkg/clusterlog.
 	ca.logger.InfoContext(
 		context.TODO(),
-		"peer verified",
-		LogKeyNodeID, result.nodeID.String(),
+		"peer cert verified",
+		LogKeyNodeID, fmt.Sprintf("%x", result.nodeID[:8]),
 		LogKeyScope, ctx.EffectiveScope.String(),
 	)
 	return ctx

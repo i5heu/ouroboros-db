@@ -45,9 +45,9 @@ func (c *carrierImpl) attemptBootstrap( // A
 			c.logger.InfoContext(
 				ctx,
 				"bootstrap connected",
-				"peers",
+				logKeyPeers,
 				connected,
-				"attempt",
+				logKeyAttempt,
 				attempt+1,
 			)
 			return true
@@ -55,9 +55,9 @@ func (c *carrierImpl) attemptBootstrap( // A
 		c.logger.WarnContext(
 			ctx,
 			"bootstrap attempt failed",
-			"attempt",
+			logKeyAttempt,
 			attempt+1,
-			"maxAttempts",
+			logKeyMaxAttempts,
 			maxRetries+1,
 		)
 	}
@@ -82,7 +82,7 @@ func (c *carrierImpl) dialBootstrapAll( // A
 			c.logger.DebugContext(
 				ctx,
 				"bootstrap dial failed",
-				"address",
+				logKeyAddress,
 				addr,
 				auth.LogKeyReason,
 				err.Error(),
@@ -154,10 +154,10 @@ func (c *carrierImpl) dialBootstrapAddr( // A
 	)
 	c.logger.InfoContext(
 		context.Background(),
-		"bootstrap peer joined",
+		"bootstrap peer connected",
 		auth.LogKeyNodeID,
-		authCtx.NodeID.String(),
-		"address",
+		shortID(authCtx.NodeID),
+		logKeyAddress,
 		addr,
 	)
 	return nil

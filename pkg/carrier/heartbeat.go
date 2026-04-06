@@ -89,7 +89,7 @@ func (c *carrierImpl) sendHeartbeatBatch( // A
 				ctx,
 				"heartbeat send failed",
 				auth.LogKeyNodeID,
-				peer.NodeID.String(),
+				shortID(peer.NodeID),
 				auth.LogKeyReason,
 				err.Error(),
 			)
@@ -176,7 +176,7 @@ func (c *carrierImpl) connectedCount() int { // A
 }
 
 func (c *carrierImpl) handleHeartbeatMessage( // A
-	_ context.Context,
+	ctx context.Context,
 	peerID keys.NodeID,
 	msg interfaces.Message,
 ) error {
@@ -188,28 +188,45 @@ func (c *carrierImpl) handleHeartbeatMessage( // A
 	if err := c.registry.SetRole(peerID, payload.SenderRole); err != nil {
 		return err
 	}
-	return c.mergeHeartbeatNodes(payload.KnownNodes)
+	newPeers, mergeErr := c.mergeHeartbeatNodes(
+		payload.KnownNodes,
+	)
+	if mergeErr != nil {
+		return mergeErr
+	}
+	if len(newPeers) > 0 {
+		go c.connectDiscoveredPeers(ctx, newPeers)
+	}
+	return nil
 }
 
 func (c *carrierImpl) mergeHeartbeatNodes( // A
 	nodes []heartbeatNodeEntry,
-) error {
+) ([]interfaces.Node, error) {
 	selfID := c.selfNodeID()
+	var discovered []interfaces.Node
 	for _, entry := range nodes {
 		if entry.NodeID.IsZero() || entry.NodeID == selfID {
 			continue
 		}
 		node, err := c.registry.GetNode(entry.NodeID)
 		if err != nil {
-			addErr := c.registry.AddNode(interfaces.Node{
-				NodeID:           entry.NodeID,
-				Addresses:        compactAddresses(entry.Addresses),
-				Role:             entry.Role,
-				ConnectionStatus: interfaces.ConnectionStatusDisconnected,
-			}, nil, nil)
-			if addErr != nil {
-				return addErr
+			newNode := interfaces.Node{
+				NodeID: entry.NodeID,
+				Addresses: compactAddresses(
+					entry.Addresses,
+				),
+				Role: entry.Role,
+				ConnectionStatus: interfaces.
+					ConnectionStatusDisconnected,
 			}
+			addErr := c.registry.AddNode(
+				newNode, nil, nil,
+			)
+			if addErr != nil {
+				return discovered, addErr
+			}
+			discovered = append(discovered, newNode)
 			continue
 		}
 		node.Addresses = compactAddresses(append(
@@ -222,10 +239,44 @@ func (c *carrierImpl) mergeHeartbeatNodes( // A
 			node.NodeCerts,
 			nil,
 		); addErr != nil {
-			return addErr
+			return discovered, addErr
 		}
 	}
-	return nil
+	return discovered, nil
+}
+
+// connectDiscoveredPeers dials peers that were just
+// learned via heartbeat gossip so that the mesh forms
+// without waiting for the reconnect loop.
+func (c *carrierImpl) connectDiscoveredPeers( // A
+	ctx context.Context,
+	peers []interfaces.Node,
+) {
+	for _, node := range peers {
+		if node.Role == interfaces.NodeRoleClient {
+			continue
+		}
+		if c.IsConnected(node.NodeID) {
+			continue
+		}
+		if err := c.connectNode(node); err != nil {
+			c.logger.DebugContext(
+				ctx,
+				"gossip peer connect failed",
+				auth.LogKeyNodeID,
+				shortID(node.NodeID),
+				auth.LogKeyReason,
+				err.Error(),
+			)
+			continue
+		}
+		c.logger.InfoContext(
+			ctx,
+			"gossip peer connected",
+			auth.LogKeyNodeID,
+			shortID(node.NodeID),
+		)
+	}
 }
 
 func (c *carrierImpl) failStalePeers( // A
@@ -248,7 +299,7 @@ func (c *carrierImpl) failStalePeers( // A
 			context.Background(),
 			"peer heartbeat timed out",
 			auth.LogKeyNodeID,
-			peer.NodeID.String(),
+			shortID(peer.NodeID),
 		)
 	}
 }
@@ -268,7 +319,7 @@ func (c *carrierImpl) retryUnreachablePeers( // A
 				ctx,
 				"peer reconnect failed",
 				auth.LogKeyNodeID,
-				node.NodeID.String(),
+				shortID(node.NodeID),
 				auth.LogKeyReason,
 				err.Error(),
 			)
@@ -278,7 +329,7 @@ func (c *carrierImpl) retryUnreachablePeers( // A
 			ctx,
 			"peer reconnected",
 			auth.LogKeyNodeID,
-			node.NodeID.String(),
+			shortID(node.NodeID),
 		)
 	}
 }

@@ -94,6 +94,14 @@ type CarrierConfig struct { // A
 	// BootstrapMaxRetries is the maximum number of
 	// bootstrap retry rounds before going offline.
 	BootstrapMaxRetries int
+
+	// BroadcastMaxRetries controls how many times a
+	// failed peer send is retried during broadcast.
+	BroadcastMaxRetries int
+
+	// BroadcastRetryInterval is the delay between
+	// broadcast send retries for a failed peer.
+	BroadcastRetryInterval time.Duration
 }
 
 // RuntimeCarrier extends the public carrier contract
@@ -145,6 +153,12 @@ const ( // A
 	// connection attempts before the node goes offline.
 	defaultBootstrapRetryInterval = 5 * time.Second
 	defaultBootstrapMaxRetries    = 4
+	// defaultBroadcastMaxRetries is how many times a
+	// failed send is retried per peer before giving up.
+	defaultBroadcastMaxRetries = 3
+	// defaultBroadcastRetryInterval is the backoff
+	// between broadcast send retries.
+	defaultBroadcastRetryInterval = 250 * time.Millisecond
 )
 
 const ( // A
@@ -174,6 +188,12 @@ func New(conf CarrierConfig) (*carrierImpl, error) { // A
 	}
 	if conf.BootstrapMaxRetries <= 0 {
 		conf.BootstrapMaxRetries = defaultBootstrapMaxRetries
+	}
+	if conf.BroadcastMaxRetries <= 0 {
+		conf.BroadcastMaxRetries = defaultBroadcastMaxRetries
+	}
+	if conf.BroadcastRetryInterval <= 0 {
+		conf.BroadcastRetryInterval = defaultBroadcastRetryInterval
 	}
 	if conf.Logger == nil {
 		h := slog.NewTextHandler(
@@ -264,16 +284,34 @@ func (c *carrierImpl) BroadcastReliable( // A
 	if len(nodes) == 0 {
 		return nil, nil, fmt.Errorf("no peers available")
 	}
-	for _, node := range nodes {
-		if err := c.SendMessageToNodeReliable(
-			node.NodeID,
-			message,
-		); err != nil {
-			failed = append(failed, node)
-			continue
+	maxRetries := c.config.BroadcastMaxRetries
+	retryInterval := c.config.BroadcastRetryInterval
+	pending := append(
+		[]interfaces.PeerNode(nil), nodes...,
+	)
+	for attempt := range maxRetries + 1 {
+		if attempt > 0 {
+			time.Sleep(retryInterval)
 		}
-		success = append(success, node)
+		var stillFailed []interfaces.PeerNode
+		for _, node := range pending {
+			if sendErr := c.SendMessageToNodeReliable(
+				node.NodeID,
+				message,
+			); sendErr != nil {
+				stillFailed = append(
+					stillFailed, node,
+				)
+				continue
+			}
+			success = append(success, node)
+		}
+		pending = stillFailed
+		if len(pending) == 0 {
+			break
+		}
 	}
+	failed = pending
 	return success, failed, nil
 }
 
@@ -393,9 +431,9 @@ func (c *carrierImpl) connectNode( // A
 	)
 	c.logger.InfoContext(
 		context.Background(),
-		"joined cluster peer",
+		"outbound peer connected",
 		auth.LogKeyNodeID,
-		authCtx.NodeID.String(),
+		shortID(authCtx.NodeID),
 	)
 	return nil
 }
@@ -586,9 +624,9 @@ func (c *carrierImpl) handleIncomingConn( // A
 	}
 	c.logger.InfoContext(
 		ctx,
-		"peer authenticated and registered",
+		"inbound peer connected",
 		auth.LogKeyNodeID,
-		authCtx.NodeID.String(),
+		shortID(authCtx.NodeID),
 		auth.LogKeyScope,
 		authCtx.EffectiveScope.String(),
 	)

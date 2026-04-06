@@ -461,7 +461,7 @@ func repl( // A
 		case "listen":
 			fmt.Printf("listening on: %s\n", transport.ListenAddress())
 		case "peers":
-			printPeers(transport.GetNodes())
+			printPeers(transport)
 		case "hello", "broadcast":
 			text := "hello world"
 			if len(args) > 0 {
@@ -552,8 +552,6 @@ func helloHandler( // A
 			"received user message",
 			"from",
 			payload.From,
-			"peer",
-			shortNodeID(peer),
 			"text",
 			payload.Text,
 		)
@@ -568,17 +566,25 @@ func helloHandler( // A
 }
 
 // printPeers renders the current peer snapshot from the
-// carrier registry in a compact operator-friendly form.
-func printPeers(peers []interfaces.PeerNode) { // A
+// carrier registry with role and connection status so
+// operators can tell at a glance which peers are live.
+func printPeers(c interfaces.Carrier) { // A
+	peers := c.GetNodes()
 	if len(peers) == 0 {
 		fmt.Println("no peers connected")
 		return
 	}
 	for _, peer := range peers {
+		status := "disconnected"
+		if c.IsConnected(peer.NodeID) {
+			status = "connected"
+		}
 		fmt.Printf(
-			"- %s %s\n",
+			"- %s  addr=%-21s  role=%-6s  status=%s\n",
 			shortNodeID(peer.NodeID),
 			strings.Join(peer.Addresses, ","),
+			peer.Role.String(),
+			status,
 		)
 	}
 }
