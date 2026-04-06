@@ -287,8 +287,8 @@ func TestBootstrapExhaustedGoesOffline( // A
 	c := newCarrierTestHarness(CarrierConfig{
 		SelfCert:               selfNI.Certs()[0],
 		NodeIdentity:           selfNI,
-		BootstrapRetryInterval: 1 * time.Millisecond,
-		BootstrapMaxRetries:    2,
+		BootstrapRetryInterval: 50 * time.Millisecond, // Short interval for testing
+		BootstrapMaxRetries:    2,                     // 2 retries (3 total attempts)
 		BootstrapAddresses:     []string{"peer:1"},
 	})
 	c.transport = tr
@@ -528,9 +528,9 @@ func TestReconnectNoAddressesReturnsError( // A
 	if err == nil {
 		t.Fatal("expected error with no bootstrap addresses")
 	}
-	if !strings.Contains(err.Error(), "no bootstrap addresses") {
+	if !errors.Is(err, ErrNoBootstrapAddresses) {
 		t.Fatalf(
-			"error = %q, want mention of no bootstrap addresses",
+			"error = %q, want ErrNoBootstrapAddresses",
 			err.Error(),
 		)
 	}
@@ -557,9 +557,9 @@ func TestReconnectExhaustedReturnsError( // A
 	if err == nil {
 		t.Fatal("expected error when Reconnect exhausts retries")
 	}
-	if !strings.Contains(err.Error(), "bootstrap failed") {
+	if !errors.Is(err, ErrBootstrapFailed) {
 		t.Fatalf(
-			"error = %q, want mention of bootstrap failed",
+			"error = %q, want ErrBootstrapFailed",
 			err.Error(),
 		)
 	}
@@ -581,6 +581,12 @@ func TestDialBootstrapAddrNoIdentityReturnsError( // A
 	if err == nil {
 		t.Fatal("expected error with nil NodeIdentity")
 	}
+	if !errors.Is(err, ErrNodeIdentityRequired) {
+		t.Fatalf(
+			"error = %q, want ErrNodeIdentityRequired",
+			err.Error(),
+		)
+	}
 }
 
 func TestDialBootstrapAddrNoTransportReturnsError( // A
@@ -597,6 +603,12 @@ func TestDialBootstrapAddrNoTransportReturnsError( // A
 	err := c.dialBootstrapAddr("peer:1")
 	if err == nil {
 		t.Fatal("expected error with nil transport")
+	}
+	if !errors.Is(err, ErrTransportNotInitialized) {
+		t.Fatalf(
+			"error = %q, want ErrTransportNotInitialized",
+			err.Error(),
+		)
 	}
 }
 
@@ -891,6 +903,8 @@ func TestBootstrapDialAndAuthFailsClosesConn( // A
 	if err == nil {
 		t.Fatal("expected error when dialAndAuth fails")
 	}
+	// Check for contextual "auth" prefix in error message - this is not a sentinel error
+	// but rather a prefix in wrapped auth package errors, so we use strings.Contains
 	if !strings.Contains(err.Error(), "auth") {
 		t.Fatalf(
 			"error = %q, want mention of auth",
@@ -950,6 +964,8 @@ func TestBootstrapRegisterPeerFailsClosesConn( // A
 	if err == nil {
 		t.Fatal("expected error when registerPeer fails")
 	}
+	// Check for contextual "register" prefix in error message - this is not a sentinel error
+	// but rather a prefix in wrapped bootstrap errors, so we use strings.Contains
 	if !strings.Contains(err.Error(), "register") {
 		t.Fatalf(
 			"error = %q, want mention of register",
@@ -1001,6 +1017,8 @@ func TestBootstrapAwaitPeerAuthFailsClosesConn( // A
 	if err == nil {
 		t.Fatal("expected error when awaitPeerAuth fails")
 	}
+	// Check for contextual "verify" prefix in error message - this is not a sentinel error
+	// but rather a prefix in wrapped bootstrap errors, so we use strings.Contains
 	if !strings.Contains(err.Error(), "verify") {
 		t.Fatalf(
 			"error = %q, want mention of verify",
@@ -1213,6 +1231,49 @@ func TestBootstrapRetryIntervalRespected( // A
 	}
 }
 
+// TestBootstrapRetryIntervalZeroFallsBackToDefault verifies
+// that when BootstrapRetryInterval is 0 the bootstrapRetryInterval()
+// fallback uses defaultBootstrapRetryInterval. Use BootstrapMaxRetries:1,
+// all dials fail, measure elapsed time and assert elapsed >= defaultBootstrapRetryInterval.
+func TestBootstrapRetryIntervalZeroFallsBackToDefault( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	selfNI, _ := newNodeIdentityForCarrierTest(t)
+	tr := newBootstrapDialTransport()
+	tr.errByAddr["peer:1"] = errors.New("refused")
+	c := newCarrierTestHarness(CarrierConfig{
+		SelfCert:               selfNI.Certs()[0],
+		NodeIdentity:           selfNI,
+		BootstrapRetryInterval: 0, // Zero should fall back to default
+		BootstrapMaxRetries:    1, // 1 retry (2 total attempts)
+		BootstrapAddresses:     []string{"peer:1"},
+	})
+	c.transport = tr
+
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		c.runBootstrapLoop(context.Background())
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("runBootstrapLoop did not return")
+	}
+
+	elapsed := time.Since(start)
+	// Should wait at least the default interval for the 1 retry
+	if elapsed < defaultBootstrapRetryInterval {
+		t.Fatalf(
+			"elapsed = %v, want at least %v (default interval)",
+			elapsed,
+			defaultBootstrapRetryInterval,
+		)
+	}
+}
+
 // TestBootstrapAttemptCountProperty is a property-based
 // test verifying that for any positive maxRetries, total
 // dial attempts always equal maxRetries + 1 when all
@@ -1243,7 +1304,7 @@ func TestBootstrapAttemptCountProperty( // A
 		}()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("runBootstrapLoop did not return")
 		}
 
@@ -1259,7 +1320,9 @@ func TestBootstrapAttemptCountProperty( // A
 }
 
 // Compile-time interface checks.
-var _ interfaces.QuicTransport = (*countingDialTransport)(nil)
-var _ interfaces.QuicTransport = (*bootstrapDialTransport)(nil)
-var _ interfaces.QuicTransport = (*funcDialTransport)(nil)
-var _ interfaces.CarrierAuth = (*multiPeerStubAuth)(nil)
+var (
+	_ interfaces.QuicTransport = (*countingDialTransport)(nil)
+	_ interfaces.QuicTransport = (*bootstrapDialTransport)(nil)
+	_ interfaces.QuicTransport = (*funcDialTransport)(nil)
+	_ interfaces.CarrierAuth   = (*multiPeerStubAuth)(nil)
+)

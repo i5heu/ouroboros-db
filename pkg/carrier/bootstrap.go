@@ -104,14 +104,14 @@ func (c *carrierImpl) dialBootstrapAddr( // A
 	ni := c.config.NodeIdentity
 	if ni == nil {
 		return fmt.Errorf(
-			"NodeIdentity required for bootstrap",
+			"%w", ErrNodeIdentityRequired,
 		)
 	}
 	c.mu.RLock()
 	tp := c.transport
 	c.mu.RUnlock()
 	if tp == nil {
-		return fmt.Errorf("transport not initialized")
+		return fmt.Errorf("%w", ErrTransportNotInitialized)
 	}
 	conn, err := tp.Dial(interfaces.Node{
 		Addresses: []string{addr},

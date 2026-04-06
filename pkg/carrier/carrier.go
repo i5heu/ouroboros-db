@@ -137,9 +137,9 @@ type carrierImpl struct { // A
 }
 
 const ( // A
-	defaultHeartbeatInterval       = 5 * time.Second
-	defaultHeartbeatTimeout        = 15 * time.Second
-	defaultReconnectInterval       = 5 * time.Minute
+	defaultHeartbeatInterval = 5 * time.Second
+	defaultHeartbeatTimeout  = 15 * time.Second
+	defaultReconnectInterval = 5 * time.Minute
 	// defaultBootstrapMaxRetries is the number of retry
 	// rounds after the initial attempt, giving 5 total
 	// connection attempts before the node goes offline.
@@ -170,8 +170,7 @@ func New(conf CarrierConfig) (*carrierImpl, error) { // A
 		conf.ReconnectInterval = defaultReconnectInterval
 	}
 	if conf.BootstrapRetryInterval <= 0 {
-		conf.BootstrapRetryInterval =
-			defaultBootstrapRetryInterval
+		conf.BootstrapRetryInterval = defaultBootstrapRetryInterval
 	}
 	if conf.BootstrapMaxRetries <= 0 {
 		conf.BootstrapMaxRetries = defaultBootstrapMaxRetries
@@ -927,7 +926,7 @@ func (c *carrierImpl) Reconnect() error { // A
 	c.setOnline()
 	addrs := c.config.BootstrapAddresses
 	if len(addrs) == 0 {
-		return fmt.Errorf("no bootstrap addresses configured")
+		return fmt.Errorf("%w", ErrNoBootstrapAddresses)
 	}
 	c.mu.RLock()
 	ctx := c.backgroundCtx
@@ -938,7 +937,7 @@ func (c *carrierImpl) Reconnect() error { // A
 	if c.attemptBootstrap(ctx, addrs) {
 		return nil
 	}
-	return fmt.Errorf("bootstrap failed, node is offline")
+	return fmt.Errorf("%w", ErrBootstrapFailed)
 }
 
 func (c *carrierImpl) ensureBackgroundLoops() { // A
