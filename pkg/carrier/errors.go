@@ -34,4 +34,25 @@ var ( // A
 	ErrTransportNotInitialized = errors.New(
 		"transport not initialized",
 	)
+
+	// ErrBootstrapDialAuthFailed is returned when the
+	// outbound auth handshake fails during bootstrap
+	// dialing of a peer address.
+	ErrBootstrapDialAuthFailed = errors.New(
+		"bootstrap dial auth handshake failed",
+	)
+
+	// ErrBootstrapVerifyFailed is returned when peer
+	// verification (inbound auth) fails during bootstrap
+	// dialing of a peer address.
+	ErrBootstrapVerifyFailed = errors.New(
+		"bootstrap peer verification failed",
+	)
+
+	// ErrBootstrapRegisterFailed is returned when peer
+	// registration fails during bootstrap dialing,
+	// e.g. due to a zero NodeID from auth.
+	ErrBootstrapRegisterFailed = errors.New(
+		"bootstrap peer registration failed",
+	)
 )

@@ -3,7 +3,6 @@ package carrier
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -903,11 +902,9 @@ func TestBootstrapDialAndAuthFailsClosesConn( // A
 	if err == nil {
 		t.Fatal("expected error when dialAndAuth fails")
 	}
-	// Check for contextual "auth" prefix in error message - this is not a sentinel error
-	// but rather a prefix in wrapped auth package errors, so we use strings.Contains
-	if !strings.Contains(err.Error(), "auth") {
+	if !errors.Is(err, ErrBootstrapDialAuthFailed) {
 		t.Fatalf(
-			"error = %q, want mention of auth",
+			"error = %q, want ErrBootstrapDialAuthFailed",
 			err.Error(),
 		)
 	}
@@ -964,11 +961,9 @@ func TestBootstrapRegisterPeerFailsClosesConn( // A
 	if err == nil {
 		t.Fatal("expected error when registerPeer fails")
 	}
-	// Check for contextual "register" prefix in error message - this is not a sentinel error
-	// but rather a prefix in wrapped bootstrap errors, so we use strings.Contains
-	if !strings.Contains(err.Error(), "register") {
+	if !errors.Is(err, ErrBootstrapRegisterFailed) {
 		t.Fatalf(
-			"error = %q, want mention of register",
+			"error = %q, want ErrBootstrapRegisterFailed",
 			err.Error(),
 		)
 	}
@@ -1017,11 +1012,9 @@ func TestBootstrapAwaitPeerAuthFailsClosesConn( // A
 	if err == nil {
 		t.Fatal("expected error when awaitPeerAuth fails")
 	}
-	// Check for contextual "verify" prefix in error message - this is not a sentinel error
-	// but rather a prefix in wrapped bootstrap errors, so we use strings.Contains
-	if !strings.Contains(err.Error(), "verify") {
+	if !errors.Is(err, ErrBootstrapVerifyFailed) {
 		t.Fatalf(
-			"error = %q, want mention of verify",
+			"error = %q, want ErrBootstrapVerifyFailed",
 			err.Error(),
 		)
 	}

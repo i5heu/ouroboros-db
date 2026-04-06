@@ -121,13 +121,17 @@ func (c *carrierImpl) dialBootstrapAddr( // A
 	}
 	if err := c.dialAndAuth(conn, ni); err != nil {
 		_ = conn.Close()
-		return fmt.Errorf("auth %s: %w", addr, err)
+		return fmt.Errorf(
+			"auth %s: %w: %w", addr,
+			ErrBootstrapDialAuthFailed, err,
+		)
 	}
 	authCtx, certs, err := c.awaitPeerAuth(conn)
 	if err != nil {
 		_ = conn.Close()
 		return fmt.Errorf(
-			"verify %s: %w", addr, err,
+			"verify %s: %w: %w", addr,
+			ErrBootstrapVerifyFailed, err,
 		)
 	}
 	if c.IsConnected(authCtx.NodeID) {
@@ -139,7 +143,8 @@ func (c *carrierImpl) dialBootstrapAddr( // A
 	); err != nil {
 		_ = conn.Close()
 		return fmt.Errorf(
-			"register %s: %w", addr, err,
+			"register %s: %w: %w", addr,
+			ErrBootstrapRegisterFailed, err,
 		)
 	}
 	c.startConnectionLoops(
