@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -85,6 +86,14 @@ type CarrierConfig struct { // A
 	// ReconnectInterval controls how often unreachable
 	// peers are retried across all known addresses.
 	ReconnectInterval time.Duration
+
+	// BootstrapRetryInterval controls how long to
+	// wait between bootstrap connection attempts.
+	BootstrapRetryInterval time.Duration
+
+	// BootstrapMaxRetries is the maximum number of
+	// bootstrap retry rounds before going offline.
+	BootstrapMaxRetries int
 }
 
 // RuntimeCarrier extends the public carrier contract
@@ -93,6 +102,9 @@ type RuntimeCarrier interface { // A
 	interfaces.Carrier
 	SetController(controller interfaces.ClusterController)
 	ListenAddress() string
+	// Reconnect resets the offline state and triggers
+	// a new round of bootstrap connection attempts.
+	Reconnect() error
 }
 
 const logKeyMessageType = "messageType" // A
@@ -118,12 +130,26 @@ type carrierImpl struct { // A
 	backgroundOnce   sync.Once
 	backgroundCtx    context.Context
 	backgroundCancel context.CancelFunc
+
+	// nodeStatus is 0 (online) or 1 (offline).
+	// Transitions atomically; use setOffline/setOnline.
+	nodeStatus int32
 }
 
 const ( // A
-	defaultHeartbeatInterval = 5 * time.Second
-	defaultHeartbeatTimeout  = 15 * time.Second
-	defaultReconnectInterval = 5 * time.Minute
+	defaultHeartbeatInterval       = 5 * time.Second
+	defaultHeartbeatTimeout        = 15 * time.Second
+	defaultReconnectInterval       = 5 * time.Minute
+	// defaultBootstrapMaxRetries is the number of retry
+	// rounds after the initial attempt, giving 5 total
+	// connection attempts before the node goes offline.
+	defaultBootstrapRetryInterval = 5 * time.Second
+	defaultBootstrapMaxRetries    = 4
+)
+
+const ( // A
+	nodeStatusOnline  int32 = 0
+	nodeStatusOffline int32 = 1
 )
 
 // New creates a new Carrier from the given configuration.
@@ -142,6 +168,13 @@ func New(conf CarrierConfig) (*carrierImpl, error) { // A
 	}
 	if conf.ReconnectInterval <= 0 {
 		conf.ReconnectInterval = defaultReconnectInterval
+	}
+	if conf.BootstrapRetryInterval <= 0 {
+		conf.BootstrapRetryInterval =
+			defaultBootstrapRetryInterval
+	}
+	if conf.BootstrapMaxRetries <= 0 {
+		conf.BootstrapMaxRetries = defaultBootstrapMaxRetries
 	}
 	if conf.Logger == nil {
 		h := slog.NewTextHandler(
@@ -868,6 +901,46 @@ func (c *carrierImpl) markPeerFailed( // A
 	)
 }
 
+// isOffline reports whether the node has entered
+// offline mode after bootstrap exhaustion.
+func (c *carrierImpl) isOffline() bool { // A
+	return atomic.LoadInt32(&c.nodeStatus) ==
+		nodeStatusOffline
+}
+
+// setOffline transitions the node to offline mode.
+func (c *carrierImpl) setOffline() { // A
+	atomic.StoreInt32(&c.nodeStatus, nodeStatusOffline)
+}
+
+// setOnline transitions the node back to online mode.
+func (c *carrierImpl) setOnline() { // A
+	atomic.StoreInt32(&c.nodeStatus, nodeStatusOnline)
+}
+
+// Reconnect resets the offline state and triggers a
+// new round of bootstrap connection attempts. It
+// returns nil once at least one bootstrap peer has
+// been reached, or an error if all retries are
+// exhausted again.
+func (c *carrierImpl) Reconnect() error { // A
+	c.setOnline()
+	addrs := c.config.BootstrapAddresses
+	if len(addrs) == 0 {
+		return fmt.Errorf("no bootstrap addresses configured")
+	}
+	c.mu.RLock()
+	ctx := c.backgroundCtx
+	c.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c.attemptBootstrap(ctx, addrs) {
+		return nil
+	}
+	return fmt.Errorf("bootstrap failed, node is offline")
+}
+
 func (c *carrierImpl) ensureBackgroundLoops() { // A
 	c.backgroundOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -877,6 +950,7 @@ func (c *carrierImpl) ensureBackgroundLoops() { // A
 		c.mu.Unlock()
 		go c.runHeartbeatLoop(ctx)
 		go c.runReconnectLoop(ctx)
+		go c.runBootstrapLoop(ctx)
 	})
 }
 

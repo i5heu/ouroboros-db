@@ -475,6 +475,13 @@ func repl( // A
 				fmt.Printf("broadcast failed: %v\n", err)
 				continue
 			}
+		case "reconnect":
+			fmt.Println("reconnecting to bootstrap...")
+			if err := transport.Reconnect(); err != nil {
+				fmt.Printf("reconnect failed: %v\n", err)
+				continue
+			}
+			fmt.Println("reconnected successfully")
 		case "exit", "quit":
 			cancel()
 			return nil
@@ -579,7 +586,10 @@ func printPeers(peers []interfaces.PeerNode) { // A
 // printHelp prints the supported REPL commands.
 func printHelp() { // A
 	fmt.Println("commands: help, id, listen, peers")
-	fmt.Println("          hello [text], broadcast [text], quit")
+	fmt.Println(
+		"          hello [text], broadcast [text]",
+	)
+	fmt.Println("          reconnect, quit")
 }
 
 // splitCSV parses a simple comma-separated flag value
