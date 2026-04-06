@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 from datetime import datetime
+import os
 import re
 import shutil
 import subprocess
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 
+MAX_TEST_TIME = 300.0
 START_TIMEOUT = 60.0
 COMMAND_TIMEOUT = 30.0
 MESSAGE_TIMEOUT = 30.0
@@ -538,6 +540,26 @@ def run_hello_scenario(args: argparse.Namespace) -> int:
         keep_temp=args.keep_temp,
         color_mode=args.color,
     )
+
+    timed_out = threading.Event()
+
+    if args.max_time > 0:
+
+        def _watchdog() -> None:
+            if timed_out.wait(timeout=args.max_time):
+                return
+            log(
+                f"Maximum test time of {args.max_time:.0f}s exceeded, "
+                "shutting down all instances"
+            )
+            harness.cleanup()
+            os._exit(1)
+
+        watchdog_thread = threading.Thread(
+            target=_watchdog, daemon=True
+        )
+        watchdog_thread.start()
+
     try:
         harness.provision_certificates()
         harness.start_cluster()
@@ -546,6 +568,7 @@ def run_hello_scenario(args: argparse.Namespace) -> int:
         log("All node instances stopped")
         return 0
     finally:
+        timed_out.set()
         harness.cleanup()
 
 
@@ -573,6 +596,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--keep-temp",
         action="store_true",
         help="keep generated certificates and data directories after exit",
+    )
+    parser.add_argument(
+        "--max-time",
+        type=float,
+        default=MAX_TEST_TIME,
+        metavar="SECONDS",
+        help=(
+            "abort the test if it exceeds this wall-clock duration "
+            "(default: %(default)g s, use 0 to disable)"
+        ),
     )
     parser.add_argument(
         "--color",
