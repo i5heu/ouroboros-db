@@ -5,41 +5,81 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	pb "github.com/i5heu/ouroboros-db/proto/carrier"
+	"google.golang.org/protobuf/proto"
 )
 
 type heartbeatNodeEntry struct { // A
-	NodeID    keys.NodeID         `cbor:"nodeID"`
-	Addresses []string            `cbor:"addresses,omitempty"`
-	Role      interfaces.NodeRole `cbor:"role"`
+	NodeID    keys.NodeID
+	Addresses []string
+	Role      interfaces.NodeRole
 }
 
 type heartbeatPayload struct { // A
-	SentAtUnix       int64                `cbor:"sentAtUnix"`
-	SenderRole       interfaces.NodeRole  `cbor:"senderRole"`
-	KnownNodes       []heartbeatNodeEntry `cbor:"knownNodes,omitempty"`
-	Stats            map[string]uint64    `cbor:"stats,omitempty"`
-	StorageFreeBytes uint64               `cbor:"storageFreeBytes,omitempty"`
-	CustomFields     map[string][]byte    `cbor:"customFields,omitempty"`
+	SentAtUnix       int64
+	SenderRole       interfaces.NodeRole
+	KnownNodes       []heartbeatNodeEntry
+	Stats            map[string]uint64
+	StorageFreeBytes uint64
+	CustomFields     map[string][]byte
 }
 
 func marshalHeartbeatPayload( // A
 	payload heartbeatPayload,
 ) ([]byte, error) {
-	return cbor.Marshal(payload)
+	nodes := make(
+		[]*pb.HeartbeatNodeEntry,
+		len(payload.KnownNodes),
+	)
+	for i, n := range payload.KnownNodes {
+		nodes[i] = &pb.HeartbeatNodeEntry{
+			NodeId:    n.NodeID[:],
+			Addresses: n.Addresses,
+			Role:      int32(n.Role),
+		}
+	}
+	msg := &pb.HeartbeatPayload{
+		SentAtUnix:       payload.SentAtUnix,
+		SenderRole:       int32(payload.SenderRole),
+		KnownNodes:       nodes,
+		Stats:            payload.Stats,
+		StorageFreeBytes: payload.StorageFreeBytes,
+		CustomFields:     payload.CustomFields,
+	}
+	return proto.Marshal(msg)
 }
 
 func unmarshalHeartbeatPayload( // A
 	data []byte,
 ) (heartbeatPayload, error) {
-	var payload heartbeatPayload
-	if err := cbor.Unmarshal(data, &payload); err != nil {
+	var msg pb.HeartbeatPayload
+	if err := proto.Unmarshal(data, &msg); err != nil {
 		return heartbeatPayload{}, err
 	}
-	return payload, nil
+	nodes := make(
+		[]heartbeatNodeEntry,
+		len(msg.KnownNodes),
+	)
+	for i, n := range msg.KnownNodes {
+		var nodeID keys.NodeID
+		copy(nodeID[:], n.NodeId)
+		nodes[i] = heartbeatNodeEntry{
+			NodeID:    nodeID,
+			Addresses: n.Addresses,
+			Role:      interfaces.NodeRole(n.Role),
+		}
+	}
+	return heartbeatPayload{
+		SentAtUnix:       msg.SentAtUnix,
+		SenderRole:       interfaces.NodeRole(msg.SenderRole),
+		KnownNodes:       nodes,
+		Stats:            msg.Stats,
+		StorageFreeBytes: msg.StorageFreeBytes,
+		CustomFields:     msg.CustomFields,
+	}, nil
 }
 
 func (c *carrierImpl) runHeartbeatLoop( // A

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	pb "github.com/i5heu/ouroboros-db/proto/auth"
 )
 
 // caBase holds the shared public key and hash fields
@@ -37,16 +38,16 @@ func (b *caBase) VerifyNodeCert( // A
 			"pubkey marshal failed: %w", err,
 		)
 	}
-	c := canonicalCert{
-		CertVersion:  cert.CertVersion(),
+	c := &pb.CanonicalCert{
+		CertVersion:  uint32(cert.CertVersion()),
 		NodePubKey:   nodePubKeyBytes,
-		IssuerCAHash: cert.IssuerCAHash(),
+		IssuerCaHash: cert.IssuerCAHash(),
 		ValidFrom:    cert.ValidFrom(),
 		ValidUntil:   cert.ValidUntil(),
 		Serial:       cert.Serial(),
 		CertNonce:    cert.CertNonce(),
 	}
-	canonical, err := cborEncMode.Marshal(c)
+	canonical, err := protoMarshalOpts.Marshal(c)
 	if err != nil {
 		return keys.NodeID{}, fmt.Errorf(
 			"canonical encoding failed: %w", err,

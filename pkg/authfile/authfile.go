@@ -6,60 +6,50 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	pb "github.com/i5heu/ouroboros-db/proto/authfile"
+	"google.golang.org/protobuf/proto"
 )
 
-// CAKeyFile is the CBOR-encoded .oukey format.
+// CAKeyFile is the protobuf-encoded .oukey format.
 type CAKeyFile struct { // A
-	Type               string `cbor:"type"`
-	KeyJSON            []byte `cbor:"keyJSON"`
-	AnchorSig          []byte `cbor:"anchorSig,omitempty"`
-	AnchorAdmin        string `cbor:"anchorAdmin,omitempty"`
-	AnchorAdminPubKEM  []byte `cbor:"anchorAdminPubKEM,omitempty"`
-	AnchorAdminPubSign []byte `cbor:"anchorAdminPubSign,omitempty"`
+	Type               string
+	KeyJSON            []byte
+	AnchorSig          []byte
+	AnchorAdmin        string
+	AnchorAdminPubKEM  []byte
+	AnchorAdminPubSign []byte
 }
 
 // EmbeddedCAFile stores public-only CA data that can
 // be embedded inside a node cert for runtime trust
 // bootstrapping without shipping CA private keys.
 type EmbeddedCAFile struct { // A
-	Type        string `cbor:"type"`
-	PubKEM      []byte `cbor:"pubKEM"`
-	PubSign     []byte `cbor:"pubSign"`
-	AnchorSig   []byte `cbor:"anchorSig,omitempty"`
-	AnchorAdmin string `cbor:"anchorAdmin,omitempty"`
+	Type        string
+	PubKEM      []byte
+	PubSign     []byte
+	AnchorSig   []byte
+	AnchorAdmin string
 }
 
-// NodeCertFile is the CBOR-encoded .oucert format.
-// It bundles everything a node needs to authenticate:
-// its private key, the CA pubkey, and the CA signature
-// over the NodeCert.
+// NodeCertFile is the protobuf-encoded .oucert
+// format. It bundles everything a node needs to
+// authenticate: its private key, the CA pubkey,
+// and the CA signature over the NodeCert.
 type NodeCertFile struct { // A
-	Type         string           `cbor:"type"`
-	KeyJSON      []byte           `cbor:"keyJSON"`
-	CAPubKEM     []byte           `cbor:"caPubKEM"`
-	CAPubSign    []byte           `cbor:"caPubSign"`
-	CASignature  []byte           `cbor:"caSignature"`
-	Authorities  []EmbeddedCAFile `cbor:"authorities,omitempty"`
-	IssuerCAHash string           `cbor:"issuerCAHash"`
-	ValidFrom    int64            `cbor:"validFrom"`
-	ValidUntil   int64            `cbor:"validUntil"`
-	Serial       []byte           `cbor:"serial"`
-	CertNonce    []byte           `cbor:"certNonce"`
-}
-
-var cborEnc cbor.EncMode // A
-
-func init() { // A
-	opts := cbor.CanonicalEncOptions()
-	var err error
-	cborEnc, err = opts.EncMode()
-	if err != nil {
-		panic(err)
-	}
+	Type         string
+	KeyJSON      []byte
+	CAPubKEM     []byte
+	CAPubSign    []byte
+	CASignature  []byte
+	Authorities  []EmbeddedCAFile
+	IssuerCAHash string
+	ValidFrom    int64
+	ValidUntil   int64
+	Serial       []byte
+	CertNonce    []byte
 }
 
 // MarshalKeyJSON serializes an AsyncCrypt keypair
@@ -103,16 +93,102 @@ func WriteFile(path string, data []byte) error { // A
 	return os.WriteFile(path, data, 0o600)
 }
 
-// MarshalCAKey encodes a CAKeyFile to CBOR bytes.
+// MarshalCAKey encodes a CAKeyFile to protobuf bytes.
 func MarshalCAKey(f *CAKeyFile) ([]byte, error) { // A
-	return cborEnc.Marshal(f)
+	msg := &pb.CAKeyFile{
+		Type:               f.Type,
+		KeyJson:            f.KeyJSON,
+		AnchorSig:          f.AnchorSig,
+		AnchorAdmin:        f.AnchorAdmin,
+		AnchorAdminPubKem:  f.AnchorAdminPubKEM,
+		AnchorAdminPubSign: f.AnchorAdminPubSign,
+	}
+	return proto.Marshal(msg)
 }
 
-// MarshalNodeCert encodes a NodeCertFile to CBOR.
+// MarshalNodeCert encodes a NodeCertFile to protobuf.
 func MarshalNodeCert( // A
 	f *NodeCertFile,
 ) ([]byte, error) {
-	return cborEnc.Marshal(f)
+	authorities := make(
+		[]*pb.EmbeddedCAFile, len(f.Authorities),
+	)
+	for i, a := range f.Authorities {
+		authorities[i] = &pb.EmbeddedCAFile{
+			Type:        a.Type,
+			PubKem:      a.PubKEM,
+			PubSign:     a.PubSign,
+			AnchorSig:   a.AnchorSig,
+			AnchorAdmin: a.AnchorAdmin,
+		}
+	}
+	msg := &pb.NodeCertFile{
+		Type:         f.Type,
+		KeyJson:      f.KeyJSON,
+		CaPubKem:     f.CAPubKEM,
+		CaPubSign:    f.CAPubSign,
+		CaSignature:  f.CASignature,
+		Authorities:  authorities,
+		IssuerCaHash: f.IssuerCAHash,
+		ValidFrom:    f.ValidFrom,
+		ValidUntil:   f.ValidUntil,
+		Serial:       f.Serial,
+		CertNonce:    f.CertNonce,
+	}
+	return proto.Marshal(msg)
+}
+
+// UnmarshalCAKey decodes protobuf bytes into a
+// CAKeyFile.
+func UnmarshalCAKey(data []byte) (*CAKeyFile, error) { // A
+	var msg pb.CAKeyFile
+	if err := proto.Unmarshal(data, &msg); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return &CAKeyFile{
+		Type:               msg.Type,
+		KeyJSON:            msg.KeyJson,
+		AnchorSig:          msg.AnchorSig,
+		AnchorAdmin:        msg.AnchorAdmin,
+		AnchorAdminPubKEM:  msg.AnchorAdminPubKem,
+		AnchorAdminPubSign: msg.AnchorAdminPubSign,
+	}, nil
+}
+
+// UnmarshalNodeCert decodes protobuf bytes into a
+// NodeCertFile.
+func UnmarshalNodeCert( // A
+	data []byte,
+) (*NodeCertFile, error) {
+	var msg pb.NodeCertFile
+	if err := proto.Unmarshal(data, &msg); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	authorities := make(
+		[]EmbeddedCAFile, len(msg.Authorities),
+	)
+	for i, a := range msg.Authorities {
+		authorities[i] = EmbeddedCAFile{
+			Type:        a.Type,
+			PubKEM:      a.PubKem,
+			PubSign:     a.PubSign,
+			AnchorSig:   a.AnchorSig,
+			AnchorAdmin: a.AnchorAdmin,
+		}
+	}
+	return &NodeCertFile{
+		Type:         msg.Type,
+		KeyJSON:      msg.KeyJson,
+		CAPubKEM:     msg.CaPubKem,
+		CAPubSign:    msg.CaPubSign,
+		CASignature:  msg.CaSignature,
+		Authorities:  authorities,
+		IssuerCAHash: msg.IssuerCaHash,
+		ValidFrom:    msg.ValidFrom,
+		ValidUntil:   msg.ValidUntil,
+		Serial:       msg.Serial,
+		CertNonce:    msg.CertNonce,
+	}, nil
 }
 
 // ReadCAKey reads and decodes a .oukey file,
@@ -126,8 +202,8 @@ func ReadCAKey(path string) ( // A
 			"read %s: %w", path, err,
 		)
 	}
-	var f CAKeyFile
-	if err := cbor.Unmarshal(data, &f); err != nil {
+	f, err := UnmarshalCAKey(data)
+	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"decode %s: %w", path, err,
 		)
@@ -144,7 +220,7 @@ func ReadCAKey(path string) ( // A
 			"load key: %w", err,
 		)
 	}
-	return ac, &f, nil
+	return ac, f, nil
 }
 
 // ReadNodeCert reads and decodes a .oucert file,
@@ -158,8 +234,8 @@ func ReadNodeCert(path string) ( // A
 			"read %s: %w", path, err,
 		)
 	}
-	var f NodeCertFile
-	if err := cbor.Unmarshal(data, &f); err != nil {
+	f, err := UnmarshalNodeCert(data)
+	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"decode %s: %w", path, err,
 		)
@@ -176,7 +252,7 @@ func ReadNodeCert(path string) ( // A
 			"load key: %w", err,
 		)
 	}
-	return ac, &f, nil
+	return ac, f, nil
 }
 
 // NodeCertToIdentity converts a loaded NodeCertFile
@@ -217,11 +293,15 @@ func BuildEmbeddedTrustChain( // A
 	pub := ac.GetPublicKey()
 	pubKEM, err := pub.MarshalBinaryKEM()
 	if err != nil {
-		return nil, fmt.Errorf("marshal CA KEM pubkey: %w", err)
+		return nil, fmt.Errorf(
+			"marshal CA KEM pubkey: %w", err,
+		)
 	}
 	pubSign, err := pub.MarshalBinarySign()
 	if err != nil {
-		return nil, fmt.Errorf("marshal CA sign pubkey: %w", err)
+		return nil, fmt.Errorf(
+			"marshal CA sign pubkey: %w", err,
+		)
 	}
 	switch f.Type {
 	case "admin-ca":
@@ -234,7 +314,8 @@ func BuildEmbeddedTrustChain( // A
 		if len(f.AnchorAdminPubKEM) == 0 ||
 			len(f.AnchorAdminPubSign) == 0 {
 			return nil, fmt.Errorf(
-				"user CA is missing anchor admin public key",
+				"user CA is missing anchor admin" +
+					" public key",
 			)
 		}
 		return []EmbeddedCAFile{
@@ -252,7 +333,9 @@ func BuildEmbeddedTrustChain( // A
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported CA key type %q", f.Type)
+		return nil, fmt.Errorf(
+			"unsupported CA key type %q", f.Type,
+		)
 	}
 }
 
@@ -267,9 +350,13 @@ func AddEmbeddedTrust( // A
 	authorities := f.Authorities
 	if len(authorities) == 0 {
 		authorities = []EmbeddedCAFile{{
-			Type:    "admin-ca",
-			PubKEM:  append([]byte(nil), f.CAPubKEM...),
-			PubSign: append([]byte(nil), f.CAPubSign...),
+			Type: "admin-ca",
+			PubKEM: append(
+				[]byte(nil), f.CAPubKEM...,
+			),
+			PubSign: append(
+				[]byte(nil), f.CAPubSign...,
+			),
 		}}
 	}
 	for _, authority := range authorities {
@@ -311,11 +398,15 @@ func embeddedCAPubKeyBytes( // A
 		authority.PubSign,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("rebuild embedded CA pubkey: %w", err)
+		return nil, fmt.Errorf(
+			"rebuild embedded CA pubkey: %w", err,
+		)
 	}
 	pubBytes, err := auth.MarshalPubKeyBytes(pub)
 	if err != nil {
-		return nil, fmt.Errorf("marshal embedded CA pubkey: %w", err)
+		return nil, fmt.Errorf(
+			"marshal embedded CA pubkey: %w", err,
+		)
 	}
 	return pubBytes, nil
 }

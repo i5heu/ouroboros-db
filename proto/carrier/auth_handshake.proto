@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package carrier;
+
+option go_package = "github.com/i5heu/ouroboros-db/proto/carrier";
+
+message WireNodeCert {
+  uint32 cert_version = 1;
+  bytes node_pub_key = 2;
+  string issuer_ca_hash = 3;
+  int64 valid_from = 4;
+  int64 valid_until = 5;
+  bytes serial = 6;
+  bytes cert_nonce = 7;
+}
+
+message WireDelegationProof {
+  bytes tls_cert_pub_key_hash = 1;
+  bytes tls_exporter_binding = 2;
+  bytes tls_transcript_hash = 3;
+  bytes x509_fingerprint = 4;
+  bytes node_cert_bundle_hash = 5;
+  int64 not_before = 6;
+  int64 not_after = 7;
+}
+
+message WireEmbeddedCA {
+  string type = 1;
+  bytes pub_kem = 2;
+  bytes pub_sign = 3;
+  bytes anchor_sig = 4;
+  string anchor_admin = 5;
+}
+
+message WireAuthMessage {
+  repeated WireNodeCert certs = 1;
+  repeated bytes ca_signatures = 2;
+  repeated WireEmbeddedCA authorities = 3;
+  WireDelegationProof delegation = 4;
+  bytes delegation_sig = 5;
+}

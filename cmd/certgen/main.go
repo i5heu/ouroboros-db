@@ -16,7 +16,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
@@ -169,7 +168,9 @@ func cmdUserCA(args []string) error { // A
 	}
 	adminPubSign, err := adminPub.MarshalBinarySign()
 	if err != nil {
-		return fmt.Errorf("admin pubkey Sign: %w", err)
+		return fmt.Errorf(
+			"admin pubkey Sign: %w", err,
+		)
 	}
 	f := authfile.CAKeyFile{
 		Type:               "user-ca",
@@ -294,7 +295,9 @@ func cmdSignNode(args []string) error { // A
 		caFile,
 	)
 	if err != nil {
-		return fmt.Errorf("embedded trust chain: %w", err)
+		return fmt.Errorf(
+			"embedded trust chain: %w", err,
+		)
 	}
 	f := authfile.NodeCertFile{
 		Type:         "node-cert",
@@ -337,18 +340,16 @@ func cmdShow(args []string) error { // A
 		return fmt.Errorf("read: %w", err)
 	}
 
-	var ca authfile.CAKeyFile
-	if err := cbor.Unmarshal(data, &ca); err == nil {
-		if ca.Type == "admin-ca" ||
-			ca.Type == "user-ca" {
-			return showCA(&ca)
+	if f, err := authfile.UnmarshalCAKey(data); err == nil {
+		if f.Type == "admin-ca" ||
+			f.Type == "user-ca" {
+			return showCA(f)
 		}
 	}
 
-	var nc authfile.NodeCertFile
-	if err := cbor.Unmarshal(data, &nc); err == nil {
-		if nc.Type == "node-cert" {
-			return showNode(&nc)
+	if f, err := authfile.UnmarshalNodeCert(data); err == nil {
+		if f.Type == "node-cert" {
+			return showNode(f)
 		}
 	}
 
@@ -392,7 +393,9 @@ func showNode( // A
 	fmt.Printf("type:      node-cert\n")
 	fmt.Printf("node ID:   %x\n", nodeID[:])
 	fmt.Printf("issuer CA: %s\n", f.IssuerCAHash)
-	fmt.Printf("authorities: %d\n", len(f.Authorities))
+	fmt.Printf(
+		"authorities: %d\n", len(f.Authorities),
+	)
 	fmt.Printf("valid:     %s to %s\n",
 		time.Unix(f.ValidFrom, 0).Format(
 			time.DateOnly,

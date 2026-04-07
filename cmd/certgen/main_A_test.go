@@ -160,7 +160,9 @@ func TestShowGarbageFile(t *testing.T) { // A
 	bin := buildCertgen(t)
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad.oukey")
-	_ = os.WriteFile(bad, []byte("not cbor"), 0o600)
+	_ = os.WriteFile(
+		bad, []byte("not protobuf"), 0o600,
+	)
 	runExpectFail(t, bin, "show", "-file", bad)
 }
 

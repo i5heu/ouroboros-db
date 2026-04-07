@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package carrier;
+
+option go_package = "github.com/i5heu/ouroboros-db/proto/carrier";
+
+message HeartbeatNodeEntry {
+  bytes node_id = 1;
+  repeated string addresses = 2;
+  int32 role = 3;
+}
+
+message HeartbeatPayload {
+  int64 sent_at_unix = 1;
+  int32 sender_role = 2;
+  repeated HeartbeatNodeEntry known_nodes = 3;
+  map<string, uint64> stats = 4;
+  uint64 storage_free_bytes = 5;
+  map<string, bytes> custom_fields = 6;
+}

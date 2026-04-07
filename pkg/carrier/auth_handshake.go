@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	pb "github.com/i5heu/ouroboros-db/proto/carrier"
+	"google.golang.org/protobuf/proto"
 )
 
 // ─── AUTH HANDSHAKE WIRE PROTOCOL ───
@@ -17,12 +18,12 @@ import (
 // handshake wire protocol:
 //
 //   - readAuthHandshake (VERIFIER/receiver side):
-//     reads the length-prefixed CBOR message, decodes
-//     wire types, combines with TLS bindings, and
-//     returns a PeerHandshake for VerifyPeerCert.
+//     reads the length-prefixed protobuf message,
+//     decodes wire types, combines with TLS bindings,
+//     and returns a PeerHandshake for VerifyPeerCert.
 //
 //   - writeAuthHandshake (PROVER/sender side):
-//     converts auth types to wire format, CBOR-
+//     converts auth types to wire format, protobuf-
 //     encodes, and writes the length-prefixed
 //     message to the auth stream.
 //
@@ -32,11 +33,12 @@ import (
 //   ┌────────────────────────────────────────┐
 //   │  4 bytes: big-endian message length N  │
 //   ├────────────────────────────────────────┤
-//   │  N bytes: CBOR-encoded wireAuthMessage │
-//   │    1: []wireNodeCert   (cert bundle)   │
-//   │    2: [][]byte          (CA sigs)      │
-//   │    3: wireDelegationProof              │
-//   │    4: []byte            (delegation    │
+//   │  N bytes: protobuf WireAuthMessage     │
+//   │    1: []WireNodeCert   (cert bundle)   │
+//   │    2: []bytes           (CA sigs)      │
+//   │    3: []WireEmbeddedCA                 │
+//   │    4: WireDelegationProof              │
+//   │    5: bytes             (delegation    │
 //   │                          signature)    │
 //   └────────────────────────────────────────┘
 //
@@ -53,51 +55,7 @@ import (
 // 1 MiB to prevent resource exhaustion.
 const maxAuthMessageSize = 1 << 20 // A
 
-// wireNodeCert is the CBOR on-wire representation
-// of a NodeCert used during the auth handshake.
-type wireNodeCert struct { // A
-	CertVersion  uint16 `cbor:"1,keyasint"`
-	NodePubKey   []byte `cbor:"2,keyasint"`
-	IssuerCAHash string `cbor:"3,keyasint"`
-	ValidFrom    int64  `cbor:"4,keyasint"`
-	ValidUntil   int64  `cbor:"5,keyasint"`
-	Serial       []byte `cbor:"6,keyasint"`
-	CertNonce    []byte `cbor:"7,keyasint"`
-}
-
-// wireDelegationProof is the CBOR on-wire
-// representation of a DelegationProof.
-type wireDelegationProof struct { // A
-	TLSCertPubKeyHash  []byte `cbor:"1,keyasint"`
-	TLSExporterBinding []byte `cbor:"2,keyasint"`
-	TLSTranscriptHash  []byte `cbor:"3,keyasint"`
-	X509Fingerprint    []byte `cbor:"4,keyasint"`
-	NodeCertBundleHash []byte `cbor:"5,keyasint"`
-	NotBefore          int64  `cbor:"6,keyasint"`
-	NotAfter           int64  `cbor:"7,keyasint"`
-}
-
-// wireEmbeddedCA is the CBOR on-wire representation
-// of a public CA chain entry shipped during auth.
-type wireEmbeddedCA struct { // A
-	Type        string `cbor:"1,keyasint"`
-	PubKEM      []byte `cbor:"2,keyasint"`
-	PubSign     []byte `cbor:"3,keyasint"`
-	AnchorSig   []byte `cbor:"4,keyasint,omitempty"`
-	AnchorAdmin string `cbor:"5,keyasint,omitempty"`
-}
-
-// wireAuthMessage is the top-level handshake message
-// sent by the prover over the auth stream.
-type wireAuthMessage struct { // A
-	Certs         []wireNodeCert      `cbor:"1,keyasint"`
-	CASignatures  [][]byte            `cbor:"2,keyasint"`
-	Authorities   []wireEmbeddedCA    `cbor:"3,keyasint,omitempty"`
-	Delegation    wireDelegationProof `cbor:"4,keyasint"`
-	DelegationSig []byte              `cbor:"5,keyasint"`
-}
-
-// readAuthHandshake reads a length-prefixed CBOR
+// readAuthHandshake reads a length-prefixed protobuf
 // auth message from the stream and combines it with
 // TLS bindings from the connection to produce a
 // PeerHandshake.
@@ -122,15 +80,15 @@ func readAuthHandshake( // A
 			)
 	}
 
-	// Read the CBOR payload.
+	// Read the protobuf payload.
 	buf := make([]byte, msgLen)
 	if _, err := io.ReadFull(stream, buf); err != nil {
 		return interfaces.PeerHandshake{},
 			fmt.Errorf("read payload: %w", err)
 	}
 
-	var msg wireAuthMessage
-	if err := cbor.Unmarshal(buf, &msg); err != nil {
+	var msg pb.WireAuthMessage
+	if err := proto.Unmarshal(buf, &msg); err != nil {
 		return interfaces.PeerHandshake{},
 			fmt.Errorf("decode handshake: %w", err)
 	}
@@ -140,7 +98,7 @@ func readAuthHandshake( // A
 		[]auth.NodeCertLike, len(msg.Certs),
 	)
 	for i, wc := range msg.Certs {
-		nc, err := wireToNodeCert(wc)
+		nc, err := pbToNodeCert(wc)
 		if err != nil {
 			return interfaces.PeerHandshake{},
 				fmt.Errorf(
@@ -151,15 +109,17 @@ func readAuthHandshake( // A
 	}
 
 	// Convert wire delegation proof.
-	proof := wireToDelegation(msg.Delegation)
-	authorities := make([]auth.EmbeddedCA, len(msg.Authorities))
-	for i, authority := range msg.Authorities {
+	proof := pbToDelegation(msg.Delegation)
+	authorities := make(
+		[]auth.EmbeddedCA, len(msg.Authorities),
+	)
+	for i, a := range msg.Authorities {
 		authorities[i] = auth.EmbeddedCA{
-			Type:        authority.Type,
-			PubKEM:      append([]byte(nil), authority.PubKEM...),
-			PubSign:     append([]byte(nil), authority.PubSign...),
-			AnchorSig:   append([]byte(nil), authority.AnchorSig...),
-			AnchorAdmin: authority.AnchorAdmin,
+			Type:        a.Type,
+			PubKEM:      append([]byte(nil), a.PubKem...),
+			PubSign:     append([]byte(nil), a.PubSign...),
+			AnchorSig:   append([]byte(nil), a.AnchorSig...),
+			AnchorAdmin: a.AnchorAdmin,
 		}
 	}
 
@@ -213,7 +173,7 @@ func readAuthHandshake( // A
 
 	return interfaces.PeerHandshake{
 		Certs:           certs,
-		CASignatures:    msg.CASignatures,
+		CASignatures:    msg.CaSignatures,
 		Authorities:     authorities,
 		DelegationProof: proof,
 		DelegationSig:   msg.DelegationSig,
@@ -221,10 +181,10 @@ func readAuthHandshake( // A
 	}, nil
 }
 
-// wireToNodeCert converts a wire-format cert to a
+// pbToNodeCert converts a protobuf WireNodeCert to a
 // concrete NodeCertImpl.
-func wireToNodeCert( // A
-	wc wireNodeCert,
+func pbToNodeCert( // A
+	wc *pb.WireNodeCert,
 ) (*auth.NodeCertImpl, error) {
 	if len(wc.NodePubKey) <= auth.KEMPublicKeySize {
 		return nil, fmt.Errorf(
@@ -244,7 +204,7 @@ func wireToNodeCert( // A
 	}
 	return auth.NewNodeCert(
 		*pub,
-		wc.IssuerCAHash,
+		wc.IssuerCaHash,
 		wc.ValidFrom,
 		wc.ValidUntil,
 		wc.Serial,
@@ -252,15 +212,20 @@ func wireToNodeCert( // A
 	)
 }
 
-// wireToDelegation converts a wire-format delegation
-// proof to a concrete DelegationProofImpl.
-func wireToDelegation( // A
-	wd wireDelegationProof,
+// pbToDelegation converts a protobuf WireDelegation-
+// Proof to a concrete DelegationProofImpl.
+func pbToDelegation( // A
+	wd *pb.WireDelegationProof,
 ) *auth.DelegationProofImpl {
+	if wd == nil {
+		return auth.NewDelegationProof(
+			nil, nil, nil, nil, nil, 0, 0,
+		)
+	}
 	return auth.NewDelegationProof(
-		wd.TLSCertPubKeyHash,
-		wd.TLSExporterBinding,
-		wd.TLSTranscriptHash,
+		wd.TlsCertPubKeyHash,
+		wd.TlsExporterBinding,
+		wd.TlsTranscriptHash,
 		wd.X509Fingerprint,
 		wd.NodeCertBundleHash,
 		wd.NotBefore,
@@ -270,7 +235,7 @@ func wireToDelegation( // A
 
 // writeAuthHandshake encodes the prover's auth
 // message and sends it over the stream as a
-// length-prefixed CBOR payload. This is the
+// length-prefixed protobuf payload. This is the
 // counterpart of readAuthHandshake (verifier side).
 //
 // The caller (typically carrier.dialAndAuth) must:
@@ -289,10 +254,10 @@ func writeAuthHandshake( // A
 ) error {
 	// Convert certs to wire format.
 	wireCerts := make(
-		[]wireNodeCert, len(certs),
+		[]*pb.WireNodeCert, len(certs),
 	)
 	for i, c := range certs {
-		wc, err := certToWire(c)
+		wc, err := certToPB(c)
 		if err != nil {
 			return fmt.Errorf(
 				"cert %d: %w", i, err,
@@ -302,26 +267,26 @@ func writeAuthHandshake( // A
 	}
 
 	wireAuthorities := make(
-		[]wireEmbeddedCA, len(authorities),
+		[]*pb.WireEmbeddedCA, len(authorities),
 	)
-	for i, authority := range authorities {
-		wireAuthorities[i] = wireEmbeddedCA{
-			Type:        authority.Type,
-			PubKEM:      append([]byte(nil), authority.PubKEM...),
-			PubSign:     append([]byte(nil), authority.PubSign...),
-			AnchorSig:   append([]byte(nil), authority.AnchorSig...),
-			AnchorAdmin: authority.AnchorAdmin,
+	for i, a := range authorities {
+		wireAuthorities[i] = &pb.WireEmbeddedCA{
+			Type:        a.Type,
+			PubKem:      append([]byte(nil), a.PubKEM...),
+			PubSign:     append([]byte(nil), a.PubSign...),
+			AnchorSig:   append([]byte(nil), a.AnchorSig...),
+			AnchorAdmin: a.AnchorAdmin,
 		}
 	}
 
-	msg := wireAuthMessage{
+	msg := &pb.WireAuthMessage{
 		Certs:        wireCerts,
-		CASignatures: caSigs,
+		CaSignatures: caSigs,
 		Authorities:  wireAuthorities,
-		Delegation: wireDelegationProof{
-			TLSCertPubKeyHash:  proof.TLSCertPubKeyHash(),
-			TLSExporterBinding: proof.TLSExporterBinding(),
-			TLSTranscriptHash:  proof.TLSTranscriptHash(),
+		Delegation: &pb.WireDelegationProof{
+			TlsCertPubKeyHash:  proof.TLSCertPubKeyHash(),
+			TlsExporterBinding: proof.TLSExporterBinding(),
+			TlsTranscriptHash:  proof.TLSTranscriptHash(),
 			X509Fingerprint:    proof.X509Fingerprint(),
 			NodeCertBundleHash: proof.NodeCertBundleHash(),
 			NotBefore:          proof.NotBefore(),
@@ -330,7 +295,7 @@ func writeAuthHandshake( // A
 		DelegationSig: delegationSig,
 	}
 
-	payload, err := cbor.Marshal(msg)
+	payload, err := proto.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("encode handshake: %w", err)
 	}
@@ -356,22 +321,22 @@ func writeAuthHandshake( // A
 	return nil
 }
 
-// certToWire converts a NodeCertLike to the on-wire
-// CBOR representation.
-func certToWire( // A
+// certToPB converts a NodeCertLike to the protobuf
+// wire representation.
+func certToPB( // A
 	c auth.NodeCertLike,
-) (wireNodeCert, error) {
+) (*pb.WireNodeCert, error) {
 	pub := c.NodePubKey()
 	pubBytes, err := auth.MarshalPubKeyBytes(&pub)
 	if err != nil {
-		return wireNodeCert{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"marshal public key: %w", err,
 		)
 	}
-	return wireNodeCert{
-		CertVersion:  c.CertVersion(),
+	return &pb.WireNodeCert{
+		CertVersion:  uint32(c.CertVersion()),
 		NodePubKey:   pubBytes,
-		IssuerCAHash: c.IssuerCAHash(),
+		IssuerCaHash: c.IssuerCAHash(),
 		ValidFrom:    c.ValidFrom(),
 		ValidUntil:   c.ValidUntil(),
 		Serial:       c.Serial(),
