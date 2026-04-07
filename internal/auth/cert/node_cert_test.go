@@ -1,9 +1,21 @@
-package auth
+package cert
 
 import (
 	"bytes"
 	"testing"
+
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
+
+func mustKeyPair(t *testing.T) *keys.AsyncCrypt { // A
+	t.Helper()
+	ac, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("key generation failed: %v", err)
+	}
+	return ac
+}
 
 func TestNewNodeCert(t *testing.T) { // A
 	ac := mustKeyPair(t)
@@ -96,8 +108,8 @@ func TestNodeCertImplementsInterface( // A
 	}
 
 	// Verify structural compatibility with
-	// NodeCertLike.
-	var _ NodeCertLike = cert
+	// canonical.NodeCertLike.
+	var _ canonical.NodeCertLike = cert
 
 	// Also check it has NodeID() method matching
 	// the interfaces.NodeCert contract.
@@ -129,7 +141,10 @@ func TestNodeCertDefensiveCopiesByteFields( // A
 	serial[0] = 'X'
 	certNonce[0] = 'Y'
 	if string(cert.Serial()) != "ser" {
-		t.Fatalf("serial mutated after constructor copy: %q", cert.Serial())
+		t.Fatalf(
+			"serial mutated after constructor copy: %q",
+			cert.Serial(),
+		)
 	}
 	if string(cert.CertNonce()) != "nonce" {
 		t.Fatalf(
@@ -144,9 +159,14 @@ func TestNodeCertDefensiveCopiesByteFields( // A
 	returnedNonce[0] = 'W'
 
 	if !bytes.Equal(cert.Serial(), []byte("ser")) {
-		t.Fatalf("serial mutated through getter: %q", cert.Serial())
+		t.Fatalf(
+			"serial mutated through getter: %q",
+			cert.Serial(),
+		)
 	}
-	if !bytes.Equal(cert.CertNonce(), []byte("nonce")) {
+	if !bytes.Equal(
+		cert.CertNonce(), []byte("nonce"),
+	) {
 		t.Fatalf(
 			"cert nonce mutated through getter: %q",
 			cert.CertNonce(),

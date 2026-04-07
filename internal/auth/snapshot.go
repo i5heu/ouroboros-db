@@ -5,10 +5,18 @@ import (
 	"fmt"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
+func cloneBytes(src []byte) []byte { // A
+	if src == nil {
+		return nil
+	}
+	return append([]byte(nil), src...)
+}
+
 // certSnapshot is a frozen, immutable copy of a
-// NodeCertLike. All interface methods are read once
+// canonical.NodeCertLike. All interface methods are read once
 // at construction; subsequent calls return the
 // captured values. This prevents stateful-cert
 // attacks where a malicious implementation changes
@@ -56,11 +64,11 @@ func (s *certSnapshot) NodeID() keys.NodeID { // A
 	return s.nodeID
 }
 
-// snapshotCert reads all fields from a NodeCertLike
+// snapshotCert reads all fields from a canonical.NodeCertLike
 // once and verifies consistency: re-derives NodeID
 // from NodePubKey and compares with NodeID(). If
 // they differ, the cert is stateful/malicious.
-func snapshotCert(c NodeCertLike) (*certSnapshot, error) { // A
+func snapshotCert(c canonical.NodeCertLike) (*certSnapshot, error) { // A
 	ver := c.CertVersion()
 	if ver != DefaultCertVersion {
 		return nil, authErr(
@@ -95,7 +103,7 @@ func snapshotCert(c NodeCertLike) (*certSnapshot, error) { // A
 // snapshotCerts snapshots an entire cert bundle,
 // returning an error if any cert is nil or stateful.
 func snapshotCerts( // A
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 ) ([]*certSnapshot, error) {
 	out := make([]*certSnapshot, len(certs))
 	for i, c := range certs {
@@ -136,7 +144,7 @@ func safeNodeID( // A
 }
 
 // delegationSnapshot is a frozen copy of a
-// DelegationProofLike.
+// canonical.DelegationProofLike.
 type delegationSnapshot struct { // A
 	tlsCertPubKeyHash  []byte
 	tlsExporterBinding []byte
@@ -176,9 +184,9 @@ func (d *delegationSnapshot) NotAfter() int64 { // A
 }
 
 // snapshotDelegation reads all fields from a
-// DelegationProofLike once and returns a frozen copy.
+// canonical.DelegationProofLike once and returns a frozen copy.
 func snapshotDelegation( // A
-	p DelegationProofLike,
+	p canonical.DelegationProofLike,
 ) *delegationSnapshot {
 	return &delegationSnapshot{
 		tlsCertPubKeyHash:  cloneBytes(p.TLSCertPubKeyHash()),

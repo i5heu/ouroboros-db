@@ -2,11 +2,11 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
 // carrierAuth implements interfaces.CarrierAuth.
@@ -44,7 +44,7 @@ import (
 //     serial, nonce,
 //     )
 //     canonical, _ := auth.CanonicalNodeCert(cert)
-//     msg := auth.DomainSeparate(
+//     msg := auth.canonical.DomainSeparate(
 //     auth.CTXNodeAdmissionV1, canonical,
 //     )
 //     caSig, _ := caPrivKey.Sign(msg)
@@ -66,7 +66,7 @@ import (
 //  4. Each node creates an ephemeral session before
 //     accepting or dialing connections:
 //
-//     si, _ := auth.NewSessionIdentity(
+//     si, _ := delegation.NewSessionIdentity(
 //     5 * time.Minute,
 //     )
 //
@@ -108,10 +108,10 @@ import (
 //  7. Prover creates and signs the DelegationProof
 //     in one call:
 //
-//     proof, sig, _ := auth.SignDelegation(
+//     proof, sig, _ := delegation.SignDelegation(
 //     nodeKey,          // *keys.AsyncCrypt
 //     certs,            // []NodeCertLike
-//     si,               // *SessionIdentity
+//     si,               // *delegation.SessionIdentity
 //     conn.ExportKeyingMaterial,
 //     )
 //
@@ -272,14 +272,11 @@ func (ca *carrierAuth) verifyAnchor( // A
 	if _, rev := ca.revokedAdminCAs[anchorAdminHash]; rev {
 		return ErrAnchorAdminRevoked
 	}
-	pubKeyBytes, err := marshalPubKeyBytes(user.pubKey)
-	if err != nil {
-		return fmt.Errorf(
-			"user CA public key marshal: %w", err,
-		)
-	}
-	msg := DomainSeparate(CTXUserCAAnchorV1, pubKeyBytes)
-	if !admin.pubKey.Verify(msg, user.anchorSig) {
+	pubKeyBytes := user.PubKey()
+	msg := canonical.DomainSeparate(
+		CTXUserCAAnchorV1, pubKeyBytes,
+	)
+	if !admin.Verify(msg, user.AnchorSig()) {
 		return ErrInvalidAnchorSig
 	}
 	return nil

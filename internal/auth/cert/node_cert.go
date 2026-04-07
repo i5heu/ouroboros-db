@@ -1,6 +1,12 @@
-package auth
+package cert
 
-import "github.com/i5heu/ouroboros-crypt/pkg/keys"
+import (
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+)
+
+// DefaultCertVersion is the current NodeCert payload
+// version.
+const DefaultCertVersion uint16 = 1 // A
 
 func cloneBytes(src []byte) []byte { // A
 	if src == nil {

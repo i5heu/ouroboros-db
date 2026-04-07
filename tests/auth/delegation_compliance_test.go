@@ -1,10 +1,11 @@
 package auth_test // A
 
 import (
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"testing"
 	"time"
 
-	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"pgregory.net/rapid"
 )
 
@@ -17,10 +18,10 @@ func TestPropertyDelegationTTLBounded(t *testing.T) {
 		proof := dd.toDelegationProof()
 
 		ttl := proof.NotAfter() - proof.NotBefore()
-		if ttl > auth.MaxDelegationTTL {
+		if ttl > delegation.MaxDelegationTTL {
 			rt.Fatalf(
 				"TTL %d exceeds MaxDelegationTTL %d",
-				ttl, auth.MaxDelegationTTL,
+				ttl, delegation.MaxDelegationTTL,
 			)
 		}
 		if ttl <= 0 {
@@ -110,11 +111,11 @@ func TestPropertyDelegationShortTTLRequired(t *testing.T) {
 		tls := genTLSSession().Draw(rt, "tls")
 
 		now := time.Now().Unix()
-		ttl := rapid.Int64Range(10, auth.MaxDelegationTTL).Draw(rt, "ttl")
+		ttl := rapid.Int64Range(10, delegation.MaxDelegationTTL).Draw(rt, "ttl")
 		notBefore := now - 5
 		notAfter := notBefore + ttl
 
-		proof := auth.NewDelegationProof(
+		proof := delegation.NewDelegationProof(
 			tls.certPubKeyHash,
 			tls.exporterBinding,
 			tls.transcriptHash,
@@ -128,10 +129,10 @@ func TestPropertyDelegationShortTTLRequired(t *testing.T) {
 		if actualTTL != ttl {
 			rt.Fatalf("TTL mismatch: got %d, want %d", actualTTL, ttl)
 		}
-		if actualTTL > auth.MaxDelegationTTL {
+		if actualTTL > delegation.MaxDelegationTTL {
 			rt.Fatalf(
 				"TTL %d exceeds MaxDelegationTTL %d",
-				actualTTL, auth.MaxDelegationTTL,
+				actualTTL, delegation.MaxDelegationTTL,
 			)
 		}
 	})
@@ -145,11 +146,11 @@ func TestPropertyExporterContextOmitsBinding(t *testing.T) {
 		dd := genDelegationData(tls, now).Draw(rt, "delData")
 		proof := dd.toDelegationProof()
 
-		full, err := auth.CanonicalDelegationProof(proof)
+		full, err := canonical.CanonicalDelegationProof(proof)
 		if err != nil {
 			rt.Fatalf("full: %v", err)
 		}
-		noExp, err := auth.CanonicalDelegationProofForExporter(proof)
+		noExp, err := canonical.CanonicalDelegationProofForExporter(proof)
 		if err != nil {
 			rt.Fatalf("noExp: %v", err)
 		}

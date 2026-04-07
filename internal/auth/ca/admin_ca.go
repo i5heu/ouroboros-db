@@ -1,4 +1,4 @@
-package auth
+package ca
 
 import (
 	"crypto/sha256"
@@ -62,15 +62,6 @@ func splitAndParsePubKey( // A
 
 // marshalPubKeyBytes returns concatenated KEM+Sign
 // public key bytes from a keys.PublicKey.
-// MarshalPubKeyBytes serializes a composite public
-// key into the KEM || Sign binary concatenation
-// used on the wire and in canonical encoding.
-func MarshalPubKeyBytes( // A
-	pub *keys.PublicKey,
-) ([]byte, error) {
-	return marshalPubKeyBytes(pub)
-}
-
 func marshalPubKeyBytes( // A
 	pub *keys.PublicKey,
 ) ([]byte, error) {
@@ -86,6 +77,15 @@ func marshalPubKeyBytes( // A
 	copy(out, kem)
 	copy(out[len(kem):], sign)
 	return out, nil
+}
+
+// MarshalPubKeyBytes serializes a composite public
+// key into the KEM || Sign binary concatenation
+// used on the wire and in canonical encoding.
+func MarshalPubKeyBytes( // A
+	pub *keys.PublicKey,
+) ([]byte, error) {
+	return marshalPubKeyBytes(pub)
 }
 
 // caHash computes hex(SHA-256(signPubKeyBytes)).

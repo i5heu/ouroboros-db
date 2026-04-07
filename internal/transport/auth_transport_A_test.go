@@ -1,8 +1,9 @@
-package carrier
+package transport
 
 import (
 	"context"
 	"errors"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"io"
 	"log/slog"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
@@ -200,7 +202,7 @@ func newCarrierTestHarness( // A
 
 func newNodeIdentityForCarrierTest( // A
 	t *testing.T,
-) (*auth.NodeIdentity, auth.NodeCertLike) {
+) (*auth.NodeIdentity, canonical.NodeCertLike) {
 	t.Helper()
 	adminAC, err := keys.NewAsyncCrypt()
 	if err != nil {
@@ -234,7 +236,7 @@ func newNodeIdentityForCarrierTest( // A
 	}
 	ni, err := auth.NewNodeIdentity(
 		nodeAC,
-		[]auth.NodeCertLike{cert},
+		[]canonical.NodeCertLike{cert},
 		[][]byte{[]byte("ca-sig")},
 		nil,
 	)
@@ -247,21 +249,21 @@ func newNodeIdentityForCarrierTest( // A
 func newTLSBindingsForCarrierTest() interfaces.TLSBindings { // A
 	return interfaces.TLSBindings{
 		CertPubKeyHash:  bytesOf(0x11, auth.TLSCertPubKeyHashSize),
-		ExporterBinding: bytesOf(0x22, auth.TLSExporterBindingSize),
+		ExporterBinding: bytesOf(0x22, delegation.TLSExporterBindingSize),
 		X509Fingerprint: bytesOf(0x33, auth.X509FingerprintSize),
-		TranscriptHash:  bytesOf(0x44, auth.TLSTranscriptHashSize),
+		TranscriptHash:  bytesOf(0x44, delegation.TLSTranscriptHashSize),
 	}
 }
 
 func newExportersForCarrierTest() map[string][]byte { // A
 	return map[string][]byte{
-		auth.TranscriptBindingLabel: bytesOf(
+		delegation.TranscriptBindingLabel: bytesOf(
 			0x44,
-			auth.TLSTranscriptHashSize,
+			delegation.TLSTranscriptHashSize,
 		),
-		auth.ExporterLabel: bytesOf(
+		delegation.ExporterLabel: bytesOf(
 			0x55,
-			auth.TLSExporterBindingSize,
+			delegation.TLSExporterBindingSize,
 		),
 	}
 }
@@ -280,7 +282,7 @@ func newHandshakeStreamForCarrierTest( // A
 	conn interfaces.Connection,
 ) interfaces.Stream {
 	t.Helper()
-	proof, sig, err := auth.SignDelegation(
+	proof, sig, err := delegation.SignDelegation(
 		ni.Key(),
 		ni.Certs(),
 		ni.Session(),

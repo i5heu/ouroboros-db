@@ -1,4 +1,4 @@
-package auth
+package canonical
 
 import (
 	"bytes"
@@ -9,10 +9,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// protoMarshalOpts uses deterministic marshaling for
+// ProtoMarshalOpts uses deterministic marshaling for
 // all canonical serialization to ensure reproducible
 // byte output across platforms.
-var protoMarshalOpts = proto.MarshalOptions{ // A
+var ProtoMarshalOpts = proto.MarshalOptions{ // A
 	Deterministic: true,
 }
 
@@ -42,6 +42,25 @@ type DelegationProofLike interface { // A
 	NotAfter() int64
 }
 
+// marshalPubKeyBytes returns concatenated KEM+Sign
+// binary representations of a public key.
+func marshalPubKeyBytes( // A
+	pub *keys.PublicKey,
+) ([]byte, error) {
+	kem, err := pub.MarshalBinaryKEM()
+	if err != nil {
+		return nil, err
+	}
+	sign, err := pub.MarshalBinarySign()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, len(kem)+len(sign))
+	copy(out, kem)
+	copy(out[len(kem):], sign)
+	return out, nil
+}
+
 // CanonicalNodeCert encodes a NodeCert into
 // deterministic protobuf.
 func CanonicalNodeCert( // A
@@ -61,7 +80,7 @@ func CanonicalNodeCert( // A
 		Serial:       cert.Serial(),
 		CertNonce:    cert.CertNonce(),
 	}
-	return protoMarshalOpts.Marshal(c)
+	return ProtoMarshalOpts.Marshal(c)
 }
 
 // CanonicalNodeCertBundle encodes a sorted array of
@@ -95,7 +114,7 @@ func CanonicalNodeCertBundle( // A
 	for _, e := range entries {
 		bundle.Certs = append(bundle.Certs, e.encoded)
 	}
-	return protoMarshalOpts.Marshal(bundle)
+	return ProtoMarshalOpts.Marshal(bundle)
 }
 
 // CanonicalDelegationProof encodes a DelegationProof
@@ -112,7 +131,7 @@ func CanonicalDelegationProof( // A
 		NotBefore:          proof.NotBefore(),
 		NotAfter:           proof.NotAfter(),
 	}
-	return protoMarshalOpts.Marshal(d)
+	return ProtoMarshalOpts.Marshal(d)
 }
 
 // CanonicalDelegationProofForExporter encodes a
@@ -129,7 +148,7 @@ func CanonicalDelegationProofForExporter( // A
 		NotBefore:          proof.NotBefore(),
 		NotAfter:           proof.NotAfter(),
 	}
-	return protoMarshalOpts.Marshal(d)
+	return ProtoMarshalOpts.Marshal(d)
 }
 
 // DomainSeparate prepends a length-prefixed

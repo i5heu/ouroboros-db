@@ -59,8 +59,9 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 	"github.com/i5heu/ouroboros-db/internal/control"
-	"github.com/i5heu/ouroboros-db/internal/transport"
+	transport "github.com/i5heu/ouroboros-db/internal/transport"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	"google.golang.org/protobuf/proto"
@@ -134,7 +135,7 @@ func run() error { // A
 		return err
 	}
 
-	transport, err := carrier.New(carrier.CarrierConfig{
+	tr, err := transport.New(transport.CarrierConfig{
 		BootstrapAddresses: conf.EffectiveBootstrapAddresses(),
 		SelfCert:           nodeIdentity.Certs()[0],
 		ListenAddress:      conf.EffectiveListenAddress(),
@@ -146,14 +147,14 @@ func run() error { // A
 		return err
 	}
 
-	controller, err := cluster.NewClusterController(
-		transport,
+	controller, err := control.NewClusterController(
+		tr,
 		resolvedLogger,
 	)
 	if err != nil {
 		return err
 	}
-	transport.SetController(controller)
+	tr.SetController(controller)
 
 	if err := interfaces.RegisterTypedHandler(
 		controller,
@@ -172,7 +173,7 @@ func run() error { // A
 	defer cancel()
 
 	go func() {
-		if err := transport.StartListener(ctx); err != nil &&
+		if err := tr.StartListener(ctx); err != nil &&
 			err != context.Canceled {
 			resolvedLogger.ErrorContext(
 				ctx,
@@ -186,9 +187,9 @@ func run() error { // A
 
 	fmt.Printf("node started: %s\n", shortNodeID(nodeIdentity.NodeID()))
 	fmt.Printf("db node ID:   %s\n", shortNodeID(db.NodeID()))
-	fmt.Printf("listening on: %s\n", transport.ListenAddress())
+	fmt.Printf("listening on: %s\n", tr.ListenAddress())
 
-	return repl(ctx, cancel, transport, nodeIdentity.NodeID())
+	return repl(ctx, cancel, tr, nodeIdentity.NodeID())
 }
 
 // parseConfig translates CLI flags into the top-level
@@ -345,13 +346,13 @@ func configureUsage() { // A
 // loadNodeIdentity reconstructs the local node's
 // authenticated identity from a stored .oucert file.
 //
-// The returned auth.NodeIdentity contains the node's
+// The returned certpkg.NodeIdentity contains the node's
 // persistent ML-DSA-87 key material, the CA-signed
 // certificate bundle, and a fresh session identity
 // used by the QUIC/TLS transport.
 func loadNodeIdentity( // A
 	path string,
-) (*auth.NodeIdentity, error) {
+) (*certpkg.NodeIdentity, error) {
 	ac, certFile, err := authfile.ReadNodeCert(path)
 	if err != nil {
 		return nil, err
@@ -457,7 +458,7 @@ func addCAFile( // A
 func repl( // A
 	ctx context.Context,
 	cancel context.CancelFunc,
-	transport carrier.RuntimeCarrier,
+	transport transport.RuntimeCarrier,
 	nodeID keys.NodeID,
 ) error {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -525,7 +526,7 @@ func repl( // A
 // backed so operators can confirm basic connectivity
 // before more complex cluster message types are added.
 func broadcastHello( // A
-	transport carrier.RuntimeCarrier,
+	transport transport.RuntimeCarrier,
 	from string,
 	text string,
 ) error {

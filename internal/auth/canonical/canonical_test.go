@@ -1,10 +1,13 @@
-package auth
+package canonical_test
 
 import (
 	"bytes"
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 )
 
 func mustKeyPair(t *testing.T) *keys.AsyncCrypt { // A
@@ -20,9 +23,9 @@ func mustNodeCert( // A
 	t *testing.T,
 	pub keys.PublicKey,
 	issuer string,
-) *NodeCertImpl {
+) *auth.NodeCertImpl {
 	t.Helper()
-	cert, err := NewNodeCert(
+	cert, err := auth.NewNodeCert(
 		pub, issuer,
 		1000, 2000,
 		[]byte("serial-1"),
@@ -39,7 +42,7 @@ func TestCanonicalNodeCert(t *testing.T) { // A
 	pub := ac.GetPublicKey()
 	cert := mustNodeCert(t, pub, "ca-hash-1")
 
-	data, err := CanonicalNodeCert(cert)
+	data, err := canonical.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatalf("CanonicalNodeCert: %v", err)
 	}
@@ -47,8 +50,7 @@ func TestCanonicalNodeCert(t *testing.T) { // A
 		t.Fatal("empty canonical encoding")
 	}
 
-	// Deterministic: same cert produces same bytes.
-	data2, err := CanonicalNodeCert(cert)
+	data2, err := canonical.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatalf("second encoding: %v", err)
 	}
@@ -61,14 +63,14 @@ func TestCanonicalNodeCertBundle(t *testing.T) { // A
 	ac := mustKeyPair(t)
 	pub := ac.GetPublicKey()
 
-	cert1, err := NewNodeCert(
+	cert1, err := auth.NewNodeCert(
 		pub, "ca-1", 1000, 2000,
 		[]byte("serial-1"), []byte("nonce-1"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert2, err := NewNodeCert(
+	cert2, err := auth.NewNodeCert(
 		pub, "ca-2", 1000, 2000,
 		[]byte("serial-2"), []byte("nonce-2"),
 	)
@@ -76,8 +78,8 @@ func TestCanonicalNodeCertBundle(t *testing.T) { // A
 		t.Fatal(err)
 	}
 
-	certs := []NodeCertLike{cert1, cert2}
-	data, err := CanonicalNodeCertBundle(certs)
+	certs := []canonical.NodeCertLike{cert1, cert2}
+	data, err := canonical.CanonicalNodeCertBundle(certs)
 	if err != nil {
 		t.Fatalf("CanonicalNodeCertBundle: %v", err)
 	}
@@ -85,10 +87,8 @@ func TestCanonicalNodeCertBundle(t *testing.T) { // A
 		t.Fatal("empty bundle encoding")
 	}
 
-	// Order independence: reversed input should
-	// produce same output.
-	reversed := []NodeCertLike{cert2, cert1}
-	data2, err := CanonicalNodeCertBundle(reversed)
+	reversed := []canonical.NodeCertLike{cert2, cert1}
+	data2, err := canonical.CanonicalNodeCertBundle(reversed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,14 +103,14 @@ func TestCanonicalNodeCertBundleTotalOrdering( // A
 	ac := mustKeyPair(t)
 	pub := ac.GetPublicKey()
 
-	cert1, err := NewNodeCert(
+	cert1, err := auth.NewNodeCert(
 		pub, "ca-1", 1000, 2000,
 		[]byte("serial-1"), []byte("nonce-1"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert2, err := NewNodeCert(
+	cert2, err := auth.NewNodeCert(
 		pub, "ca-2", 1000, 2000,
 		[]byte("serial-1"), []byte("nonce-2"),
 	)
@@ -118,14 +118,14 @@ func TestCanonicalNodeCertBundleTotalOrdering( // A
 		t.Fatal(err)
 	}
 
-	data1, err := CanonicalNodeCertBundle(
-		[]NodeCertLike{cert1, cert2},
+	data1, err := canonical.CanonicalNodeCertBundle(
+		[]canonical.NodeCertLike{cert1, cert2},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data2, err := CanonicalNodeCertBundle(
-		[]NodeCertLike{cert2, cert1},
+	data2, err := canonical.CanonicalNodeCertBundle(
+		[]canonical.NodeCertLike{cert2, cert1},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestCanonicalNodeCertBundleTotalOrdering( // A
 }
 
 func TestCanonicalDelegationProof(t *testing.T) { // A
-	proof := NewDelegationProof(
+	proof := delegation.NewDelegationProof(
 		[]byte("cert-hash"),
 		[]byte("exporter"),
 		[]byte("transcript"),
@@ -145,7 +145,7 @@ func TestCanonicalDelegationProof(t *testing.T) { // A
 		1000, 1300,
 	)
 
-	data, err := CanonicalDelegationProof(proof)
+	data, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatalf("CanonicalDelegationProof: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestCanonicalDelegationProof(t *testing.T) { // A
 		t.Fatal("empty encoding")
 	}
 
-	data2, err := CanonicalDelegationProof(proof)
+	data2, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestCanonicalDelegationProof(t *testing.T) { // A
 func TestCanonicalDelegationProofForExporter( // A
 	t *testing.T,
 ) {
-	proof := NewDelegationProof(
+	proof := delegation.NewDelegationProof(
 		[]byte("cert-hash"),
 		[]byte("exporter"),
 		[]byte("transcript"),
@@ -174,11 +174,11 @@ func TestCanonicalDelegationProofForExporter( // A
 		1000, 1300,
 	)
 
-	full, err := CanonicalDelegationProof(proof)
+	full, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	noExp, err := CanonicalDelegationProofForExporter(
+	noExp, err := canonical.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	if err != nil {
@@ -194,8 +194,7 @@ func TestCanonicalDelegationProofForExporter( // A
 
 func TestDomainSeparate(t *testing.T) { // A
 	data := []byte("payload")
-	sep := DomainSeparate("CTX_", data)
-	// Length-prefixed: 4-byte big-endian len + ctx + data.
+	sep := canonical.DomainSeparate("CTX_", data)
 	prefix := []byte("CTX_")
 	l := len(prefix)
 	expected := make([]byte, 4+l+len(data))

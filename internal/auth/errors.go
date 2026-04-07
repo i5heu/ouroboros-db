@@ -25,12 +25,6 @@ var ( // A
 		"certificate not yet valid",
 	)
 
-	// ErrInvalidCASignature is returned when a CA
-	// signature does not verify against the cert.
-	ErrInvalidCASignature = errors.New(
-		"invalid CA signature on certificate",
-	)
-
 	// ErrMismatchedNodeID is returned when certs in
 	// the bundle bind to different NodeIDs.
 	ErrMismatchedNodeID = errors.New(

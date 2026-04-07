@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 )
 
 // authResult holds intermediate verification state.
@@ -29,7 +31,7 @@ const ( // A
 
 // certVerifier verifies a CA signature on a NodeCert.
 type certVerifier interface { // A
-	VerifyNodeCert(NodeCertLike, []byte) (keys.NodeID, error)
+	VerifyNodeCert(canonical.NodeCertLike, []byte) (keys.NodeID, error)
 }
 
 // issuerInfo holds the CA reference for a cert.
@@ -113,7 +115,7 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 		}
 	}
 
-	certLikes := make([]NodeCertLike, len(certs))
+	certLikes := make([]canonical.NodeCertLike, len(certs))
 	for i, c := range certs {
 		certLikes[i] = c
 	}
@@ -133,12 +135,12 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 		{
 			name:      "proof TLS exporter binding",
 			value:     proof.TLSExporterBinding(),
-			expectedL: TLSExporterBindingSize,
+			expectedL: delegation.TLSExporterBindingSize,
 		},
 		{
 			name:      "proof TLS transcript hash",
 			value:     proof.TLSTranscriptHash(),
-			expectedL: TLSTranscriptHashSize,
+			expectedL: delegation.TLSTranscriptHashSize,
 		},
 		{
 			name:      "proof X.509 fingerprint",
@@ -158,7 +160,7 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 		{
 			name:      "transport TLS exporter binding",
 			value:     tls.ExporterBinding,
-			expectedL: TLSExporterBindingSize,
+			expectedL: delegation.TLSExporterBindingSize,
 		},
 		{
 			name:      "transport X.509 fingerprint",
@@ -168,7 +170,7 @@ func (ca *carrierAuth) VerifyPeerCert( // A
 		{
 			name:      "transport TLS transcript hash",
 			value:     tls.TranscriptHash,
-			expectedL: TLSTranscriptHashSize,
+			expectedL: delegation.TLSTranscriptHashSize,
 		},
 	})
 	if err != nil {
@@ -233,20 +235,20 @@ func validateHandshake(hs PeerHandshake) error { // A
 // binding verification.
 func (ca *carrierAuth) verifyDelegation( // A
 	result *authResult,
-	proof DelegationProofLike,
+	proof canonical.DelegationProofLike,
 	sig []byte,
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 	tlsCertPubKeyHash []byte,
 	tlsX509Fingerprint []byte,
 ) error {
-	canonical, err := CanonicalDelegationProof(proof)
+	canonicalData, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		return fmt.Errorf(
 			"delegation canonical encoding: %w", err,
 		)
 	}
-	msg := DomainSeparate(
-		CTXNodeDelegationV1, canonical,
+	msg := canonical.DomainSeparate(
+		delegation.CTXNodeDelegationV1, canonicalData,
 	)
 	if !result.nodePubKey.Verify(msg, sig) {
 		return ErrInvalidDelegationSig
@@ -274,10 +276,10 @@ func (ca *carrierAuth) verifyDelegation( // A
 
 // verifyBundleHash checks NodeCertBundleHash matches.
 func (ca *carrierAuth) verifyBundleHash( // A
-	proof DelegationProofLike,
-	certs []NodeCertLike,
+	proof canonical.DelegationProofLike,
+	certs []canonical.NodeCertLike,
 ) error {
-	bundleBytes, err := CanonicalNodeCertBundle(certs)
+	bundleBytes, err := canonical.CanonicalNodeCertBundle(certs)
 	if err != nil {
 		return fmt.Errorf(
 			"bundle canonical encoding: %w", err,
@@ -296,7 +298,7 @@ func (ca *carrierAuth) verifyBundleHash( // A
 // defense. Re-derives the expected TLS exporter
 // binding from the proof context per the spec.
 func (ca *carrierAuth) verifyFreshness( // A
-	proof DelegationProofLike,
+	proof canonical.DelegationProofLike,
 	tlsExporterBinding []byte,
 	tlsTranscriptHash []byte,
 	now int64,
@@ -312,12 +314,12 @@ func (ca *carrierAuth) verifyFreshness( // A
 		)
 	}
 	ttl := proof.NotAfter() - proof.NotBefore()
-	if ttl < 0 || ttl > MaxDelegationTTL {
+	if ttl < 0 || ttl > delegation.MaxDelegationTTL {
 		return authErr(
 			ErrDelegationTooLong,
 			"TTL exceeds maximum",
 			"ttl", ttl,
-			"max", MaxDelegationTTL,
+			"max", delegation.MaxDelegationTTL,
 		)
 	}
 	// Re-derive the expected exporter context from
@@ -327,7 +329,7 @@ func (ca *carrierAuth) verifyFreshness( // A
 	// context, so the comparison below validates
 	// that the proof's exporter matches the
 	// independently-derived transport value.
-	exporterCtx, err := CanonicalDelegationProofForExporter(
+	exporterCtx, err := canonical.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	if err != nil {

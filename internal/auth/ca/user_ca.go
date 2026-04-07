@@ -1,4 +1,4 @@
-package auth
+package ca
 
 // UserCAImpl implements interfaces.UserCA with anchor
 // chain validation against an AdminCA.
@@ -8,9 +8,9 @@ type UserCAImpl struct { // A
 	anchorAdminHash string
 }
 
-// newUserCA constructs a UserCAImpl. Anchor
+// NewUserCA constructs a UserCAImpl. Anchor
 // verification is done by the caller (AddUserPubKey).
-func newUserCA( // A
+func NewUserCA( // A
 	pubKeyBytes []byte,
 	anchorSig []byte,
 	anchorAdminHash string,

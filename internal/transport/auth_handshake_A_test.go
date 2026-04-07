@@ -1,16 +1,18 @@
-package carrier
+package transport
 
 import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	pb "github.com/i5heu/ouroboros-db/proto/carrier"
 	"google.golang.org/protobuf/proto"
@@ -117,13 +119,13 @@ func TestReadAuthHandshakeRejectsMalformedAuthoritiesProtobuf( // A
 	conn := &testConn{
 		tlsBindings: interfaces.TLSBindings{},
 		exporter: map[string][]byte{
-			auth.TranscriptBindingLabel: make(
+			delegation.TranscriptBindingLabel: make(
 				[]byte,
-				auth.TLSTranscriptHashSize,
+				delegation.TLSTranscriptHashSize,
 			),
-			auth.ExporterLabel: make(
+			delegation.ExporterLabel: make(
 				[]byte,
-				auth.TLSExporterBindingSize,
+				delegation.TLSExporterBindingSize,
 			),
 		},
 	}
@@ -169,7 +171,7 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 	}
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userSign, _ := userPub.MarshalBinarySign()
-	anchorMsg := auth.DomainSeparate(
+	anchorMsg := canonical.DomainSeparate(
 		auth.CTXUserCAAnchorV1, userBytes,
 	)
 	anchorSig, err := adminAC.Sign(anchorMsg)
@@ -194,10 +196,10 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 	if err != nil {
 		t.Fatalf("NewNodeCert: %v", err)
 	}
-	proof := auth.NewDelegationProof(
+	proof := delegation.NewDelegationProof(
 		make([]byte, auth.TLSCertPubKeyHashSize),
-		make([]byte, auth.TLSExporterBindingSize),
-		make([]byte, auth.TLSTranscriptHashSize),
+		make([]byte, delegation.TLSExporterBindingSize),
+		make([]byte, delegation.TLSTranscriptHashSize),
 		make([]byte, auth.X509FingerprintSize),
 		make([]byte, auth.NodeCertBundleHashSize),
 		now,
@@ -207,7 +209,7 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 	stream := newTestStream(nil)
 	err = writeAuthHandshake(
 		stream,
-		[]auth.NodeCertLike{cert},
+		[]canonical.NodeCertLike{cert},
 		[][]byte{[]byte("ca-sig")},
 		[]auth.EmbeddedCA{
 			{
@@ -242,13 +244,13 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 			),
 		},
 		exporter: map[string][]byte{
-			auth.TranscriptBindingLabel: make(
+			delegation.TranscriptBindingLabel: make(
 				[]byte,
-				auth.TLSTranscriptHashSize,
+				delegation.TLSTranscriptHashSize,
 			),
-			auth.ExporterLabel: make(
+			delegation.ExporterLabel: make(
 				[]byte,
-				auth.TLSExporterBindingSize,
+				delegation.TLSExporterBindingSize,
 			),
 		},
 	}
@@ -308,7 +310,7 @@ func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
 		t.Fatalf("NewNodeCert: %v", err)
 	}
 
-	session, err := auth.NewSessionIdentity(
+	session, err := delegation.NewSessionIdentity(
 		5 * time.Minute,
 	)
 	if err != nil {
@@ -323,9 +325,9 @@ func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
 		)
 	}
 
-	proof, sig, err := auth.SignDelegation(
+	proof, sig, err := delegation.SignDelegation(
 		nodeAC,
-		[]auth.NodeCertLike{cert},
+		[]canonical.NodeCertLike{cert},
 		session,
 		func(
 			label string,
@@ -344,7 +346,7 @@ func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
 	stream := newTestStream(nil)
 	if err := writeAuthHandshake(
 		stream,
-		[]auth.NodeCertLike{cert},
+		[]canonical.NodeCertLike{cert},
 		[][]byte{[]byte("ca-sig")},
 		nil,
 		proof,

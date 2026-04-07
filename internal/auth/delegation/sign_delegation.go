@@ -1,4 +1,4 @@
-package auth
+package delegation
 
 import (
 	"crypto/sha256"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
 // ExporterFunc derives a TLS keying-material export
@@ -52,7 +53,7 @@ type ExporterFunc = func( // A
 //  3. Build DelegationProof WITHOUT
 //     TLSExporterBinding.
 //  4. Derive exporter context =
-//     CanonicalDelegationProofForExporter(proof).
+//     canonical.CanonicalDelegationProofForExporter(proof).
 //  5. Call exporterFn(ExporterLabel, ctx, 32) to
 //     get the TLS exporter value.
 //  6. Rebuild proof WITH TLSExporterBinding.
@@ -60,12 +61,12 @@ type ExporterFunc = func( // A
 //  8. Sign with the node's ML-DSA-87 private key.
 func SignDelegation( // A
 	nodeKey *keys.AsyncCrypt,
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 	session *SessionIdentity,
 	exporterFn ExporterFunc,
 ) (*DelegationProofImpl, []byte, error) {
 	// 1. Bundle hash.
-	bundleBytes, err := CanonicalNodeCertBundle(certs)
+	bundleBytes, err := canonical.CanonicalNodeCertBundle(certs)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"canonical bundle: %w", err,
@@ -102,7 +103,7 @@ func SignDelegation( // A
 	)
 
 	// 4. Exporter context.
-	expCtx, err := CanonicalDelegationProofForExporter(
+	expCtx, err := canonical.CanonicalDelegationProofForExporter(
 		proofNoExp,
 	)
 	if err != nil {
@@ -135,13 +136,13 @@ func SignDelegation( // A
 	)
 
 	// 7. Canonical-encode + domain-separate.
-	canon, err := CanonicalDelegationProof(proof)
+	canon, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"canonical proof: %w", err,
 		)
 	}
-	msg := DomainSeparate(CTXNodeDelegationV1, canon)
+	msg := canonical.DomainSeparate(CTXNodeDelegationV1, canon)
 
 	// 8. Sign.
 	sig, err := nodeKey.Sign(msg)

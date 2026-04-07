@@ -3,6 +3,8 @@ package auth
 import (
 	"crypto/sha256"
 	"errors"
+	canonicalpkg "github.com/i5heu/ouroboros-db/internal/auth/canonical"
+	delegationpkg "github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"log/slog"
 	"os"
 	"testing"
@@ -12,6 +14,33 @@ import (
 )
 
 const oversizedPeerCertBundleSize = 1025 // A
+
+func mustKeyPair(t *testing.T) *keys.AsyncCrypt { // A
+	t.Helper()
+	ac, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("key generation failed: %v", err)
+	}
+	return ac
+}
+
+func mustNodeCert( // A
+	t *testing.T,
+	pub keys.PublicKey,
+	issuer string,
+) *NodeCertImpl {
+	t.Helper()
+	cert, err := NewNodeCert(
+		pub, issuer,
+		1000, 2000,
+		[]byte("serial-1"),
+		[]byte("nonce-1"),
+	)
+	if err != nil {
+		t.Fatalf("NewNodeCert failed: %v", err)
+	}
+	return cert
+}
 
 // testLogger returns a discard logger for tests.
 func testLogger() *slog.Logger { // A
@@ -23,7 +52,7 @@ func testLogger() *slog.Logger { // A
 }
 
 func deriveTestExporter(ctx []byte) []byte { // A
-	payload := append([]byte(ExporterLabel), ctx...)
+	payload := append([]byte(delegationpkg.ExporterLabel), ctx...)
 	sum := sha256.Sum256(payload)
 	return sum[:]
 }
@@ -38,7 +67,7 @@ type fullScenario struct { // A
 	nodeAC     *keys.AsyncCrypt
 	cert       *NodeCertImpl
 	caSig      []byte
-	proof      *DelegationProofImpl
+	proof      *delegationpkg.DelegationProofImpl
 	delSig     []byte
 	certHash   []byte
 	exporter   []byte
@@ -81,8 +110,8 @@ func buildScenario(t *testing.T) *fullScenario { // A
 	}
 
 	// Sign cert with AdminCA.
-	canonical, _ := CanonicalNodeCert(cert)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, err := adminAC.Sign(msg)
 	if err != nil {
 		t.Fatal(err)
@@ -102,39 +131,39 @@ func buildScenario(t *testing.T) *fullScenario { // A
 	x509FP := x509FPSum[:]
 	transcript := transcriptSum[:]
 
-	certs := []NodeCertLike{cert}
-	bundleBytes, _ := CanonicalNodeCertBundle(certs)
+	certs := []canonicalpkg.NodeCertLike{cert}
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle(certs)
 	bundleHash := sha256.Sum256(bundleBytes)
 
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		certHash,
 		nil, // exporter set after
 		transcript,
 		x509FP,
 		bundleHash[:],
-		now-5, now+MaxDelegationTTL-10,
+		now-5, now+delegationpkg.MaxDelegationTTL-10,
 	)
 
 	// Compute exporter from proof-without-exporter.
-	exporterCtx, _ := CanonicalDelegationProofForExporter(
+	exporterCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	exporter := deriveTestExporter(exporterCtx)
 
 	// Set exporter in proof.
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		certHash,
 		exporter,
 		transcript,
 		x509FP,
 		bundleHash[:],
-		now-5, now+MaxDelegationTTL-10,
+		now-5, now+delegationpkg.MaxDelegationTTL-10,
 	)
 
 	// Sign delegation proof with node key.
-	delCanonical, _ := CanonicalDelegationProof(proof)
-	delMsg := DomainSeparate(
-		CTXNodeDelegationV1, delCanonical,
+	delCanonical, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	delMsg := canonicalpkg.DomainSeparate(
+		delegationpkg.CTXNodeDelegationV1, delCanonical,
 	)
 	delSig, err := nodeAC.Sign(delMsg)
 	if err != nil {
@@ -163,7 +192,7 @@ func TestVerifyPeerCertRejectsInvalidBindingFieldLength( // A
 	s := buildScenario(t)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: s.proof,
 		DelegationSig:   s.delSig,
@@ -189,7 +218,7 @@ func TestVerifyPeerCertSuccess(t *testing.T) { // A
 	s := buildScenario(t)
 
 	ctx, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: s.proof,
 		DelegationSig:   s.delSig,
@@ -247,9 +276,9 @@ func TestVerifyPeerCertUnknownIssuer( // A
 		t, ac.GetPublicKey(), "unknown-hash",
 	)
 	_, err := ca.VerifyPeerCert(PeerHandshake{
-		Certs:        []NodeCertLike{cert},
+		Certs:        []canonicalpkg.NodeCertLike{cert},
 		CASignatures: [][]byte{[]byte("sig")},
-		DelegationProof: NewDelegationProof(
+		DelegationProof: delegationpkg.NewDelegationProof(
 			nil, nil, nil, nil, nil, 0, 0,
 		),
 		DelegationSig: []byte("placeholder"),
@@ -278,12 +307,12 @@ func TestVerifyPeerCertExpiredCert( // A
 		1000, 2000,
 		[]byte("ser"), []byte("non"),
 	)
-	canonical, _ := CanonicalNodeCert(expired)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(expired)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	sig, _ := s.adminAC.Sign(msg)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{expired},
+		Certs:           []canonicalpkg.NodeCertLike{expired},
 		CASignatures:    [][]byte{sig},
 		DelegationProof: s.proof,
 		DelegationSig:   s.delSig,
@@ -307,7 +336,7 @@ func TestVerifyPeerCertBadDelegationSig( // A
 	s := buildScenario(t)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: s.proof,
 		DelegationSig:   []byte("bad-delegation-sig"),
@@ -334,7 +363,7 @@ func TestVerifyPeerCertTLSBindingMismatch( // A
 	)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: s.proof,
 		DelegationSig:   s.delSig,
@@ -361,7 +390,7 @@ func TestVerifyPeerCertBundleHashMismatch( // A
 	wrongBundleHash := sha256.Sum256(
 		[]byte("wrong-bundle-hash"),
 	)
-	tampered := NewDelegationProof(
+	tampered := delegationpkg.NewDelegationProof(
 		s.proof.TLSCertPubKeyHash(),
 		s.proof.TLSExporterBinding(),
 		s.proof.TLSTranscriptHash(),
@@ -372,12 +401,12 @@ func TestVerifyPeerCertBundleHashMismatch( // A
 	)
 
 	// Re-sign with tampered proof.
-	canon, _ := CanonicalDelegationProof(tampered)
-	msg := DomainSeparate(CTXNodeDelegationV1, canon)
+	canon, _ := canonicalpkg.CanonicalDelegationProof(tampered)
+	msg := canonicalpkg.DomainSeparate(delegationpkg.CTXNodeDelegationV1, canon)
 	sig, _ := s.nodeAC.Sign(msg)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: tampered,
 		DelegationSig:   sig,
@@ -491,7 +520,7 @@ func TestVerifyPeerCertNilDelegationProofRejected( // A
 		t,
 		s.ca,
 		PeerHandshake{
-			Certs:           []NodeCertLike{s.cert},
+			Certs:           []canonicalpkg.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: nil,
 			DelegationSig:   s.delSig,
@@ -517,7 +546,7 @@ func TestVerifyPeerCertNilBundleEntryRejected( // A
 		t,
 		s.ca,
 		PeerHandshake{
-			Certs:           []NodeCertLike{nil},
+			Certs:           []canonicalpkg.NodeCertLike{nil},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -568,11 +597,11 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical, err := CanonicalNodeCert(signedView)
+	canonical, err := canonicalpkg.CanonicalNodeCert(signedView)
 	if err != nil {
 		t.Fatal(err)
 	}
-	certMsg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	certMsg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, err := s.adminAC.Sign(certMsg)
 	if err != nil {
 		t.Fatal(err)
@@ -589,31 +618,31 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundleBytes, err := CanonicalNodeCertBundle(
-		[]NodeCertLike{presentedView},
+	bundleBytes, err := canonicalpkg.CanonicalNodeCertBundle(
+		[]canonicalpkg.NodeCertLike{presentedView},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bundleHash := sha256.Sum256(bundleBytes)
 
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		s.certHash,
 		nil,
 		s.transcript,
 		s.x509FP,
 		bundleHash[:],
 		time.Now().Unix()-5,
-		time.Now().Unix()+MaxDelegationTTL-10,
+		time.Now().Unix()+delegationpkg.MaxDelegationTTL-10,
 	)
-	exporterCtx, err := CanonicalDelegationProofForExporter(
+	exporterCtx, err := canonicalpkg.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	exporter := deriveTestExporter(exporterCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		s.certHash,
 		exporter,
 		s.transcript,
@@ -622,12 +651,12 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 		proof.NotBefore(),
 		proof.NotAfter(),
 	)
-	proofCanonical, err := CanonicalDelegationProof(proof)
+	proofCanonical, err := canonicalpkg.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	delegationMsg := DomainSeparate(
-		CTXNodeDelegationV1,
+	delegationMsg := canonicalpkg.DomainSeparate(
+		delegationpkg.CTXNodeDelegationV1,
 		proofCanonical,
 	)
 	delegationSig, err := attackerAC.Sign(delegationMsg)
@@ -639,7 +668,7 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 		t,
 		s.ca,
 		PeerHandshake{
-			Certs:           []NodeCertLike{maliciousCert},
+			Certs:           []canonicalpkg.NodeCertLike{maliciousCert},
 			CASignatures:    [][]byte{caSig},
 			DelegationProof: proof,
 			DelegationSig:   delegationSig,
@@ -663,35 +692,35 @@ func TestVerifyPeerCertRejectsOversizedBundle( // A
 	t *testing.T,
 ) {
 	s := buildScenario(t)
-	peerCerts := make([]NodeCertLike, oversizedPeerCertBundleSize)
+	peerCerts := make([]canonicalpkg.NodeCertLike, oversizedPeerCertBundleSize)
 	caSignatures := make([][]byte, oversizedPeerCertBundleSize)
 	for i := range peerCerts {
 		peerCerts[i] = s.cert
 		caSignatures[i] = s.caSig
 	}
-	bundleBytes, err := CanonicalNodeCertBundle(peerCerts)
+	bundleBytes, err := canonicalpkg.CanonicalNodeCertBundle(peerCerts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bundleHash := sha256.Sum256(bundleBytes)
 	now := time.Now().Unix()
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		s.certHash,
 		nil,
 		s.transcript,
 		s.x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	exporterCtx, err := CanonicalDelegationProofForExporter(
+	exporterCtx, err := canonicalpkg.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	exporter := deriveTestExporter(exporterCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		s.certHash,
 		exporter,
 		s.transcript,
@@ -700,12 +729,12 @@ func TestVerifyPeerCertRejectsOversizedBundle( // A
 		proof.NotBefore(),
 		proof.NotAfter(),
 	)
-	proofCanonical, err := CanonicalDelegationProof(proof)
+	proofCanonical, err := canonicalpkg.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	delegationMsg := DomainSeparate(
-		CTXNodeDelegationV1,
+	delegationMsg := canonicalpkg.DomainSeparate(
+		delegationpkg.CTXNodeDelegationV1,
 		proofCanonical,
 	)
 	delegationSig, err := s.nodeAC.Sign(delegationMsg)
@@ -788,7 +817,7 @@ func TestRevokeUserCA(t *testing.T) { // A
 	kem, _ := userPub.MarshalBinaryKEM()
 	sign, _ := userPub.MarshalBinarySign()
 	combined := append(kem, sign...)
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, combined)
+	anchorMsg := canonicalpkg.DomainSeparate(CTXUserCAAnchorV1, combined)
 	anchorSig, _ := s.adminAC.Sign(anchorMsg)
 
 	err := s.ca.AddUserPubKey(
@@ -827,7 +856,7 @@ func TestRevokeNode(t *testing.T) { // A
 
 	// Verification should fail with revoked node.
 	_, err = s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: s.proof,
 		DelegationSig:   s.delSig,
@@ -908,7 +937,7 @@ func TestUserScopedVerification(t *testing.T) { // A
 	userSign, _ := userPub.MarshalBinarySign()
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userBytes := append(userKEM, userSign...)
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorMsg := canonicalpkg.DomainSeparate(CTXUserCAAnchorV1, userBytes)
 	anchorSig, _ := adminAC.Sign(anchorMsg)
 	err := ca.AddUserPubKey(
 		userBytes, anchorSig, adminCA.Hash(),
@@ -929,8 +958,8 @@ func TestUserScopedVerification(t *testing.T) { // A
 		now-10, now+600,
 		[]byte("s1"), []byte("n1"),
 	)
-	canonical, _ := CanonicalNodeCert(cert)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, _ := userAC.Sign(msg)
 
 	// Build delegation.
@@ -940,25 +969,25 @@ func TestUserScopedVerification(t *testing.T) { // A
 	certHash := certHashSum[:]
 	x509FP := x509FPSum[:]
 	transcript := transcriptSum[:]
-	certs := []NodeCertLike{cert}
-	bundleBytes, _ := CanonicalNodeCertBundle(certs)
+	certs := []canonicalpkg.NodeCertLike{cert}
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle(certs)
 	bh := sha256.Sum256(bundleBytes)
 
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		certHash, nil, transcript, x509FP,
-		bh[:], now-5, now+MaxDelegationTTL-10,
+		bh[:], now-5, now+delegationpkg.MaxDelegationTTL-10,
 	)
-	expCtx, _ := CanonicalDelegationProofForExporter(
+	expCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	exporter := deriveTestExporter(expCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		certHash, exporter, transcript, x509FP,
-		bh[:], now-5, now+MaxDelegationTTL-10,
+		bh[:], now-5, now+delegationpkg.MaxDelegationTTL-10,
 	)
-	delCanon, _ := CanonicalDelegationProof(proof)
-	delMsg := DomainSeparate(
-		CTXNodeDelegationV1, delCanon,
+	delCanon, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	delMsg := canonicalpkg.DomainSeparate(
+		delegationpkg.CTXNodeDelegationV1, delCanon,
 	)
 	delSig, _ := nodeAC.Sign(delMsg)
 
@@ -1017,7 +1046,7 @@ func TestUserScopedVerificationWithEmbeddedAuthorities( // A
 	userSign, _ := userPub.MarshalBinarySign()
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userBytes := append(userKEM, userSign...)
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorMsg := canonicalpkg.DomainSeparate(CTXUserCAAnchorV1, userBytes)
 	anchorSig, _ := adminAC.Sign(anchorMsg)
 	userCA, _ := newUserCA(
 		userBytes,
@@ -1036,8 +1065,8 @@ func TestUserScopedVerificationWithEmbeddedAuthorities( // A
 		[]byte("s1"),
 		[]byte("n1"),
 	)
-	canonical, _ := CanonicalNodeCert(cert)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, _ := userAC.Sign(msg)
 
 	certHashSum := sha256.Sum256([]byte("cert-hash"))
@@ -1046,22 +1075,22 @@ func TestUserScopedVerificationWithEmbeddedAuthorities( // A
 	certHash := certHashSum[:]
 	x509FP := x509FPSum[:]
 	transcript := transcriptSum[:]
-	certs := []NodeCertLike{cert}
-	bundleBytes, _ := CanonicalNodeCertBundle(certs)
+	certs := []canonicalpkg.NodeCertLike{cert}
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle(certs)
 	bh := sha256.Sum256(bundleBytes)
 
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		certHash, nil, transcript, x509FP,
-		bh[:], now-5, now+MaxDelegationTTL-10,
+		bh[:], now-5, now+delegationpkg.MaxDelegationTTL-10,
 	)
-	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	expCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(proof)
 	exporter := deriveTestExporter(expCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		certHash, exporter, transcript, x509FP,
-		bh[:], now-5, now+MaxDelegationTTL-10,
+		bh[:], now-5, now+delegationpkg.MaxDelegationTTL-10,
 	)
-	delCanon, _ := CanonicalDelegationProof(proof)
-	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delCanon, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	delMsg := canonicalpkg.DomainSeparate(delegationpkg.CTXNodeDelegationV1, delCanon)
 	delSig, _ := nodeAC.Sign(delMsg)
 
 	ctx, err := ca.VerifyPeerCert(PeerHandshake{
@@ -1131,8 +1160,8 @@ func TestVerifyPeerCertRejectsDifferentRootSignature( // A
 		[]byte("serial-root-mismatch"),
 		[]byte("nonce-root-mismatch"),
 	)
-	canonical, _ := CanonicalNodeCert(cert)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	wrongSig, _ := rootAC2.Sign(msg)
 
 	certHashSum := sha256.Sum256([]byte("cert-hash-root-mismatch"))
@@ -1141,34 +1170,34 @@ func TestVerifyPeerCertRejectsDifferentRootSignature( // A
 	certHash := certHashSum[:]
 	x509FP := x509FPSum[:]
 	transcript := transcriptSum[:]
-	bundleBytes, _ := CanonicalNodeCertBundle([]NodeCertLike{cert})
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle([]canonicalpkg.NodeCertLike{cert})
 	bundleHash := sha256.Sum256(bundleBytes)
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		certHash,
 		nil,
 		transcript,
 		x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	expCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(proof)
 	exporter := deriveTestExporter(expCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		certHash,
 		exporter,
 		transcript,
 		x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	delCanon, _ := CanonicalDelegationProof(proof)
-	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delCanon, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	delMsg := canonicalpkg.DomainSeparate(delegationpkg.CTXNodeDelegationV1, delCanon)
 	delSig, _ := nodeAC.Sign(delMsg)
 
 	_, err := trustedCA.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{cert},
+		Certs:           []canonicalpkg.NodeCertLike{cert},
 		CASignatures:    [][]byte{wrongSig},
 		DelegationProof: proof,
 		DelegationSig:   delSig,
@@ -1217,8 +1246,8 @@ func TestVerifyPeerCertRejectsEmbeddedUserBrokenAnchorSig( // A
 		[]byte("serial-bad-anchor"),
 		[]byte("nonce-bad-anchor"),
 	)
-	canonical, _ := CanonicalNodeCert(cert)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, _ := userAC.Sign(msg)
 
 	certHashSum := sha256.Sum256([]byte("cert-hash-bad-anchor"))
@@ -1227,34 +1256,34 @@ func TestVerifyPeerCertRejectsEmbeddedUserBrokenAnchorSig( // A
 	certHash := certHashSum[:]
 	x509FP := x509FPSum[:]
 	transcript := transcriptSum[:]
-	bundleBytes, _ := CanonicalNodeCertBundle([]NodeCertLike{cert})
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle([]canonicalpkg.NodeCertLike{cert})
 	bundleHash := sha256.Sum256(bundleBytes)
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		certHash,
 		nil,
 		transcript,
 		x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	expCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(proof)
 	exporter := deriveTestExporter(expCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		certHash,
 		exporter,
 		transcript,
 		x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	delCanon, _ := CanonicalDelegationProof(proof)
-	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delCanon, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	delMsg := canonicalpkg.DomainSeparate(delegationpkg.CTXNodeDelegationV1, delCanon)
 	delSig, _ := nodeAC.Sign(delMsg)
 
 	_, err := ca.VerifyPeerCert(PeerHandshake{
-		Certs:        []NodeCertLike{cert},
+		Certs:        []canonicalpkg.NodeCertLike{cert},
 		CASignatures: [][]byte{caSig},
 		Authorities: []EmbeddedCA{
 			{
@@ -1310,7 +1339,7 @@ func TestVerifyPeerCertRejectsEmbeddedDifferentRoot( // A
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userSign, _ := userPub.MarshalBinarySign()
 	userBytes := append(userKEM, userSign...)
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorMsg := canonicalpkg.DomainSeparate(CTXUserCAAnchorV1, userBytes)
 	anchorSig, _ := otherRootAC.Sign(anchorMsg)
 	userCA, _ := newUserCA(userBytes, anchorSig, otherRootCA.Hash())
 
@@ -1325,8 +1354,8 @@ func TestVerifyPeerCertRejectsEmbeddedDifferentRoot( // A
 		[]byte("serial-different-root"),
 		[]byte("nonce-different-root"),
 	)
-	canonical, _ := CanonicalNodeCert(cert)
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, _ := userAC.Sign(msg)
 
 	certHashSum := sha256.Sum256([]byte("cert-hash-different-root"))
@@ -1335,34 +1364,34 @@ func TestVerifyPeerCertRejectsEmbeddedDifferentRoot( // A
 	certHash := certHashSum[:]
 	x509FP := x509FPSum[:]
 	transcript := transcriptSum[:]
-	bundleBytes, _ := CanonicalNodeCertBundle([]NodeCertLike{cert})
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle([]canonicalpkg.NodeCertLike{cert})
 	bundleHash := sha256.Sum256(bundleBytes)
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		certHash,
 		nil,
 		transcript,
 		x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	expCtx, _ := CanonicalDelegationProofForExporter(proof)
+	expCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(proof)
 	exporter := deriveTestExporter(expCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		certHash,
 		exporter,
 		transcript,
 		x509FP,
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	delCanon, _ := CanonicalDelegationProof(proof)
-	delMsg := DomainSeparate(CTXNodeDelegationV1, delCanon)
+	delCanon, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	delMsg := canonicalpkg.DomainSeparate(delegationpkg.CTXNodeDelegationV1, delCanon)
 	delSig, _ := nodeAC.Sign(delMsg)
 
 	_, err := ca.VerifyPeerCert(PeerHandshake{
-		Certs:        []NodeCertLike{cert},
+		Certs:        []canonicalpkg.NodeCertLike{cert},
 		CASignatures: [][]byte{caSig},
 		Authorities: []EmbeddedCA{
 			{
@@ -1396,21 +1425,21 @@ func TestDelegationTTLTooLong(t *testing.T) { // A
 	s := buildScenario(t)
 
 	now := time.Now().Unix()
-	longProof := NewDelegationProof(
+	longProof := delegationpkg.NewDelegationProof(
 		s.proof.TLSCertPubKeyHash(),
 		s.proof.TLSExporterBinding(),
 		s.proof.TLSTranscriptHash(),
 		s.proof.X509Fingerprint(),
 		s.proof.NodeCertBundleHash(),
-		now-10, now+MaxDelegationTTL+100,
+		now-10, now+delegationpkg.MaxDelegationTTL+100,
 	)
 
-	canon, _ := CanonicalDelegationProof(longProof)
-	msg := DomainSeparate(CTXNodeDelegationV1, canon)
+	canon, _ := canonicalpkg.CanonicalDelegationProof(longProof)
+	msg := canonicalpkg.DomainSeparate(delegationpkg.CTXNodeDelegationV1, canon)
 	sig, _ := s.nodeAC.Sign(msg)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    [][]byte{s.caSig},
 		DelegationProof: longProof,
 		DelegationSig:   sig,
@@ -1434,7 +1463,7 @@ func TestVerifyPeerCertSignatureCountMismatch( // A
 	s := buildScenario(t)
 
 	_, err := s.ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{s.cert},
+		Certs:           []canonicalpkg.NodeCertLike{s.cert},
 		CASignatures:    nil,
 		DelegationProof: s.proof,
 		DelegationSig:   s.delSig,
@@ -1473,7 +1502,7 @@ func TestUserCAInvalidWhenAnchorAdminRemoved( // A
 	userSign, _ := userPub.MarshalBinarySign()
 	userKEM, _ := userPub.MarshalBinaryKEM()
 	userBytes := append(userKEM, userSign...)
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, userBytes)
+	anchorMsg := canonicalpkg.DomainSeparate(CTXUserCAAnchorV1, userBytes)
 	anchorSig, _ := adminAC.Sign(anchorMsg)
 	if err := ca.AddUserPubKey(
 		userBytes,
@@ -1503,45 +1532,45 @@ func TestUserCAInvalidWhenAnchorAdminRemoved( // A
 		[]byte("s1"),
 		[]byte("n1"),
 	)
-	canonical, _ := CanonicalNodeCert(cert)
-	certMsg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	canonical, _ := canonicalpkg.CanonicalNodeCert(cert)
+	certMsg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	caSig, _ := userAC.Sign(certMsg)
 
-	bundleBytes, _ := CanonicalNodeCertBundle(
-		[]NodeCertLike{cert},
+	bundleBytes, _ := canonicalpkg.CanonicalNodeCertBundle(
+		[]canonicalpkg.NodeCertLike{cert},
 	)
 	bundleHash := sha256.Sum256(bundleBytes)
-	proof := NewDelegationProof(
+	proof := delegationpkg.NewDelegationProof(
 		[]byte("cert-hash"),
 		nil,
 		[]byte("transcript"),
 		[]byte("x509-fp"),
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	expCtx, _ := CanonicalDelegationProofForExporter(
+	expCtx, _ := canonicalpkg.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	exporter := deriveTestExporter(expCtx)
-	proof = NewDelegationProof(
+	proof = delegationpkg.NewDelegationProof(
 		[]byte("cert-hash"),
 		exporter,
 		[]byte("transcript"),
 		[]byte("x509-fp"),
 		bundleHash[:],
 		now-5,
-		now+MaxDelegationTTL-10,
+		now+delegationpkg.MaxDelegationTTL-10,
 	)
-	proofCanon, _ := CanonicalDelegationProof(proof)
-	proofMsg := DomainSeparate(
-		CTXNodeDelegationV1,
+	proofCanon, _ := canonicalpkg.CanonicalDelegationProof(proof)
+	proofMsg := canonicalpkg.DomainSeparate(
+		delegationpkg.CTXNodeDelegationV1,
 		proofCanon,
 	)
 	delSig, _ := nodeAC.Sign(proofMsg)
 
 	_, err := ca.VerifyPeerCert(PeerHandshake{
-		Certs:           []NodeCertLike{cert},
+		Certs:           []canonicalpkg.NodeCertLike{cert},
 		CASignatures:    [][]byte{caSig},
 		DelegationProof: proof,
 		DelegationSig:   delSig,
@@ -1576,7 +1605,7 @@ func TestAddUserPubKeyRejectsKEMSubstitution( // A
 		t.Fatal(err)
 	}
 	anchoredBytes := append(userKEM, userSign...)
-	anchorMsg := DomainSeparate(
+	anchorMsg := canonicalpkg.DomainSeparate(
 		CTXUserCAAnchorV1,
 		anchoredBytes,
 	)

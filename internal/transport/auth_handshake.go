@@ -1,12 +1,15 @@
-package carrier
+package transport
 
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"io"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	pb "github.com/i5heu/ouroboros-db/proto/carrier"
 	"google.golang.org/protobuf/proto"
@@ -95,7 +98,7 @@ func readAuthHandshake( // A
 
 	// Convert wire certs to NodeCertLike.
 	certs := make(
-		[]auth.NodeCertLike, len(msg.Certs),
+		[]canonical.NodeCertLike, len(msg.Certs),
 	)
 	for i, wc := range msg.Certs {
 		nc, err := pbToNodeCert(wc)
@@ -132,9 +135,9 @@ func readAuthHandshake( // A
 
 	// Transcript binding via EKM (RFC 9266).
 	transcript, err := conn.ExportKeyingMaterial(
-		auth.TranscriptBindingLabel,
+		delegation.TranscriptBindingLabel,
 		nil,
-		auth.TLSTranscriptHashSize,
+		delegation.TLSTranscriptHashSize,
 	)
 	if err != nil {
 		return interfaces.PeerHandshake{},
@@ -148,7 +151,7 @@ func readAuthHandshake( // A
 	// Exporter binding uses the proof-minus-exporter
 	// as EKM context, binding the exporter value to
 	// the specific delegation proof.
-	expCtx, err := auth.CanonicalDelegationProofForExporter(
+	expCtx, err := canonical.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	if err != nil {
@@ -158,9 +161,9 @@ func readAuthHandshake( // A
 			)
 	}
 	exporter, err := conn.ExportKeyingMaterial(
-		auth.ExporterLabel,
+		delegation.ExporterLabel,
 		expCtx,
-		auth.TLSExporterBindingSize,
+		delegation.TLSExporterBindingSize,
 	)
 	if err != nil {
 		return interfaces.PeerHandshake{},
@@ -185,7 +188,7 @@ func readAuthHandshake( // A
 // concrete NodeCertImpl.
 func pbToNodeCert( // A
 	wc *pb.WireNodeCert,
-) (*auth.NodeCertImpl, error) {
+) (*certpkg.NodeCertImpl, error) {
 	if len(wc.NodePubKey) <= auth.KEMPublicKeySize {
 		return nil, fmt.Errorf(
 			"public key too short: %d bytes",
@@ -202,7 +205,7 @@ func pbToNodeCert( // A
 			"parse public key: %w", err,
 		)
 	}
-	return auth.NewNodeCert(
+	return certpkg.NewNodeCert(
 		*pub,
 		wc.IssuerCaHash,
 		wc.ValidFrom,
@@ -216,13 +219,13 @@ func pbToNodeCert( // A
 // Proof to a concrete DelegationProofImpl.
 func pbToDelegation( // A
 	wd *pb.WireDelegationProof,
-) *auth.DelegationProofImpl {
+) *delegation.DelegationProofImpl {
 	if wd == nil {
-		return auth.NewDelegationProof(
+		return delegation.NewDelegationProof(
 			nil, nil, nil, nil, nil, 0, 0,
 		)
 	}
-	return auth.NewDelegationProof(
+	return delegation.NewDelegationProof(
 		wd.TlsCertPubKeyHash,
 		wd.TlsExporterBinding,
 		wd.TlsTranscriptHash,
@@ -246,10 +249,10 @@ func pbToDelegation( // A
 //  5. Close the stream.
 func writeAuthHandshake( // A
 	stream interfaces.Stream,
-	certs []auth.NodeCertLike,
+	certs []canonical.NodeCertLike,
 	caSigs [][]byte,
 	authorities []auth.EmbeddedCA,
-	proof *auth.DelegationProofImpl,
+	proof *delegation.DelegationProofImpl,
 	delegationSig []byte,
 ) error {
 	// Convert certs to wire format.
@@ -324,7 +327,7 @@ func writeAuthHandshake( // A
 // certToPB converts a NodeCertLike to the protobuf
 // wire representation.
 func certToPB( // A
-	c auth.NodeCertLike,
+	c canonical.NodeCertLike,
 ) (*pb.WireNodeCert, error) {
 	pub := c.NodePubKey()
 	pubBytes, err := auth.MarshalPubKeyBytes(&pub)

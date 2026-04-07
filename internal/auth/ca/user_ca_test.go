@@ -1,9 +1,10 @@
-package auth
+package ca
 
 import (
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	canonicalpkg "github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
 func mustUserCA( // A
@@ -23,7 +24,9 @@ func mustUserCA( // A
 	}
 
 	// AdminCA signs the full UserCA public key as anchor.
-	anchorMsg := DomainSeparate(CTXUserCAAnchorV1, pubKeyBytes)
+	anchorMsg := canonicalpkg.DomainSeparate(
+		CTXUserCAAnchorV1, pubKeyBytes,
+	)
 	anchorSig, err := adminAC.Sign(anchorMsg)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +41,7 @@ func mustUserCA( // A
 		t.Fatal(err)
 	}
 	combined := append(kem, sign...)
-	user, err := newUserCA(
+	user, err := NewUserCA(
 		combined, anchorSig, adminCA.Hash(),
 	)
 	if err != nil {
@@ -73,11 +76,11 @@ func TestUserCAVerifyNodeCert(t *testing.T) { // A
 	nodePub := nodeAC.GetPublicKey()
 	cert := mustNodeCert(t, nodePub, user.Hash())
 
-	canonical, err := CanonicalNodeCert(cert)
+	canonical, err := canonicalpkg.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	sig, err := userAC.Sign(msg)
 	if err != nil {
 		t.Fatal(err)

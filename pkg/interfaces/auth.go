@@ -5,6 +5,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
 type Cluster struct { // A
@@ -22,11 +23,11 @@ type Node struct { // A
 
 // NodeCert aliases auth.NodeCertLike to keep carrier
 // contract signatures exactly aligned across packages.
-type NodeCert = auth.NodeCertLike // A
+type NodeCert = canonical.NodeCertLike // A
 
 // DelegationProof aliases auth.DelegationProofLike to
 // keep carrier contract signatures exactly aligned.
-type DelegationProof = auth.DelegationProofLike // A
+type DelegationProof = canonical.DelegationProofLike // A
 
 // AuthContext is a type alias for auth.AuthContext,
 // kept here for backward compatibility.

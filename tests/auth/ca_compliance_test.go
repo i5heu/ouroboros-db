@@ -1,6 +1,7 @@
 package auth_test // A
 
 import (
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
@@ -77,11 +78,11 @@ func TestPropertyAdminCAVerifyNodeCert(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		canonical, err := auth.CanonicalNodeCert(cert)
+		canonicalData, err := canonical.CanonicalNodeCert(cert)
 		if err != nil {
 			rt.Fatalf("CanonicalNodeCert: %v", err)
 		}
-		msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		sig, err := adminKP.ac.Sign(msg)
 		if err != nil {
 			rt.Fatalf("Sign: %v", err)
@@ -198,7 +199,7 @@ func TestPropertyUserCAValidAnchorAccepted(t *testing.T) {
 		}
 
 		userKP := getKeyFromPool(rt)
-		anchorMsg := auth.DomainSeparate(
+		anchorMsg := canonical.DomainSeparate(
 			auth.CTXUserCAAnchorV1,
 			userKP.combined,
 		)
@@ -234,12 +235,12 @@ func TestPropertySigDomainSeparation(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		canonical, err := auth.CanonicalNodeCert(cert)
+		canonicalData, err := canonical.CanonicalNodeCert(cert)
 		if err != nil {
 			rt.Fatalf("CanonicalNodeCert: %v", err)
 		}
 
-		expectedMsg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+		expectedMsg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		sig, err := adminKP.ac.Sign(expectedMsg)
 		if err != nil {
 			rt.Fatalf("Sign: %v", err)

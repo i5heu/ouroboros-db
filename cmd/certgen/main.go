@@ -13,11 +13,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"os"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )
 
@@ -150,7 +152,7 @@ func cmdUserCA(args []string) error { // A
 		return fmt.Errorf("user pubkey: %w", err)
 	}
 
-	anchorMsg := auth.DomainSeparate(
+	anchorMsg := canonical.DomainSeparate(
 		auth.CTXUserCAAnchorV1, userPubBytes,
 	)
 	anchorSig, err := adminAC.Sign(anchorMsg)
@@ -254,7 +256,7 @@ func cmdSignNode(args []string) error { // A
 		return fmt.Errorf("nonce: %w", err)
 	}
 
-	cert, err := auth.NewNodeCert(
+	cert, err := certpkg.NewNodeCert(
 		nodePub,
 		caHash,
 		now.Unix(),
@@ -266,12 +268,12 @@ func cmdSignNode(args []string) error { // A
 		return fmt.Errorf("node cert: %w", err)
 	}
 
-	canonical, err := auth.CanonicalNodeCert(cert)
+	canonicalData, err := canonical.CanonicalNodeCert(cert)
 	if err != nil {
 		return fmt.Errorf("canonical cert: %w", err)
 	}
-	msg := auth.DomainSeparate(
-		auth.CTXNodeAdmissionV1, canonical,
+	msg := canonical.DomainSeparate(
+		auth.CTXNodeAdmissionV1, canonicalData,
 	)
 	caSig, err := caAC.Sign(msg)
 	if err != nil {

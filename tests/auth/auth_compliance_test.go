@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"testing"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"pgregory.net/rapid"
 )
 
@@ -44,7 +46,7 @@ func TestPropertySignatureCountMismatch(t *testing.T) {
 		cert, _ := s.certData.toNodeCert()
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{cert},
+			Certs:           []canonical.NodeCertLike{cert},
 			CASignatures:    nil,
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -76,17 +78,17 @@ func TestPropertyUnknownIssuerRejected(t *testing.T) {
 		}
 
 		tls := genTLSSession().Draw(rt, "tls")
-		proof := auth.NewDelegationProof(
+		proof := delegation.NewDelegationProof(
 			tls.certPubKeyHash,
 			tls.exporterBinding,
 			tls.transcriptHash,
 			tls.x509Fingerprint,
 			[]byte("bundle-hash"),
-			now-5, now+auth.MaxDelegationTTL-10,
+			now-5, now+delegation.MaxDelegationTTL-10,
 		)
 
 		_, err = ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{cert},
+			Certs:           []canonical.NodeCertLike{cert},
 			CASignatures:    [][]byte{[]byte("sig")},
 			DelegationProof: proof,
 			DelegationSig:   []byte("del-sig"),
@@ -118,12 +120,12 @@ func TestPropertyExpiredCertFiltered(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		canonical, _ := auth.CanonicalNodeCert(expired)
-		msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+		canonicalData, _ := canonical.CanonicalNodeCert(expired)
+		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		sig, _ := s.adminKP.ac.Sign(msg)
 
 		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{expired},
+			Certs:           []canonical.NodeCertLike{expired},
 			CASignatures:    [][]byte{sig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -155,12 +157,12 @@ func TestPropertyNotYetValidCertFiltered(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		canonical, _ := auth.CanonicalNodeCert(future)
-		msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+		canonicalData, _ := canonical.CanonicalNodeCert(future)
+		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		sig, _ := s.adminKP.ac.Sign(msg)
 
 		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{future},
+			Certs:           []canonical.NodeCertLike{future},
 			CASignatures:    [][]byte{sig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -188,7 +190,7 @@ func TestPropertyRevokedCAFiltersCerts(t *testing.T) {
 		}
 
 		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -217,7 +219,7 @@ func TestPropertyRevokedNodeFiltersAllCerts(t *testing.T) {
 		}
 
 		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -244,7 +246,7 @@ func TestPropertyInvalidCASigRejected(t *testing.T) {
 		).Draw(rt, "badSig")
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{badSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -280,8 +282,8 @@ func TestPropertyMismatchedNodeIDRejected(t *testing.T) {
 		cd1.validFrom = now - 3600
 		cd1.validUntil = now + 3600
 		cert1, _ := cd1.toNodeCert()
-		canonical1, _ := auth.CanonicalNodeCert(cert1)
-		msg1 := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical1)
+		canonical1, _ := canonical.CanonicalNodeCert(cert1)
+		msg1 := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonical1)
 		sig1, _ := adminKP.ac.Sign(msg1)
 
 		cd2 := genCertData(node2KP, now).Draw(rt, "cert2")
@@ -289,18 +291,18 @@ func TestPropertyMismatchedNodeIDRejected(t *testing.T) {
 		cd2.validFrom = now - 3600
 		cd2.validUntil = now + 3600
 		cert2, _ := cd2.toNodeCert()
-		canonical2, _ := auth.CanonicalNodeCert(cert2)
-		msg2 := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical2)
+		canonical2, _ := canonical.CanonicalNodeCert(cert2)
+		msg2 := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonical2)
 		sig2, _ := adminKP.ac.Sign(msg2)
 
-		proof := auth.NewDelegationProof(
+		proof := delegation.NewDelegationProof(
 			[]byte("hash"), []byte("exp"), []byte("trans"),
 			[]byte("x509"), []byte("bundle"),
-			now-5, now+auth.MaxDelegationTTL-10,
+			now-5, now+delegation.MaxDelegationTTL-10,
 		)
 
 		_, err := ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{cert1, cert2},
+			Certs:           []canonical.NodeCertLike{cert1, cert2},
 			CASignatures:    [][]byte{sig1, sig2},
 			DelegationProof: proof,
 			DelegationSig:   []byte("del-sig"),
@@ -327,7 +329,7 @@ func TestPropertyWrongDelegationSigRejected(t *testing.T) {
 		).Draw(rt, "badDelSig")
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   badDelSig,
@@ -357,7 +359,7 @@ func TestPropertyTLSCertHashMismatchRejected(t *testing.T) {
 		}
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -387,7 +389,7 @@ func TestPropertyX509FingerprintMismatchRejected(t *testing.T) {
 		}
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -416,7 +418,7 @@ func TestPropertyBundleHashMismatchRejected(t *testing.T) {
 			wrongBundle[0] ^= 0xFF
 		}
 
-		tampered := auth.NewDelegationProof(
+		tampered := delegation.NewDelegationProof(
 			s.proof.TLSCertPubKeyHash(),
 			s.proof.TLSExporterBinding(),
 			s.proof.TLSTranscriptHash(),
@@ -426,12 +428,12 @@ func TestPropertyBundleHashMismatchRejected(t *testing.T) {
 			s.proof.NotAfter(),
 		)
 
-		canon, _ := auth.CanonicalDelegationProof(tampered)
-		msg := auth.DomainSeparate(auth.CTXNodeDelegationV1, canon)
+		canon, _ := canonical.CanonicalDelegationProof(tampered)
+		msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
 		sig, _ := s.nodeKP.ac.Sign(msg)
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: tampered,
 			DelegationSig:   sig,
@@ -454,7 +456,7 @@ func TestPropertyDelegationExpiredRejected(t *testing.T) {
 		s := buildAdminScenario(rt)
 
 		now := time.Now().Unix()
-		expiredProof := auth.NewDelegationProof(
+		expiredProof := delegation.NewDelegationProof(
 			s.proof.TLSCertPubKeyHash(),
 			s.proof.TLSExporterBinding(),
 			s.proof.TLSTranscriptHash(),
@@ -464,12 +466,12 @@ func TestPropertyDelegationExpiredRejected(t *testing.T) {
 			now-300,
 		)
 
-		canon, _ := auth.CanonicalDelegationProof(expiredProof)
-		msg := auth.DomainSeparate(auth.CTXNodeDelegationV1, canon)
+		canon, _ := canonical.CanonicalDelegationProof(expiredProof)
+		msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
 		sig, _ := s.nodeKP.ac.Sign(msg)
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: expiredProof,
 			DelegationSig:   sig,
@@ -492,8 +494,8 @@ func TestPropertyDelegationTTLTooLong(t *testing.T) {
 		s := buildAdminScenario(rt)
 
 		now := time.Now().Unix()
-		longTTL := auth.MaxDelegationTTL + 100
-		longProof := auth.NewDelegationProof(
+		longTTL := delegation.MaxDelegationTTL + 100
+		longProof := delegation.NewDelegationProof(
 			s.proof.TLSCertPubKeyHash(),
 			s.proof.TLSExporterBinding(),
 			s.proof.TLSTranscriptHash(),
@@ -503,12 +505,12 @@ func TestPropertyDelegationTTLTooLong(t *testing.T) {
 			now+longTTL,
 		)
 
-		canon, _ := auth.CanonicalDelegationProof(longProof)
-		msg := auth.DomainSeparate(auth.CTXNodeDelegationV1, canon)
+		canon, _ := canonical.CanonicalDelegationProof(longProof)
+		msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
 		sig, _ := s.nodeKP.ac.Sign(msg)
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: longProof,
 			DelegationSig:   sig,
@@ -538,7 +540,7 @@ func TestPropertyExporterBindingMismatchRejected(t *testing.T) {
 		}
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -568,7 +570,7 @@ func TestPropertyTranscriptHashMismatchRejected(t *testing.T) {
 		}
 
 		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -591,7 +593,7 @@ func TestPropertyAdminScopeFromAdminCert(t *testing.T) {
 		s := buildAdminScenario(rt)
 
 		ctx, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,
@@ -628,7 +630,7 @@ func TestPropertyUserScopeFromUserCert(t *testing.T) {
 		}
 		adminCA, _ := auth.NewAdminCA(adminKP.combined)
 
-		anchorMsg := auth.DomainSeparate(
+		anchorMsg := canonical.DomainSeparate(
 			auth.CTXUserCAAnchorV1,
 			userKP.combined,
 		)
@@ -647,30 +649,30 @@ func TestPropertyUserScopeFromUserCert(t *testing.T) {
 		cd.validUntil = now + 3600
 		cert, _ := cd.toNodeCert()
 
-		canonical, _ := auth.CanonicalNodeCert(cert)
-		msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+		canonicalData, _ := canonical.CanonicalNodeCert(cert)
+		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		caSig, _ := userKP.ac.Sign(msg)
 
-		certs := []auth.NodeCertLike{cert}
-		bundleBytes, _ := auth.CanonicalNodeCertBundle(certs)
+		certs := []canonical.NodeCertLike{cert}
+		bundleBytes, _ := canonical.CanonicalNodeCertBundle(certs)
 		bundleHash := sha256.Sum256(bundleBytes)
 
 		tls := genTLSSession().Draw(rt, "tls")
-		proofNoExp := auth.NewDelegationProof(
+		proofNoExp := delegation.NewDelegationProof(
 			tls.certPubKeyHash, nil,
 			tls.transcriptHash, tls.x509Fingerprint,
-			bundleHash[:], now-5, now+auth.MaxDelegationTTL-10,
+			bundleHash[:], now-5, now+delegation.MaxDelegationTTL-10,
 		)
-		expCtx, _ := auth.CanonicalDelegationProofForExporter(proofNoExp)
+		expCtx, _ := canonical.CanonicalDelegationProofForExporter(proofNoExp)
 		exporter := deriveTestExporter(expCtx)
 
-		proof := auth.NewDelegationProof(
+		proof := delegation.NewDelegationProof(
 			tls.certPubKeyHash, exporter,
 			tls.transcriptHash, tls.x509Fingerprint,
-			bundleHash[:], now-5, now+auth.MaxDelegationTTL-10,
+			bundleHash[:], now-5, now+delegation.MaxDelegationTTL-10,
 		)
-		delCanon, _ := auth.CanonicalDelegationProof(proof)
-		delMsg := auth.DomainSeparate(auth.CTXNodeDelegationV1, delCanon)
+		delCanon, _ := canonical.CanonicalDelegationProof(proof)
+		delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanon)
 		delSig, _ := nodeKP.ac.Sign(delMsg)
 
 		ctx, err := ca.VerifyPeerCert(auth.PeerHandshake{
@@ -711,7 +713,7 @@ func TestPropertyAdminDominatesUserScope(t *testing.T) {
 		}
 		adminCA, _ := auth.NewAdminCA(adminKP.combined)
 
-		anchorMsg := auth.DomainSeparate(
+		anchorMsg := canonical.DomainSeparate(
 			auth.CTXUserCAAnchorV1,
 			userKP.combined,
 		)
@@ -730,8 +732,8 @@ func TestPropertyAdminDominatesUserScope(t *testing.T) {
 		adminCert.validFrom = now - 3600
 		adminCert.validUntil = now + 3600
 		adminCertInst, _ := adminCert.toNodeCert()
-		adminCanon, _ := auth.CanonicalNodeCert(adminCertInst)
-		adminMsg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, adminCanon)
+		adminCanon, _ := canonical.CanonicalNodeCert(adminCertInst)
+		adminMsg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, adminCanon)
 		adminSig, _ := adminKP.ac.Sign(adminMsg)
 
 		userCert := genCertData(nodeKP, now).Draw(rt, "userCert")
@@ -739,30 +741,30 @@ func TestPropertyAdminDominatesUserScope(t *testing.T) {
 		userCert.validFrom = now - 3600
 		userCert.validUntil = now + 3600
 		userCertInst, _ := userCert.toNodeCert()
-		userCanon, _ := auth.CanonicalNodeCert(userCertInst)
-		userMsg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, userCanon)
+		userCanon, _ := canonical.CanonicalNodeCert(userCertInst)
+		userMsg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, userCanon)
 		userSig, _ := userKP.ac.Sign(userMsg)
 
-		certs := []auth.NodeCertLike{adminCertInst, userCertInst}
-		bundleBytes, _ := auth.CanonicalNodeCertBundle(certs)
+		certs := []canonical.NodeCertLike{adminCertInst, userCertInst}
+		bundleBytes, _ := canonical.CanonicalNodeCertBundle(certs)
 		bundleHash := sha256.Sum256(bundleBytes)
 
 		tls := genTLSSession().Draw(rt, "tls")
-		proofNoExp := auth.NewDelegationProof(
+		proofNoExp := delegation.NewDelegationProof(
 			tls.certPubKeyHash, nil,
 			tls.transcriptHash, tls.x509Fingerprint,
-			bundleHash[:], now-5, now+auth.MaxDelegationTTL-10,
+			bundleHash[:], now-5, now+delegation.MaxDelegationTTL-10,
 		)
-		expCtx, _ := auth.CanonicalDelegationProofForExporter(proofNoExp)
+		expCtx, _ := canonical.CanonicalDelegationProofForExporter(proofNoExp)
 		exporter := deriveTestExporter(expCtx)
 
-		proof := auth.NewDelegationProof(
+		proof := delegation.NewDelegationProof(
 			tls.certPubKeyHash, exporter,
 			tls.transcriptHash, tls.x509Fingerprint,
-			bundleHash[:], now-5, now+auth.MaxDelegationTTL-10,
+			bundleHash[:], now-5, now+delegation.MaxDelegationTTL-10,
 		)
-		delCanon, _ := auth.CanonicalDelegationProof(proof)
-		delMsg := auth.DomainSeparate(auth.CTXNodeDelegationV1, delCanon)
+		delCanon, _ := canonical.CanonicalDelegationProof(proof)
+		delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanon)
 		delSig, _ := nodeKP.ac.Sign(delMsg)
 
 		ctx, err := ca.VerifyPeerCert(auth.PeerHandshake{
@@ -823,7 +825,7 @@ func TestPropertyAnchorAdminRemovalInvalidatesUserCA(t *testing.T) {
 		}
 		adminCA, _ := auth.NewAdminCA(adminKP.combined)
 
-		anchorMsg := auth.DomainSeparate(
+		anchorMsg := canonical.DomainSeparate(
 			auth.CTXUserCAAnchorV1,
 			userKP.combined,
 		)
@@ -844,22 +846,22 @@ func TestPropertyAnchorAdminRemovalInvalidatesUserCA(t *testing.T) {
 		cd.validUntil = now + 3600
 		cert, _ := cd.toNodeCert()
 
-		canonical, _ := auth.CanonicalNodeCert(cert)
-		msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+		canonicalData, _ := canonical.CanonicalNodeCert(cert)
+		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		caSig, _ := userKP.ac.Sign(msg)
 
-		certs := []auth.NodeCertLike{cert}
-		bundleBytes, _ := auth.CanonicalNodeCertBundle(certs)
+		certs := []canonical.NodeCertLike{cert}
+		bundleBytes, _ := canonical.CanonicalNodeCertBundle(certs)
 		bundleHash := sha256.Sum256(bundleBytes)
 
 		tls := genTLSSession().Draw(rt, "tls")
-		proof := auth.NewDelegationProof(
+		proof := delegation.NewDelegationProof(
 			tls.certPubKeyHash, tls.exporterBinding,
 			tls.transcriptHash, tls.x509Fingerprint,
-			bundleHash[:], now-5, now+auth.MaxDelegationTTL-10,
+			bundleHash[:], now-5, now+delegation.MaxDelegationTTL-10,
 		)
-		delCanon, _ := auth.CanonicalDelegationProof(proof)
-		delMsg := auth.DomainSeparate(auth.CTXNodeDelegationV1, delCanon)
+		delCanon, _ := canonical.CanonicalDelegationProof(proof)
+		delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanon)
 		delSig, _ := nodeKP.ac.Sign(delMsg)
 
 		_, err := ca.VerifyPeerCert(auth.PeerHandshake{
@@ -886,7 +888,7 @@ func TestPropertySuccessfulVerification(t *testing.T) {
 		s := buildAdminScenario(rt)
 
 		ctx, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
-			Certs:           []auth.NodeCertLike{s.cert},
+			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
 			DelegationSig:   s.delSig,

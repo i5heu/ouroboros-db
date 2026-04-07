@@ -3,6 +3,7 @@ package auth_test // A
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"log/slog"
 	"os"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	"pgregory.net/rapid"
 )
@@ -173,7 +175,7 @@ func genDelegationData(
 ) *rapid.Generator[*delegationData] {
 	return rapid.Custom(func(t *rapid.T) *delegationData {
 		notBefore := rapid.Int64Range(now-60, now+60).Draw(t, "delNotBefore")
-		maxTTL := auth.MaxDelegationTTL
+		maxTTL := delegation.MaxDelegationTTL
 		ttl := rapid.Int64Range(10, maxTTL).Draw(t, "delTTL")
 		notAfter := notBefore + ttl
 		bundleHash := rapid.SliceOfN(
@@ -188,8 +190,8 @@ func genDelegationData(
 	})
 }
 
-func (dd *delegationData) toDelegationProof() *auth.DelegationProofImpl {
-	return auth.NewDelegationProof(
+func (dd *delegationData) toDelegationProof() *delegation.DelegationProofImpl {
+	return delegation.NewDelegationProof(
 		dd.tls.certPubKeyHash,
 		dd.tls.exporterBinding,
 		dd.tls.transcriptHash,
@@ -201,7 +203,7 @@ func (dd *delegationData) toDelegationProof() *auth.DelegationProofImpl {
 }
 
 func deriveTestExporter(ctx []byte) []byte {
-	payload := append([]byte(auth.ExporterLabel), ctx...)
+	payload := append([]byte(delegation.ExporterLabel), ctx...)
 	sum := sha256.Sum256(payload)
 	return sum[:]
 }
@@ -214,7 +216,7 @@ type fullAdminScenario struct {
 	cert     *auth.NodeCertImpl
 	certData *certData
 	caSig    []byte
-	proof    *auth.DelegationProofImpl
+	proof    *delegation.DelegationProofImpl
 	delData  *delegationData
 	delSig   []byte
 	tls      *tlsSession
@@ -244,19 +246,19 @@ func buildAdminScenario(t *rapid.T) *fullAdminScenario {
 		t.Fatalf("toNodeCert: %v", err)
 	}
 
-	canonical, err := auth.CanonicalNodeCert(cert)
+	canonicalData, err := canonical.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatalf("CanonicalNodeCert: %v", err)
 	}
-	msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+	msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 	caSig, err := adminKP.ac.Sign(msg)
 	if err != nil {
 		t.Fatalf("admin sign: %v", err)
 	}
 
 	tls := genTLSSession().Draw(t, "tls")
-	certs := []auth.NodeCertLike{cert}
-	bundleBytes, err := auth.CanonicalNodeCertBundle(certs)
+	certs := []canonical.NodeCertLike{cert}
+	bundleBytes, err := canonical.CanonicalNodeCertBundle(certs)
 	if err != nil {
 		t.Fatalf("CanonicalNodeCertBundle: %v", err)
 	}
@@ -266,9 +268,9 @@ func buildAdminScenario(t *rapid.T) *fullAdminScenario {
 		tls:        tls,
 		bundleHash: bundleHash[:],
 		notBefore:  now - 5,
-		notAfter:   now + auth.MaxDelegationTTL - 10,
+		notAfter:   now + delegation.MaxDelegationTTL - 10,
 	}
-	proofNoExp := auth.NewDelegationProof(
+	proofNoExp := delegation.NewDelegationProof(
 		tls.certPubKeyHash,
 		nil,
 		tls.transcriptHash,
@@ -277,14 +279,14 @@ func buildAdminScenario(t *rapid.T) *fullAdminScenario {
 		delData.notBefore,
 		delData.notAfter,
 	)
-	expCtx, err := auth.CanonicalDelegationProofForExporter(proofNoExp)
+	expCtx, err := canonical.CanonicalDelegationProofForExporter(proofNoExp)
 	if err != nil {
 		t.Fatalf("CanonicalDelegationProofForExporter: %v", err)
 	}
 	exporter := deriveTestExporter(expCtx)
 	delData.tls.exporterBinding = exporter
 
-	proof := auth.NewDelegationProof(
+	proof := delegation.NewDelegationProof(
 		tls.certPubKeyHash,
 		exporter,
 		tls.transcriptHash,
@@ -294,11 +296,11 @@ func buildAdminScenario(t *rapid.T) *fullAdminScenario {
 		delData.notAfter,
 	)
 
-	delCanonical, err := auth.CanonicalDelegationProof(proof)
+	delCanonical, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatalf("CanonicalDelegationProof: %v", err)
 	}
-	delMsg := auth.DomainSeparate(auth.CTXNodeDelegationV1, delCanonical)
+	delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanonical)
 	delSig, err := nodeKP.ac.Sign(delMsg)
 	if err != nil {
 		t.Fatalf("node sign delegation: %v", err)

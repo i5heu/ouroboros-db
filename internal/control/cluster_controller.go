@@ -2,7 +2,7 @@
 // the per-node control layer for handler registration,
 // TrustScope-based access control, and message
 // dispatch.
-package cluster
+package control
 
 import (
 	"context"

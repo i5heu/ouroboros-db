@@ -1,6 +1,9 @@
 package auth
 
-import "github.com/i5heu/ouroboros-crypt/pkg/keys"
+import (
+	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
+)
 
 // TrustScope represents the authenticated
 // authorization scope of a peer.
@@ -33,26 +36,15 @@ type TLSBindings struct { // A
 	TranscriptHash  []byte
 }
 
-// EmbeddedCA carries public-only CA chain material
-// that can be shipped alongside a node certificate
-// bundle during peer authentication.
-type EmbeddedCA struct { // A
-	Type        string
-	PubKEM      []byte
-	PubSign     []byte
-	AnchorSig   []byte
-	AnchorAdmin string
-}
-
 // PeerHandshake bundles all inputs required by
 // VerifyPeerCert into a single value. This prevents
 // argument-ordering mistakes and makes the API
 // easier to use safely.
 type PeerHandshake struct { // A
-	Certs           []NodeCertLike
+	Certs           []canonical.NodeCertLike
 	CASignatures    [][]byte
 	Authorities     []EmbeddedCA
-	DelegationProof DelegationProofLike
+	DelegationProof canonical.DelegationProofLike
 	DelegationSig   []byte
 	TLS             TLSBindings
 }

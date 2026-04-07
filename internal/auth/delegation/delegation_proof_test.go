@@ -1,8 +1,10 @@
-package auth
+package delegation
 
 import (
 	"bytes"
 	"testing"
+
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
 func TestNewDelegationProof(t *testing.T) { // A
@@ -42,7 +44,7 @@ func TestDelegationProofInterface(t *testing.T) { // A
 	proof := NewDelegationProof(
 		nil, nil, nil, nil, nil, 0, 0,
 	)
-	var _ DelegationProofLike = proof
+	var _ canonical.DelegationProofLike = proof
 }
 
 func TestDelegationProofDefensiveCopiesByteFields( // A
@@ -66,7 +68,8 @@ func TestDelegationProofDefensiveCopiesByteFields( // A
 
 	tlsCertHash[0] = 'X'
 	exporter[0] = 'Y'
-	transcript[0] = 'Z'
+	transcriptHash := transcript
+	transcriptHash[0] = 'Z'
 	x509[0] = 'W'
 	bundle[0] = 'Q'
 

@@ -1,10 +1,39 @@
-package auth
+package ca
 
 import (
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	canonicalpkg "github.com/i5heu/ouroboros-db/internal/auth/canonical"
+	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 )
+
+func mustKeyPair(t *testing.T) *keys.AsyncCrypt { // A
+	t.Helper()
+	ac, err := keys.NewAsyncCrypt()
+	if err != nil {
+		t.Fatalf("key generation failed: %v", err)
+	}
+	return ac
+}
+
+func mustNodeCert( // A
+	t *testing.T,
+	pub keys.PublicKey,
+	issuer string,
+) *certpkg.NodeCertImpl {
+	t.Helper()
+	cert, err := certpkg.NewNodeCert(
+		pub, issuer,
+		1000, 2000,
+		[]byte("serial-1"),
+		[]byte("nonce-1"),
+	)
+	if err != nil {
+		t.Fatalf("NewNodeCert failed: %v", err)
+	}
+	return cert
+}
 
 func mustAdminCA( // A
 	t *testing.T,
@@ -68,11 +97,11 @@ func TestAdminCAVerifyNodeCert(t *testing.T) { // A
 	cert := mustNodeCert(t, nodePub, admin.Hash())
 
 	// Sign the cert with the CA key.
-	canonical, err := CanonicalNodeCert(cert)
+	canonical, err := canonicalpkg.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := DomainSeparate(CTXNodeAdmissionV1, canonical)
+	msg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
 	sig, err := caAC.Sign(msg)
 	if err != nil {
 		t.Fatal(err)

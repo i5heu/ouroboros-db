@@ -13,6 +13,7 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )
 
@@ -80,11 +81,11 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 	if err != nil {
 		t.Fatalf("NewNodeCert: %v", err)
 	}
-	canonical, err := auth.CanonicalNodeCert(cert)
+	canonicalData, err := canonical.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatalf("CanonicalNodeCert: %v", err)
 	}
-	msg := auth.DomainSeparate(auth.CTXNodeAdmissionV1, canonical)
+	msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 	caSig, err := adminAC.Sign(msg)
 	if err != nil {
 		t.Fatalf("sign cert: %v", err)

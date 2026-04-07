@@ -11,6 +11,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )
 
@@ -110,7 +111,7 @@ func TestUserCAWriteReadRoundtrip( // A
 	if err != nil {
 		t.Fatalf("user pub: %v", err)
 	}
-	anchorMsg := auth.DomainSeparate(
+	anchorMsg := canonical.DomainSeparate(
 		auth.CTXUserCAAnchorV1, userPubBytes,
 	)
 	anchorSig, err := adminAC.Sign(anchorMsg)
@@ -214,12 +215,12 @@ func TestNodeCertSignAndVerify(t *testing.T) { // A
 	}
 
 	// 4. Sign the cert with the loaded CA key.
-	canonical, err := auth.CanonicalNodeCert(cert)
+	canonicalData, err := canonical.CanonicalNodeCert(cert)
 	if err != nil {
 		t.Fatalf("canonical: %v", err)
 	}
-	msg := auth.DomainSeparate(
-		auth.CTXNodeAdmissionV1, canonical,
+	msg := canonical.DomainSeparate(
+		auth.CTXNodeAdmissionV1, canonicalData,
 	)
 	caSig, err := caAC.Sign(msg)
 	if err != nil {
@@ -336,9 +337,9 @@ func TestNodeCertToIdentity(t *testing.T) { // A
 		now.Unix(), now.Add(24*time.Hour).Unix(),
 		serial, nonce,
 	)
-	canonical, _ := auth.CanonicalNodeCert(cert)
-	msg := auth.DomainSeparate(
-		auth.CTXNodeAdmissionV1, canonical,
+	canonicalData, _ := canonical.CanonicalNodeCert(cert)
+	msg := canonical.DomainSeparate(
+		auth.CTXNodeAdmissionV1, canonicalData,
 	)
 	caSig, _ := adminAC.Sign(msg)
 
@@ -435,7 +436,7 @@ func TestBuildEmbeddedTrustChainUser( // A
 	if err != nil {
 		t.Fatalf("user pub: %v", err)
 	}
-	anchorMsg := auth.DomainSeparate(
+	anchorMsg := canonical.DomainSeparate(
 		auth.CTXUserCAAnchorV1,
 		userPubBytes,
 	)
@@ -555,7 +556,7 @@ func TestAddEmbeddedTrustUserChain( // A
 	if err != nil {
 		t.Fatalf("NewAdminCA user hash: %v", err)
 	}
-	anchorMsg := auth.DomainSeparate(
+	anchorMsg := canonical.DomainSeparate(
 		auth.CTXUserCAAnchorV1,
 		userPubBytes,
 	)

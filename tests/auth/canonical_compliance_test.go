@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"pgregory.net/rapid"
 )
 
@@ -19,11 +19,11 @@ func TestPropertyCanonicalNodeCertDeterministic(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		enc1, err := auth.CanonicalNodeCert(cert)
+		enc1, err := canonical.CanonicalNodeCert(cert)
 		if err != nil {
 			rt.Fatalf("first encoding: %v", err)
 		}
-		enc2, err := auth.CanonicalNodeCert(cert)
+		enc2, err := canonical.CanonicalNodeCert(cert)
 		if err != nil {
 			rt.Fatalf("second encoding: %v", err)
 		}
@@ -48,7 +48,7 @@ func TestPropertyCanonicalNodeCertNotEmpty(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		enc, err := auth.CanonicalNodeCert(cert)
+		enc, err := canonical.CanonicalNodeCert(cert)
 		if err != nil {
 			rt.Fatalf("encoding: %v", err)
 		}
@@ -78,12 +78,12 @@ func TestPropertyCanonicalBundleDeterministic(t *testing.T) {
 			rt.Fatalf("cert2: %v", err)
 		}
 
-		certs := []auth.NodeCertLike{cert1, cert2}
-		enc1, err := auth.CanonicalNodeCertBundle(certs)
+		certs := []canonical.NodeCertLike{cert1, cert2}
+		enc1, err := canonical.CanonicalNodeCertBundle(certs)
 		if err != nil {
 			rt.Fatalf("first bundle: %v", err)
 		}
-		enc2, err := auth.CanonicalNodeCertBundle(certs)
+		enc2, err := canonical.CanonicalNodeCertBundle(certs)
 		if err != nil {
 			rt.Fatalf("second bundle: %v", err)
 		}
@@ -116,14 +116,14 @@ func TestPropertyCanonicalBundleOrderIndependent(t *testing.T) {
 			rt.Fatalf("cert2: %v", err)
 		}
 
-		order1 := []auth.NodeCertLike{cert1, cert2}
-		order2 := []auth.NodeCertLike{cert2, cert1}
+		order1 := []canonical.NodeCertLike{cert1, cert2}
+		order2 := []canonical.NodeCertLike{cert2, cert1}
 
-		enc1, err := auth.CanonicalNodeCertBundle(order1)
+		enc1, err := canonical.CanonicalNodeCertBundle(order1)
 		if err != nil {
 			rt.Fatalf("order1 bundle: %v", err)
 		}
-		enc2, err := auth.CanonicalNodeCertBundle(order2)
+		enc2, err := canonical.CanonicalNodeCertBundle(order2)
 		if err != nil {
 			rt.Fatalf("order2 bundle: %v", err)
 		}
@@ -148,8 +148,8 @@ func TestPropertyCanonicalBundleSingleCert(t *testing.T) {
 			rt.Fatalf("toNodeCert: %v", err)
 		}
 
-		bundle, err := auth.CanonicalNodeCertBundle(
-			[]auth.NodeCertLike{cert},
+		bundle, err := canonical.CanonicalNodeCertBundle(
+			[]canonical.NodeCertLike{cert},
 		)
 		if err != nil {
 			rt.Fatalf("bundle: %v", err)
@@ -169,11 +169,11 @@ func TestPropertyCanonicalDelegationDeterministic(t *testing.T) {
 		dd := genDelegationData(tls, now).Draw(rt, "delData")
 		proof := dd.toDelegationProof()
 
-		enc1, err := auth.CanonicalDelegationProof(proof)
+		enc1, err := canonical.CanonicalDelegationProof(proof)
 		if err != nil {
 			rt.Fatalf("first encoding: %v", err)
 		}
-		enc2, err := auth.CanonicalDelegationProof(proof)
+		enc2, err := canonical.CanonicalDelegationProof(proof)
 		if err != nil {
 			rt.Fatalf("second encoding: %v", err)
 		}
@@ -195,11 +195,11 @@ func TestPropertyCanonicalDelegationForExporterDiffers(t *testing.T) {
 		dd := genDelegationData(tls, now).Draw(rt, "delData")
 		proof := dd.toDelegationProof()
 
-		full, err := auth.CanonicalDelegationProof(proof)
+		full, err := canonical.CanonicalDelegationProof(proof)
 		if err != nil {
 			rt.Fatalf("full encoding: %v", err)
 		}
-		noExp, err := auth.CanonicalDelegationProofForExporter(proof)
+		noExp, err := canonical.CanonicalDelegationProofForExporter(proof)
 		if err != nil {
 			rt.Fatalf("exporter encoding: %v", err)
 		}
@@ -223,7 +223,7 @@ func TestPropertyDomainSeparationPrepends(t *testing.T) {
 			rapid.Byte(), 0, 64,
 		).Draw(rt, "data")
 
-		result := auth.DomainSeparate(ctx, data)
+		result := canonical.DomainSeparate(ctx, data)
 
 		// Expect 4-byte big-endian length prefix.
 		prefix := []byte(ctx)
@@ -256,7 +256,7 @@ func TestPropertyDomainSeparationLength(t *testing.T) {
 			rapid.Byte(), 0, 64,
 		).Draw(rt, "data")
 
-		result := auth.DomainSeparate(ctx, data)
+		result := canonical.DomainSeparate(ctx, data)
 		expectedLen := 4 + len(ctx) + len(data)
 
 		if len(result) != expectedLen {

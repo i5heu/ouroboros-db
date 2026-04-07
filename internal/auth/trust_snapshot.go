@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 )
 
 // trustSnapshot is a shallow copy of the trust store
@@ -68,7 +69,7 @@ func (ca *carrierAuth) snapTrustStore() *trustSnapshot { // A
 // validity/revocation filtering, authority
 // verification.
 func (ts *trustSnapshot) verifyChain( // A
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 	sigs [][]byte,
 	nowUnix int64,
 ) (*authResult, error) {
@@ -104,7 +105,7 @@ func (ts *trustSnapshot) lookupIssuer( // A
 // filterValidCerts performs checks 1-2: discovers
 // issuers and filters by validity/revocation.
 func (ts *trustSnapshot) filterValidCerts( // A
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 	now int64,
 ) ([]int, error) {
 	var valid []int
@@ -143,7 +144,7 @@ func (ts *trustSnapshot) isNodeRevoked( // A
 // isCertValid checks a single cert's time window,
 // issuer existence, and revocation status.
 func (ts *trustSnapshot) isCertValid( // A
-	cert NodeCertLike,
+	cert canonical.NodeCertLike,
 	now int64,
 ) bool {
 	if now < cert.ValidFrom() ||
@@ -179,7 +180,7 @@ func (ts *trustSnapshot) isUserCAAnchorValid( // A
 	if !ok {
 		return true
 	}
-	ah := issuer.anchorAdminHash
+	ah := issuer.AnchorAdminHash()
 	if _, revoked := ts.revokedAdminCAs[ah]; revoked {
 		return false
 	}
@@ -285,8 +286,8 @@ func (ts *trustSnapshot) addEmbeddedUser( // A
 	if _, revoked := ts.revokedAdminCAs[authority.AnchorAdmin]; revoked {
 		return ErrAnchorAdminRevoked
 	}
-	msg := DomainSeparate(CTXUserCAAnchorV1, pubBytes)
-	if !admin.pubKey.Verify(msg, authority.AnchorSig) {
+	msg := canonical.DomainSeparate(CTXUserCAAnchorV1, pubBytes)
+	if !admin.Verify(msg, authority.AnchorSig) {
 		return ErrInvalidAnchorSig
 	}
 	ts.userCAs[hash] = user
@@ -303,7 +304,7 @@ func embeddedAuthorityPubKeyBytes( // A
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded authority: %w", err)
 	}
-	pubBytes, err := marshalPubKeyBytes(pub)
+	pubBytes, err := MarshalPubKeyBytes(pub)
 	if err != nil {
 		return nil, fmt.Errorf("marshal embedded authority: %w", err)
 	}
@@ -314,7 +315,7 @@ func embeddedAuthorityPubKeyBytes( // A
 // signatures and ensures all certs share the same
 // NodeID.
 func (ts *trustSnapshot) verifyAuthority( // A
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 	sigs [][]byte,
 	validIdxs []int,
 ) (*authResult, error) {
@@ -375,7 +376,7 @@ func (ts *trustSnapshot) verifyAuthority( // A
 // verifySingleCert verifies one cert's CA signature
 // and returns its NodeID and issuer type.
 func (ts *trustSnapshot) verifySingleCert( // A
-	cert NodeCertLike,
+	cert canonical.NodeCertLike,
 	sig []byte,
 ) (keys.NodeID, *keys.PublicKey, issuerType, error) {
 	issuer, found := ts.lookupIssuer(

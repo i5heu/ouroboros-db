@@ -4,10 +4,12 @@ package authfile
 
 import (
 	"fmt"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"os"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	pb "github.com/i5heu/ouroboros-db/proto/authfile"
 	"google.golang.org/protobuf/proto"
@@ -256,13 +258,13 @@ func ReadNodeCert(path string) ( // A
 }
 
 // NodeCertToIdentity converts a loaded NodeCertFile
-// into an auth.NodeIdentity ready for connections.
+// into an certpkg.NodeIdentity ready for connections.
 func NodeCertToIdentity( // A
 	ac *keys.AsyncCrypt,
 	f *NodeCertFile,
-) (*auth.NodeIdentity, error) {
+) (*certpkg.NodeIdentity, error) {
 	pub := ac.GetPublicKey()
-	cert, err := auth.NewNodeCert(
+	cert, err := certpkg.NewNodeCert(
 		pub,
 		f.IssuerCAHash,
 		f.ValidFrom,
@@ -273,9 +275,9 @@ func NodeCertToIdentity( // A
 	if err != nil {
 		return nil, fmt.Errorf("node cert: %w", err)
 	}
-	certs := []auth.NodeCertLike{cert}
+	certs := []canonical.NodeCertLike{cert}
 	sigs := [][]byte{f.CASignature}
-	return auth.NewNodeIdentity(
+	return certpkg.NewNodeIdentity(
 		ac,
 		certs,
 		sigs,

@@ -1,4 +1,4 @@
-package auth
+package cert
 
 import (
 	"crypto/tls"
@@ -7,25 +7,31 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
+	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 )
+
+// EmbeddedCA carries public-only CA chain material
+// that can be shipped alongside a node certificate
+// bundle during peer authentication.
+type EmbeddedCA struct { // A
+	Type        string
+	PubKEM      []byte
+	PubSign     []byte
+	AnchorSig   []byte
+	AnchorAdmin string
+}
 
 // NodeIdentity bundles all materials a node needs to
 // establish authenticated connections with cluster
 // peers. It manages the persistent ML-DSA-87 key
 // pair, the ephemeral session identity (Phase 2),
 // and the NodeCert bundle signed by CAs (Phase 1).
-//
-// Usage:
-//
-//	ni, _ := auth.NewNodeIdentity(key, certs, sigs)
-//	// Use ni.TLSClientConfig() / TLSServerConfig()
-//	// for QUIC transport, then call SignDelegation
-//	// with ni.ExporterFn(conn) after TLS completes.
 type NodeIdentity struct { // A
 	mu          sync.RWMutex
 	key         *keys.AsyncCrypt
-	session     *SessionIdentity
-	certs       []NodeCertLike
+	session     *delegation.SessionIdentity
+	certs       []canonical.NodeCertLike
 	caSigs      [][]byte
 	authorities []EmbeddedCA
 	nodeID      keys.NodeID
@@ -37,7 +43,7 @@ type NodeIdentity struct { // A
 // SessionIdentity is generated automatically.
 func NewNodeIdentity( // A
 	key *keys.AsyncCrypt,
-	certs []NodeCertLike,
+	certs []canonical.NodeCertLike,
 	caSigs [][]byte,
 	authorities []EmbeddedCA,
 ) (*NodeIdentity, error) {
@@ -53,8 +59,8 @@ func NewNodeIdentity( // A
 		)
 	}
 	nodeID := certs[0].NodeID()
-	session, err := NewSessionIdentity(
-		time.Duration(MaxDelegationTTL) * time.Second,
+	session, err := delegation.NewSessionIdentity(
+		time.Duration(delegation.MaxDelegationTTL) * time.Second,
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -62,12 +68,14 @@ func NewNodeIdentity( // A
 		)
 	}
 	return &NodeIdentity{
-		key:         key,
-		session:     session,
-		certs:       certs,
-		caSigs:      caSigs,
-		authorities: append([]EmbeddedCA(nil), authorities...),
-		nodeID:      nodeID,
+		key:     key,
+		session: session,
+		certs:   certs,
+		caSigs:  caSigs,
+		authorities: append(
+			[]EmbeddedCA(nil), authorities...,
+		),
+		nodeID: nodeID,
 	}, nil
 }
 
@@ -82,10 +90,12 @@ func (ni *NodeIdentity) Key() *keys.AsyncCrypt { // A
 }
 
 // Certs returns the NodeCert bundle.
-func (ni *NodeIdentity) Certs() []NodeCertLike { // A
+func (ni *NodeIdentity) Certs() []canonical.NodeCertLike { // A
 	ni.mu.RLock()
 	defer ni.mu.RUnlock()
-	out := make([]NodeCertLike, len(ni.certs))
+	out := make(
+		[]canonical.NodeCertLike, len(ni.certs),
+	)
 	copy(out, ni.certs)
 	return out
 }
@@ -106,13 +116,15 @@ func (ni *NodeIdentity) CASigs() [][]byte { // A
 func (ni *NodeIdentity) Authorities() []EmbeddedCA { // A
 	ni.mu.RLock()
 	defer ni.mu.RUnlock()
-	out := make([]EmbeddedCA, len(ni.authorities))
+	out := make(
+		[]EmbeddedCA, len(ni.authorities),
+	)
 	copy(out, ni.authorities)
 	return out
 }
 
 // Session returns the current SessionIdentity.
-func (ni *NodeIdentity) Session() *SessionIdentity { // A
+func (ni *NodeIdentity) Session() *delegation.SessionIdentity { // A
 	ni.mu.RLock()
 	defer ni.mu.RUnlock()
 	return ni.session
@@ -122,8 +134,8 @@ func (ni *NodeIdentity) Session() *SessionIdentity { // A
 // identity. Existing connections are unaffected;
 // new connections will use the new session.
 func (ni *NodeIdentity) RotateSession() error { // A
-	s, err := NewSessionIdentity(
-		time.Duration(MaxDelegationTTL) * time.Second,
+	s, err := delegation.NewSessionIdentity(
+		time.Duration(delegation.MaxDelegationTTL) * time.Second,
 	)
 	if err != nil {
 		return err

@@ -1,4 +1,4 @@
-package auth
+package delegation
 
 import (
 	"crypto/ed25519"

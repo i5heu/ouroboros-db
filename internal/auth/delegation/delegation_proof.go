@@ -1,4 +1,11 @@
-package auth
+package delegation
+
+func cloneBytes(src []byte) []byte { // A
+	if src == nil {
+		return nil
+	}
+	return append([]byte(nil), src...)
+}
 
 // DelegationProofImpl is a concrete implementation of
 // the interfaces.DelegationProof interface.
