@@ -5,18 +5,24 @@
 - [x] Verify that the TLS cert is bind to the ML-DSA-87 identity
 - [x] Rename `JoinCluster` to `OpenPeerChannel`
 - [x] Verify Authentication with QUIC Streams and Datagrams - Ensure that Auth is always performed over reliable QUIC streams and Datagrams just pigigyback on the existing TLS connection
-- [ ] Heartbeat
+- [x] Heartbeat
+- [ ] Refactor the message parsing location and logic to be mre elegant and efficient
+- [ ] Refactor project structure to include submodules and better domain representation
+- [ ] Fix all golangci-lint-v2 run problems
+- [ ] Simplify and optimize code where possible
+- [ ] Search for unnecessary complexity
+- [ ] Search for unnecessary allocations or copies of values
 - [ ] NodeStats
+
 
 ## Transport Layer
 
-- [x] Implement `Carrier` - QUIC-based cluster transport with reliable/unreliable
-      delivery
+- [x] Implement `Carrier` - QUIC-based cluster transport with reliable/unreliable delivery
 - [x] Implement `QuicTransport` - QUIC implementation with streams + datagrams
 - [x] Implement `Connection` - Single QUIC connection to a peer
 - [x] Implement `Stream` - Reliable QUIC stream
 - [x] Implement `NodeRegistry` - Tracks all known nodes with certificates
-- [ ] Implement `NodeSync` - Periodic full sync of node registry
+- [x] Implement `NodeSync` - Periodic full sync of node registry
 
 ## Auth Layer
 
@@ -28,8 +34,7 @@
 
 ## Control Layer
 
-- [x] Implement `ClusterController` - Done:
-      `internal/cluster/cluster_controller.go`
+- [x] Implement `ClusterController` - Done: `internal/cluster/cluster_controller.go`
 - [ ] Implement `ClusterMonitor` - Node health, logs, data state, stats
 - [ ] Implement `DataState` - Maps data to nodes with status
 - [ ] Implement `NodeAvailabilityTracker` - Track node availability
@@ -42,10 +47,8 @@
 - [ ] Implement `DataRouter` - Routes data operations across cluster
 - [ ] Implement `BlockStore` - Low-level Block and BlockSlice persistence
 - [ ] Implement `EncryptionService` - Chunk <-> SealedChunk transformation
-- [ ] Implement `DistributedWAL` - Intake buffer aggregating items until Block
-      size
-- [ ] Implement `BlockDistributionTracker` - Tracks block distribution and
-      confirmations
+- [ ] Implement `DistributedWAL` - Intake buffer aggregating items until Block size
+- [ ] Implement `BlockDistributionTracker` - Tracks block distribution and confirmations
 - [ ] Implement `DeletionWAL` - Logs and processes deletions
 
 ## Index Layer
@@ -72,8 +75,9 @@
 - [x] Implement `LogLevel` - Done: `pkg/clusterlog/log_level.go`
 
 
-# TODO before release tasks
+# TODO before v1.0.0 release tasks
 
+- [ ] Document the UDP buffer size enlargement that github.com/quic-go/quic-go does automatically.
 - [ ] Security audit of data encryption and key management
 - [ ] Security audit of auth and transport layers
 - [ ] Re-verify or close long-lived carrier connections after delegation TTL expiry
@@ -84,3 +88,4 @@
 - [ ] Hardening of transport against DoS attacks
 - [ ] Security review of user or public data handling code
 - [ ] Identify and document security weaknesses
+- [ ] Change UserMessage to protobuf instead of JSON and add userID
