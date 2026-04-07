@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	"github.com/quic-go/quic-go"
 )

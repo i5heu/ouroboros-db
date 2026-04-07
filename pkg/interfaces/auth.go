@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 )
 
 type Cluster struct { // A

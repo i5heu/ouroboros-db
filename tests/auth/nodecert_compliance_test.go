@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 	"pgregory.net/rapid"
 )
 

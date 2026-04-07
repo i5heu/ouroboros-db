@@ -3,7 +3,7 @@ package cas
 import (
 	"testing"
 
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 )
 
 func TestCanAccessDataAdminAllowsAny( // A

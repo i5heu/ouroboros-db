@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	pb "github.com/i5heu/ouroboros-db/proto/authfile"
 	"google.golang.org/protobuf/proto"

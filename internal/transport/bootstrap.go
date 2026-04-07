@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 

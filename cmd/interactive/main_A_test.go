@@ -12,7 +12,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	ouroboros "github.com/i5heu/ouroboros-db"
-	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )
 

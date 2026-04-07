@@ -7,7 +7,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/hash"
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/pkg/logtypes"
+	"github.com/i5heu/ouroboros-db/internal/logging/logtypes"
 )
 
 type ClusterLog interface { // A

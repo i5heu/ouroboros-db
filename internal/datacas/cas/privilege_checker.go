@@ -1,6 +1,6 @@
 package cas
 
-import "github.com/i5heu/ouroboros-db/pkg/auth"
+import "github.com/i5heu/ouroboros-db/internal/auth"
 
 // AccessContext contains the authenticated scope
 // and the data-owner set allowed for user scope.

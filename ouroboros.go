@@ -9,7 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
-	"github.com/i5heu/ouroboros-db/internal/node"
+	"github.com/i5heu/ouroboros-db/internal/datacas/node"
 )
 
 const (
