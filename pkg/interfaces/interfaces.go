@@ -8,6 +8,8 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
+	pb "github.com/i5heu/ouroboros-db/proto/carrier"
+	"google.golang.org/protobuf/proto"
 )
 
 // MessageType enumerates the kinds of messages
@@ -33,26 +35,17 @@ const ( // AC
 	MessageTypeAuthHandshake
 )
 
-// UserMessagePayload is the payload for
-// MessageTypeUserMessage.
-type UserMessagePayload struct { // A
-	From string `json:"from"`
-	Text string `json:"text"`
-}
+type UserMessage = pb.UserMessage // A
+
+type UserMessageResponse = pb.UserMessageResponse // A
+
+type ResponseEmptyPayload = pb.ResponseEmptyPayload // A
 
 // Message is the envelope sent over the Carrier
 // transport.
 type Message struct { // AC
 	Type    MessageType
 	Payload []byte
-}
-
-// Response is the handler response envelope returned
-// to the caller after message processing.
-type Response struct { // A
-	Payload  []byte
-	Error    error
-	Metadata map[string]string
 }
 
 // AccessDecision is the result of an authorization
@@ -63,11 +56,12 @@ type AccessDecision struct { // A
 }
 
 // MessageHandler is the function signature for
-// HTTP-style message handlers. Context carries
-// request lifecycle and cancellation. Message
-// contains the deserialized request payload. Peer
-// identifies the authenticated remote node. Scope
-// indicates the authenticated trust level.
+// typed message handlers. Context carries request
+// lifecycle and cancellation. Payload is the
+// decoded protobuf message for the registered
+// MessageType. Peer identifies the authenticated
+// remote node. Scope indicates the authenticated
+// trust level.
 //
 // Handlers may be invoked for traffic delivered
 // over reliable QUIC streams or unreliable QUIC
@@ -89,15 +83,16 @@ type AccessDecision struct { // A
 // duplicated, delayed, and concurrent delivery.
 type MessageHandler func( // A
 	ctx context.Context,
-	msg Message,
+	payload proto.Message,
 	peer keys.NodeID,
 	scope auth.TrustScope,
-) (Response, error)
+) (proto.Message, error)
 
-// HandlerRegistration stores a registered handler
-// with its access requirements.
-type HandlerRegistration struct { // A
+// MessageRegistration stores a registered handler,
+// its payload factory, and its access requirements.
+type MessageRegistration struct { // A
 	MsgType       MessageType
 	AllowedScopes []auth.TrustScope
+	NewPayload    func() proto.Message
 	Handler       MessageHandler
 }

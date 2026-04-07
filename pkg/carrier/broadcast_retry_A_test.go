@@ -9,6 +9,8 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	pb "github.com/i5heu/ouroboros-db/proto/carrier"
+	"google.golang.org/protobuf/proto"
 )
 
 // retryConn wraps scriptedConn to allow a dynamic
@@ -27,7 +29,13 @@ func (rc *retryConn) OpenStream() ( // A
 	if n <= atomic.LoadInt32(&rc.failCount) {
 		return nil, errors.New("connection closed")
 	}
-	return newTestStream(nil), nil
+	replyBytes, err := proto.Marshal(&pb.MessageReply{
+		Success: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return newTestStream(replyBytes), nil
 }
 
 func TestBroadcastReliableRetriesFailedPeers( // A

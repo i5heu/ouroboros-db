@@ -48,7 +48,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -64,6 +63,7 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 	"github.com/i5heu/ouroboros-db/pkg/carrier"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	"google.golang.org/protobuf/proto"
 )
 
 // parseSlogLevel converts a string level name to the
@@ -155,7 +155,8 @@ func run() error { // A
 	}
 	transport.SetController(controller)
 
-	if err := controller.RegisterHandler(
+	if err := interfaces.RegisterTypedHandler(
+		controller,
 		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeUser},
 		helloHandler(),
@@ -173,9 +174,10 @@ func run() error { // A
 	go func() {
 		if err := transport.StartListener(ctx); err != nil &&
 			err != context.Canceled {
-			resolvedLogger.Error(
+			resolvedLogger.ErrorContext(
+				ctx,
 				"listener stopped",
-				"error",
+				auth.LogKeyReason,
 				err.Error(),
 			)
 			cancel()
@@ -519,15 +521,15 @@ func repl( // A
 // broadcastHello sends a user-message payload to all
 // currently known peers over reliable carrier streams.
 //
-// The message format is deliberately small and human-
-// readable so operators can confirm basic connectivity
+// The message format is deliberately small and schema-
+// backed so operators can confirm basic connectivity
 // before more complex cluster message types are added.
 func broadcastHello( // A
 	transport carrier.RuntimeCarrier,
 	from string,
 	text string,
 ) error {
-	payload, err := json.Marshal(interfaces.UserMessagePayload{
+	payload, err := proto.Marshal(&interfaces.UserMessage{
 		From: from,
 		Text: text,
 	})
@@ -554,30 +556,29 @@ func broadcastHello( // A
 // helloHandler returns the inbound message handler used
 // for MessageTypeUserMessage.
 //
-// It decodes the JSON payload, logs the sender details,
-// and mirrors the message to stdout so the interactive
-// command behaves like a simple chat/debug console.
-func helloHandler() interfaces.MessageHandler { // A
+// It receives the decoded protobuf payload, logs the
+// sender details, and mirrors the message to stdout so
+// the interactive command behaves like a simple chat/
+// debug console.
+func helloHandler() func( // A
+	ctx context.Context,
+	message *interfaces.UserMessage,
+	peer keys.NodeID,
+	trustScope auth.TrustScope,
+) (*interfaces.ResponseEmptyPayload, error) {
 	return func(
 		_ context.Context,
-		msg interfaces.Message,
+		message *interfaces.UserMessage,
 		peer keys.NodeID,
 		_ auth.TrustScope,
-	) (interfaces.Response, error) {
-		var payload interfaces.UserMessagePayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			return interfaces.Response{}, fmt.Errorf(
-				"decode hello payload: %w",
-				err,
-			)
-		}
+	) (*interfaces.ResponseEmptyPayload, error) {
 		fmt.Printf(
 			"received from %s (%s): %s\n",
-			payload.From,
+			message.From,
 			shortNodeID(peer),
-			payload.Text,
+			message.Text,
 		)
-		return interfaces.Response{}, nil
+		return &interfaces.ResponseEmptyPayload{}, nil
 	}
 }
 

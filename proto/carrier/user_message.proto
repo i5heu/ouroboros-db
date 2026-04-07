@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package carrier;
+
+option go_package = "github.com/i5heu/ouroboros-db/proto/carrier";
+
+message UserMessage {
+  string from = 1;
+  string text = 2;
+}
+
+message UserMessageResponse {
+  bool success = 1;
+}
+
+message ResponseEmptyPayload {}

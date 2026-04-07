@@ -11,6 +11,8 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	pb "github.com/i5heu/ouroboros-db/proto/carrier"
+	"google.golang.org/protobuf/proto"
 	"pgregory.net/rapid"
 )
 
@@ -147,16 +149,93 @@ func nodeID(b byte) keys.NodeID { // A
 	return id
 }
 
-func echoHandler( // A
-	_ context.Context,
-	msg interfaces.Message,
-	_ keys.NodeID,
-	_ auth.TrustScope,
-) (interfaces.Response, error) {
-	return interfaces.Response{
-		Payload: msg.Payload,
-	}, nil
+func newTestPayload() proto.Message { // A
+	return &pb.UserMessage{}
 }
+
+func testUserMessagePayload( // A
+	from string,
+	text string,
+) *pb.UserMessage {
+	return &pb.UserMessage{
+		From: from,
+		Text: text,
+	}
+}
+
+func marshalTestPayload( // A
+	t *testing.T,
+	payload *pb.UserMessage,
+) []byte {
+	t.Helper()
+	encoded, err := proto.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return encoded
+}
+
+func registerTestHandler( // A
+	cc *clusterController,
+	msgType interfaces.MessageType,
+	scopes []auth.TrustScope,
+	handler interfaces.MessageHandler,
+) error {
+	if msgType != interfaces.MessageTypeUserMessage {
+		return registerSyntheticTestHandler(
+			cc,
+			msgType,
+			scopes,
+			handler,
+		)
+	}
+	return cc.RegisterHandler(
+		msgType, scopes, handler,
+	)
+}
+
+func registerSyntheticTestHandler( // A
+	cc *clusterController,
+	msgType interfaces.MessageType,
+	scopes []auth.TrustScope,
+	handler interfaces.MessageHandler,
+) error {
+	if len(scopes) == 0 {
+		return fmt.Errorf(
+			"at least one scope is required",
+		)
+	}
+	reg := interfaces.MessageRegistration{
+		MsgType:       msgType,
+		AllowedScopes: scopes,
+		NewPayload: func() proto.Message {
+			return &pb.UserMessage{}
+		},
+		Handler: handler,
+	}
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if _, exists := cc.handlers[msgType]; exists {
+		return fmt.Errorf(
+			"handler already registered "+
+				"for message type %d",
+			msgType,
+		)
+	}
+	cc.handlers[msgType] = &reg
+	return nil
+}
+
+var echoHandler = interfaces.TypedHandler( // A
+	func(
+		_ context.Context,
+		payload *interfaces.UserMessage,
+		_ keys.NodeID,
+		_ auth.TrustScope,
+	) (*interfaces.UserMessage, error) {
+		return payload, nil
+	},
+)
 
 // TestNewClusterControllerNilCarrier verifies that
 // a nil carrier is rejected.
@@ -192,8 +271,9 @@ func TestRegisterHandler(t *testing.T) { // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	err := cc.RegisterHandler(
-		interfaces.MessageTypeHeartbeat,
+	err := registerTestHandler(
+		cc,
+		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
 	)
@@ -202,16 +282,16 @@ func TestRegisterHandler(t *testing.T) { // A
 	}
 
 	reg, ok := cc.GetHandler(
-		interfaces.MessageTypeHeartbeat,
+		interfaces.MessageTypeUserMessage,
 	)
 	if !ok {
 		t.Fatal("handler not found after register")
 	}
-	if reg.MsgType != interfaces.MessageTypeHeartbeat {
+	if reg.MsgType != interfaces.MessageTypeUserMessage {
 		t.Fatalf(
 			"wrong msg type: got %d, want %d",
 			reg.MsgType,
-			interfaces.MessageTypeHeartbeat,
+			interfaces.MessageTypeUserMessage,
 		)
 	}
 	if len(reg.AllowedScopes) != 1 {
@@ -230,8 +310,9 @@ func TestRegisterHandlerDuplicate( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	err := cc.RegisterHandler(
-		interfaces.MessageTypeHeartbeat,
+	err := registerTestHandler(
+		cc,
+		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
 	)
@@ -239,8 +320,9 @@ func TestRegisterHandlerDuplicate( // A
 		t.Fatalf("first register: %v", err)
 	}
 
-	err = cc.RegisterHandler(
-		interfaces.MessageTypeHeartbeat,
+	err = registerTestHandler(
+		cc,
+		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeUser},
 		echoHandler,
 	)
@@ -258,12 +340,30 @@ func TestRegisterHandlerNilHandler( // A
 	cc := newTestController(t)
 
 	err := cc.RegisterHandler(
-		interfaces.MessageTypeHeartbeat,
+		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error for nil handler")
+	}
+}
+
+// TestRegisterHandlerInvalidSignature verifies that
+// handlers with unsupported signatures are rejected.
+func TestRegisterHandlerInvalidSignature( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cc := newTestController(t)
+
+	err := cc.RegisterHandler(
+		interfaces.MessageTypeUserMessage,
+		[]auth.TrustScope{auth.ScopeAdmin},
+		func() {},
+	)
+	if err == nil {
+		t.Fatal("expected error for invalid handler")
 	}
 }
 
@@ -276,7 +376,7 @@ func TestRegisterHandlerEmptyScopes( // A
 	cc := newTestController(t)
 
 	err := cc.RegisterHandler(
-		interfaces.MessageTypeHeartbeat,
+		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{},
 		echoHandler,
 	)
@@ -290,21 +390,22 @@ func TestUnregisterHandler(t *testing.T) { // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
-		interfaces.MessageTypeHeartbeat,
+	_ = registerTestHandler(
+		cc,
+		interfaces.MessageTypeUserMessage,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
 	)
 
 	err := cc.UnregisterHandler(
-		interfaces.MessageTypeHeartbeat,
+		interfaces.MessageTypeUserMessage,
 	)
 	if err != nil {
 		t.Fatalf("unregister: %v", err)
 	}
 
 	_, ok := cc.GetHandler(
-		interfaces.MessageTypeHeartbeat,
+		interfaces.MessageTypeUserMessage,
 	)
 	if ok {
 		t.Fatal("handler still found after unregister")
@@ -405,7 +506,8 @@ func TestCheckAccessAdminAllowed( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
@@ -429,7 +531,8 @@ func TestCheckAccessAdminCanAccessUserHandler( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeUser},
 		echoHandler,
@@ -455,7 +558,8 @@ func TestCheckAccessUserDeniedAdminHandler( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
@@ -479,7 +583,8 @@ func TestCheckAccessBothScopes(t *testing.T) { // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{
 			auth.ScopeAdmin,
@@ -529,8 +634,12 @@ func TestHandleIncomingMessageAuthorized( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	payload := []byte("test-payload")
-	_ = cc.RegisterHandler(
+	payload := marshalTestPayload(
+		t,
+		testUserMessagePayload("alice", "test-payload"),
+	)
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
@@ -546,10 +655,14 @@ func TestHandleIncomingMessageAuthorized( // A
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if string(resp.Payload) != string(payload) {
+	encodedResponse, err := proto.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	if string(encodedResponse) != string(payload) {
 		t.Fatalf(
 			"payload: got %q, want %q",
-			resp.Payload,
+			encodedResponse,
 			payload,
 		)
 	}
@@ -563,15 +676,20 @@ func TestHandleIncomingMessageDenied( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
 	)
 
+	payload := marshalTestPayload(
+		t,
+		testUserMessagePayload("alice", "denied"),
+	)
 	msg := interfaces.Message{
 		Type:    interfaces.MessageTypeHeartbeat,
-		Payload: []byte("denied"),
+		Payload: payload,
 	}
 	_, err := cc.HandleIncomingMessage(
 		msg, nodeID(1), auth.ScopeUser,
@@ -601,6 +719,54 @@ func TestHandleIncomingMessageNoHandler( // A
 	}
 }
 
+// TestHandleIncomingMessageMalformedPayload verifies
+// that malformed protobuf input is rejected before
+// the handler is invoked.
+func TestHandleIncomingMessageMalformedPayload( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cc := newTestController(t)
+
+	called := false
+	h := interfaces.TypedHandler(
+		func(
+			_ context.Context,
+			_ *interfaces.UserMessage,
+			_ keys.NodeID,
+			_ auth.TrustScope,
+		) (*interfaces.ResponseEmptyPayload, error) {
+			called = true
+			return &interfaces.ResponseEmptyPayload{}, nil
+		},
+	)
+
+	err := registerTestHandler(
+		cc,
+		interfaces.MessageTypeHeartbeat,
+		[]auth.TrustScope{auth.ScopeAdmin},
+		h,
+	)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	_, err = cc.HandleIncomingMessage(
+		interfaces.Message{
+			Type:    interfaces.MessageTypeHeartbeat,
+			Payload: []byte("not-protobuf"),
+		},
+		nodeID(1),
+		auth.ScopeAdmin,
+	)
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	if called {
+		t.Fatal("handler should not run on bad payload")
+	}
+}
+
 // TestHandleIncomingMessageHandlerError verifies
 // that a handler error is propagated.
 func TestHandleIncomingMessageHandlerError( // A
@@ -609,17 +775,20 @@ func TestHandleIncomingMessageHandlerError( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	errHandler := func( // A
-		_ context.Context,
-		_ interfaces.Message,
-		_ keys.NodeID,
-		_ auth.TrustScope,
-	) (interfaces.Response, error) {
-		return interfaces.Response{},
-			fmt.Errorf("handler failed")
-	}
+	errHandler := interfaces.TypedHandler(
+		func(
+			_ context.Context,
+			_ *interfaces.UserMessage,
+			_ keys.NodeID,
+			_ auth.TrustScope,
+		) (*interfaces.ResponseEmptyPayload, error) {
+			return nil,
+				fmt.Errorf("handler failed")
+		},
+	)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		errHandler,
@@ -627,6 +796,10 @@ func TestHandleIncomingMessageHandlerError( // A
 
 	msg := interfaces.Message{
 		Type: interfaces.MessageTypeHeartbeat,
+		Payload: marshalTestPayload(
+			t,
+			testUserMessagePayload("alice", "boom"),
+		),
 	}
 	_, err := cc.HandleIncomingMessage(
 		msg, nodeID(1), auth.ScopeAdmin,
@@ -648,17 +821,20 @@ func TestHandleIncomingMessagePeerIDPassed( // A
 	expectedPeer := nodeID(42)
 	var receivedPeer keys.NodeID
 
-	h := func( // A
-		_ context.Context,
-		_ interfaces.Message,
-		peer keys.NodeID,
-		_ auth.TrustScope,
-	) (interfaces.Response, error) {
-		receivedPeer = peer
-		return interfaces.Response{}, nil
-	}
+	h := interfaces.TypedHandler(
+		func(
+			_ context.Context,
+			_ *interfaces.UserMessage,
+			peer keys.NodeID,
+			_ auth.TrustScope,
+		) (*interfaces.ResponseEmptyPayload, error) {
+			receivedPeer = peer
+			return &interfaces.ResponseEmptyPayload{}, nil
+		},
+	)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		h,
@@ -666,6 +842,10 @@ func TestHandleIncomingMessagePeerIDPassed( // A
 
 	msg := interfaces.Message{
 		Type: interfaces.MessageTypeHeartbeat,
+		Payload: marshalTestPayload(
+			t,
+			testUserMessagePayload("alice", "peer"),
+		),
 	}
 	_, err := cc.HandleIncomingMessage(
 		msg, expectedPeer, auth.ScopeAdmin,
@@ -690,17 +870,20 @@ func TestHandleIncomingMessageScopePassed( // A
 	cc := newTestController(t)
 
 	var receivedScope auth.TrustScope
-	h := func( // A
-		_ context.Context,
-		_ interfaces.Message,
-		_ keys.NodeID,
-		scope auth.TrustScope,
-	) (interfaces.Response, error) {
-		receivedScope = scope
-		return interfaces.Response{}, nil
-	}
+	h := interfaces.TypedHandler(
+		func(
+			_ context.Context,
+			_ *interfaces.UserMessage,
+			_ keys.NodeID,
+			scope auth.TrustScope,
+		) (*interfaces.ResponseEmptyPayload, error) {
+			receivedScope = scope
+			return &interfaces.ResponseEmptyPayload{}, nil
+		},
+	)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{
 			auth.ScopeAdmin,
@@ -711,6 +894,10 @@ func TestHandleIncomingMessageScopePassed( // A
 
 	msg := interfaces.Message{
 		Type: interfaces.MessageTypeHeartbeat,
+		Payload: marshalTestPayload(
+			t,
+			testUserMessagePayload("alice", "scope"),
+		),
 	}
 	_, err := cc.HandleIncomingMessage(
 		msg, nodeID(1), auth.ScopeUser,
@@ -726,28 +913,29 @@ func TestHandleIncomingMessageScopePassed( // A
 	}
 }
 
-// TestHandleIncomingMessageResponseMetadata
-// verifies that handler metadata is returned.
-func TestHandleIncomingMessageResponseMetadata( // A
+// TestHandleIncomingMessageResponsePayload verifies
+// that handler response payloads are returned.
+func TestHandleIncomingMessageResponsePayload( // A
 	t *testing.T,
 ) {
 	t.Parallel()
 	cc := newTestController(t)
 
-	h := func( // A
-		_ context.Context,
-		_ interfaces.Message,
-		_ keys.NodeID,
-		_ auth.TrustScope,
-	) (interfaces.Response, error) {
-		return interfaces.Response{
-			Metadata: map[string]string{
-				"key": "value",
-			},
-		}, nil
-	}
+	h := interfaces.TypedHandler(
+		func(
+			_ context.Context,
+			_ *interfaces.UserMessage,
+			_ keys.NodeID,
+			_ auth.TrustScope,
+		) (*interfaces.UserMessageResponse, error) {
+			return &interfaces.UserMessageResponse{
+				Success: true,
+			}, nil
+		},
+	)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		h,
@@ -755,6 +943,10 @@ func TestHandleIncomingMessageResponseMetadata( // A
 
 	msg := interfaces.Message{
 		Type: interfaces.MessageTypeHeartbeat,
+		Payload: marshalTestPayload(
+			t,
+			testUserMessagePayload("alice", "meta"),
+		),
 	}
 	resp, err := cc.HandleIncomingMessage(
 		msg, nodeID(1), auth.ScopeAdmin,
@@ -762,11 +954,16 @@ func TestHandleIncomingMessageResponseMetadata( // A
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if resp.Metadata["key"] != "value" {
+	response, ok := resp.(*interfaces.UserMessageResponse)
+	if !ok {
 		t.Fatalf(
-			"metadata: got %q, want %q",
-			resp.Metadata["key"], "value",
+			"response type: got %T, want %T",
+			resp,
+			&interfaces.UserMessageResponse{},
 		)
+	}
+	if !response.Success {
+		t.Fatal("expected success response")
 	}
 }
 
@@ -793,7 +990,8 @@ func TestConcurrentRegisterAndHandle( // A
 		wg.Add(1)
 		go func(mt interfaces.MessageType) {
 			defer wg.Done()
-			_ = cc.RegisterHandler(
+			_ = registerTestHandler(
+				cc,
 				mt,
 				[]auth.TrustScope{auth.ScopeAdmin},
 				echoHandler,
@@ -803,18 +1001,24 @@ func TestConcurrentRegisterAndHandle( // A
 	wg.Wait()
 
 	// Handle messages concurrently.
-	for i := 0; i < 50; i++ {
+	for i := byte(0); i < 50; i++ {
 		wg.Add(1)
-		go func(i int) {
+		go func(i byte) {
 			defer wg.Done()
-			mt := msgTypes[i%len(msgTypes)]
+			mt := msgTypes[int(i)%len(msgTypes)]
 			msg := interfaces.Message{
-				Type:    mt,
-				Payload: []byte("concurrent"),
+				Type: mt,
+				Payload: marshalTestPayload(
+					t,
+					testUserMessagePayload(
+						"alice",
+						"concurrent",
+					),
+				),
 			}
 			_, _ = cc.HandleIncomingMessage(
 				msg,
-				nodeID(byte(i)),
+				nodeID(i),
 				auth.ScopeAdmin,
 			)
 		}(i)
@@ -830,7 +1034,8 @@ func TestRegisterUnregisterReRegister( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	err := cc.RegisterHandler(
+	err := registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeAdmin},
 		echoHandler,
@@ -846,7 +1051,8 @@ func TestRegisterUnregisterReRegister( // A
 		t.Fatalf("unregister: %v", err)
 	}
 
-	err = cc.RegisterHandler(
+	err = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeUser},
 		echoHandler,
@@ -879,12 +1085,21 @@ func TestPropertyRegisterUnregister( // A
 		registered := make(
 			map[interfaces.MessageType]bool,
 		)
+		supportedTypes := []interfaces.MessageType{
+			interfaces.MessageTypeHeartbeat,
+			interfaces.MessageTypeUserMessage,
+			interfaces.MessageTypeLogPush,
+			interfaces.MessageTypeBlockSyncRequest,
+			interfaces.MessageTypeKeyEntryRequest,
+			interfaces.MessageTypeKeyEntryResponse,
+		}
 
 		ops := rapid.IntRange(1, 50).Draw(t, "ops")
 		for i := 0; i < ops; i++ {
-			mt := interfaces.MessageType(
-				rapid.IntRange(0, 14).Draw(t, "msgType"),
-			)
+			mt := supportedTypes[rapid.IntRange(
+				0,
+				len(supportedTypes)-1,
+			).Draw(t, "msgType")]
 
 			if registered[mt] {
 				// Try unregister.
@@ -903,7 +1118,8 @@ func TestPropertyRegisterUnregister( // A
 				}
 			} else {
 				// Try register.
-				err := cc.RegisterHandler(
+				err := registerTestHandler(
+					cc,
 					mt,
 					[]auth.TrustScope{auth.ScopeAdmin},
 					echoHandler,
@@ -935,7 +1151,8 @@ func TestCheckAccessUnknownScope( // A
 	t.Parallel()
 	cc := newTestController(t)
 
-	_ = cc.RegisterHandler(
+	_ = registerTestHandler(
+		cc,
 		interfaces.MessageTypeHeartbeat,
 		[]auth.TrustScope{auth.ScopeUser},
 		echoHandler,
@@ -981,7 +1198,8 @@ func TestPropertyAccessDecision( // A
 			return // Skip empty scope case.
 		}
 
-		err := cc.RegisterHandler(
+		err := registerTestHandler(
+			cc,
 			interfaces.MessageTypeHeartbeat,
 			scopes,
 			echoHandler,
@@ -1021,4 +1239,59 @@ func TestPropertyAccessDecision( // A
 			)
 		}
 	})
+}
+
+// TestRegisterHandlerValueResponse verifies that a
+// typed handler wrapped via TypedHandler is accepted
+// and dispatched correctly.
+func TestRegisterHandlerValueResponse( // A
+	t *testing.T,
+) {
+	t.Parallel()
+	cc := newTestController(t)
+
+	err := interfaces.RegisterTypedHandler(
+		cc,
+		interfaces.MessageTypeUserMessage,
+		[]auth.TrustScope{auth.ScopeAdmin},
+		func(
+			_ context.Context,
+			payload *interfaces.UserMessage,
+			_ keys.NodeID,
+			_ auth.TrustScope,
+		) (*interfaces.ResponseEmptyPayload, error) {
+			if payload.Text != "typed" {
+				return nil, fmt.Errorf(
+					"unexpected payload text %q",
+					payload.Text,
+				)
+			}
+			return &interfaces.ResponseEmptyPayload{}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	resp, err := cc.HandleIncomingMessage(
+		interfaces.Message{
+			Type: interfaces.MessageTypeUserMessage,
+			Payload: marshalTestPayload(
+				t,
+				testUserMessagePayload("alice", "typed"),
+			),
+		},
+		nodeID(1),
+		auth.ScopeAdmin,
+	)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if _, ok := resp.(*interfaces.ResponseEmptyPayload); !ok {
+		t.Fatalf(
+			"response type: got %T, want %T",
+			resp,
+			&interfaces.ResponseEmptyPayload{},
+		)
+	}
 }

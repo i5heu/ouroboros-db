@@ -13,13 +13,14 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	"google.golang.org/protobuf/proto"
 )
 
 // clusterController is the concrete implementation
 // of interfaces.ClusterController.
 type clusterController struct { // A
 	mu       sync.RWMutex
-	handlers map[interfaces.MessageType]*interfaces.HandlerRegistration
+	handlers map[interfaces.MessageType]*interfaces.MessageRegistration
 	carrier  interfaces.Carrier
 	// LOGGER: Using slog directly because
 	// ClusterController is a dependency of
@@ -47,7 +48,7 @@ func NewClusterController( // A
 	}
 	return &clusterController{
 		handlers: make(
-			map[interfaces.MessageType]*interfaces.HandlerRegistration,
+			map[interfaces.MessageType]*interfaces.MessageRegistration,
 		),
 		carrier: carrier,
 		logger:  logger,
@@ -69,13 +70,8 @@ func NewClusterController( // A
 func (cc *clusterController) RegisterHandler( // A
 	msgType interfaces.MessageType,
 	scopes []auth.TrustScope,
-	handler interfaces.MessageHandler,
+	handler any,
 ) error {
-	if handler == nil {
-		return fmt.Errorf(
-			"handler must not be nil",
-		)
-	}
 	if len(scopes) == 0 {
 		return fmt.Errorf(
 			"at least one scope is required",
@@ -93,11 +89,16 @@ func (cc *clusterController) RegisterHandler( // A
 		)
 	}
 
-	cc.handlers[msgType] = &interfaces.HandlerRegistration{
-		MsgType:       msgType,
-		AllowedScopes: scopes,
-		Handler:       handler,
+	registration, err := interfaces.BuildMessageRegistration(
+		msgType,
+		scopes,
+		handler,
+	)
+	if err != nil {
+		return err
 	}
+
+	cc.handlers[msgType] = &registration
 	return nil
 }
 
@@ -121,17 +122,17 @@ func (cc *clusterController) UnregisterHandler( // A
 	return nil
 }
 
-// GetHandler returns the HandlerRegistration for the
+// GetHandler returns the MessageRegistration for the
 // given MessageType, or false if not found.
 func (cc *clusterController) GetHandler( // A
 	msgType interfaces.MessageType,
-) (interfaces.HandlerRegistration, bool) {
+) (interfaces.MessageRegistration, bool) {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
 
 	reg, ok := cc.handlers[msgType]
 	if !ok {
-		return interfaces.HandlerRegistration{}, false
+		return interfaces.MessageRegistration{}, false
 	}
 	return *reg, true
 }
@@ -217,13 +218,13 @@ func (cc *clusterController) HandleIncomingMessage( // A
 	msg interfaces.Message,
 	peer keys.NodeID,
 	peerScope auth.TrustScope,
-) (interfaces.Response, error) {
+) (proto.Message, error) {
 	decision := cc.CheckAccess(
 		msg.Type,
 		peerScope,
 	)
 	if !decision.Allowed {
-		return interfaces.Response{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"access denied: %s", decision.Reason,
 		)
 	}
@@ -231,9 +232,36 @@ func (cc *clusterController) HandleIncomingMessage( // A
 	cc.mu.RLock()
 	reg := cc.handlers[msg.Type]
 	cc.mu.RUnlock()
+	if reg == nil {
+		return nil, fmt.Errorf(
+			"no handler registered for message type %d",
+			msg.Type,
+		)
+	}
+
+	payload := reg.NewPayload()
+	if payload == nil {
+		return nil, fmt.Errorf(
+			"payload factory returned nil for message type %d",
+			msg.Type,
+		)
+	}
+	if err := proto.Unmarshal(msg.Payload, payload); err != nil {
+		return nil, fmt.Errorf(
+			"decode message type %d: %w",
+			msg.Type,
+			err,
+		)
+	}
 
 	ctx := context.Background()
-	return reg.Handler(ctx, msg, peer, peerScope)
+	resp, err := reg.Handler(
+		ctx,
+		payload,
+		peer,
+		peerScope,
+	)
+	return resp, err
 }
 
 // getEffectiveScopesUnlocked is the internal helper

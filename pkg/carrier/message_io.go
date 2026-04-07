@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	pb "github.com/i5heu/ouroboros-db/proto/carrier"
+	"google.golang.org/protobuf/proto"
 )
 
 // maxMessageSize caps any single message at 1 MiB to
@@ -97,4 +99,69 @@ func readMessageStream( // A
 		Type:    interfaces.MessageType(typeBuf[0]),
 		Payload: payload,
 	}, nil
+}
+
+func writeMessageReply( // A
+	stream interfaces.Stream,
+	payload proto.Message,
+	handlerErr error,
+) error {
+	reply := &pb.MessageReply{
+		Success: handlerErr == nil,
+	}
+	if handlerErr != nil {
+		reply.Error = handlerErr.Error()
+	}
+	if payload != nil {
+		encodedPayload, err := proto.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf(
+				"marshal reply payload: %w",
+				err,
+			)
+		}
+		reply.Payload = encodedPayload
+	}
+	data, err := proto.Marshal(reply)
+	if err != nil {
+		return fmt.Errorf(
+			"marshal reply envelope: %w",
+			err,
+		)
+	}
+	if len(data) > maxMessageSize {
+		return fmt.Errorf(
+			"reply too large: %d bytes",
+			len(data),
+		)
+	}
+	if _, err := stream.Write(data); err != nil {
+		return fmt.Errorf(
+			"write reply: %w",
+			err,
+		)
+	}
+	return nil
+}
+
+func readMessageReply( // A
+	stream interfaces.Stream,
+) (*pb.MessageReply, error) {
+	data, err := io.ReadAll(
+		io.LimitReader(stream, maxMessageSize),
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"read reply: %w",
+			err,
+		)
+	}
+	var reply pb.MessageReply
+	if err := proto.Unmarshal(data, &reply); err != nil {
+		return nil, fmt.Errorf(
+			"decode reply: %w",
+			err,
+		)
+	}
+	return &reply, nil
 }

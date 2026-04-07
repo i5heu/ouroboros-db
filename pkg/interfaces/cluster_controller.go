@@ -3,6 +3,7 @@ package interfaces
 import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
+	"google.golang.org/protobuf/proto"
 )
 
 // ClusterController is the central control layer for
@@ -25,10 +26,12 @@ type ClusterController interface { // A
 	// where some nodes never receive a message at all.
 	// Handler logic should converge via CRDTs or an
 	// equivalent partition-tolerant merge model.
+	// Use RegisterTypedHandler for strongly typed
+	// protobuf handler functions.
 	RegisterHandler(
 		msgType MessageType,
 		scopes []auth.TrustScope,
-		handler MessageHandler,
+		handler any,
 	) error
 
 	// UnregisterHandler removes the handler for the
@@ -39,7 +42,7 @@ type ClusterController interface { // A
 	// given MessageType, or false if not found.
 	GetHandler(
 		msgType MessageType,
-	) (HandlerRegistration, bool)
+	) (MessageRegistration, bool)
 
 	// HandleIncomingMessage validates access and
 	// dispatches the message to the registered
@@ -56,7 +59,7 @@ type ClusterController interface { // A
 		msg Message,
 		peer keys.NodeID,
 		peerScope auth.TrustScope,
-	) (Response, error)
+	) (proto.Message, error)
 
 	// CheckAccess validates whether a peer with the
 	// given TrustScope may invoke the handler for

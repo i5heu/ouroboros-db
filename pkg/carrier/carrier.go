@@ -2,6 +2,7 @@ package carrier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/pkg/auth"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
+	"google.golang.org/protobuf/proto"
 )
 
 // CarrierConfig holds the configuration needed to
@@ -327,8 +329,27 @@ func (c *carrierImpl) SendMessageToNodeReliable( // A
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
 	}
-	defer func() { _ = stream.Close() }()
-	return writeMessageStream(stream, message)
+	if err := writeMessageStream(stream, message); err != nil {
+		_ = stream.Close()
+		return err
+	}
+	if err := stream.Close(); err != nil {
+		return fmt.Errorf("close request stream: %w", err)
+	}
+	reply, err := readMessageReply(stream)
+	if err != nil {
+		return err
+	}
+	if !reply.Success {
+		if reply.Error == "" {
+			return fmt.Errorf(
+				"message rejected by peer %s",
+				nodeID.String(),
+			)
+		}
+		return errors.New(reply.Error)
+	}
+	return nil
 }
 
 func (c *carrierImpl) BroadcastUnreliable( // A
@@ -838,14 +859,44 @@ func (c *carrierImpl) handleMessageStream( // A
 		)
 		return
 	}
-	c.dispatchMessage(ctx, nodeID, msg)
+	responsePayload, dispatchErr := c.dispatchMessage(
+		ctx,
+		nodeID,
+		msg,
+	)
+	if replyErr := writeMessageReply(
+		stream,
+		responsePayload,
+		dispatchErr,
+	); replyErr != nil {
+		c.logger.WarnContext(
+			ctx,
+			"message reply failed",
+			auth.LogKeyNodeID,
+			nodeID.String(),
+			auth.LogKeyReason,
+			replyErr.Error(),
+		)
+	}
+	if dispatchErr != nil {
+		c.logger.WarnContext(
+			ctx,
+			"message dispatch failed",
+			auth.LogKeyNodeID,
+			nodeID.String(),
+			logKeyMessageType,
+			int(msg.Type),
+			auth.LogKeyReason,
+			dispatchErr.Error(),
+		)
+	}
 }
 
 func (c *carrierImpl) dispatchMessage( // A
 	ctx context.Context,
 	nodeID keys.NodeID,
 	msg interfaces.Message,
-) {
+) (proto.Message, error) {
 	c.markPeerSeen(nodeID, time.Now())
 	if msg.Type == interfaces.MessageTypeHeartbeat {
 		if err := c.handleHeartbeatMessage(
@@ -861,40 +912,26 @@ func (c *carrierImpl) dispatchMessage( // A
 				auth.LogKeyReason,
 				err.Error(),
 			)
+			return nil, err
 		}
-		return
+		return &interfaces.ResponseEmptyPayload{}, nil
 	}
 	c.mu.RLock()
 	controller := c.controller
 	scope := c.peerScopes[nodeID]
 	c.mu.RUnlock()
 	if controller == nil {
-		c.logger.WarnContext(
-			ctx,
-			"no cluster controller configured",
-			auth.LogKeyNodeID,
-			nodeID.String(),
-			logKeyMessageType,
-			int(msg.Type),
+		return nil, fmt.Errorf(
+			"no cluster controller configured for message type %d",
+			msg.Type,
 		)
-		return
 	}
-	if _, err := controller.HandleIncomingMessage(
+	responsePayload, err := controller.HandleIncomingMessage(
 		msg,
 		nodeID,
 		scope,
-	); err != nil {
-		c.logger.WarnContext(
-			ctx,
-			"message dispatch failed",
-			auth.LogKeyNodeID,
-			nodeID.String(),
-			logKeyMessageType,
-			int(msg.Type),
-			auth.LogKeyReason,
-			err.Error(),
-		)
-	}
+	)
+	return responsePayload, err
 }
 
 func (c *carrierImpl) dropConnection( // A
