@@ -6,7 +6,7 @@
 - [x] Rename `JoinCluster` to `OpenPeerChannel`
 - [x] Verify Authentication with QUIC Streams and Datagrams - Ensure that Auth is always performed over reliable QUIC streams and Datagrams just pigigyback on the existing TLS connection
 - [x] Heartbeat
-- [ ] Refactor the message parsing location and logic to be mre elegant and efficient
+- [x] Refactor the message parsing location and logic to be mre elegant and efficient
 - [ ] Refactor project structure to include submodules and better domain representation
 - [ ] Fix all golangci-lint-v2 run problems
 - [ ] Simplify and optimize code where possible
