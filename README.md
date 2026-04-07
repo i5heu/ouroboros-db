@@ -6,7 +6,7 @@
   <img width="400" height="400" style="border-radius: 3%; max-width: 100%" alt="Logo of OuroborosDB" src=".media/logo.jpeg">
 </p>
 
-⚠️ This Project is still in development and not ready for production use. ⚠️
+⚠️ This Project is still in development and not ready for production use. It has security vulnerabilities that will be addressed until it reaches a stable release. ⚠️
 
 
 ## Name and Logo
@@ -14,6 +14,16 @@
 The name "OuroborosDB" is derived from the ancient symbol "Ouroboros," a representation of cyclical events, continuity, and endless return. Historically, it's been a potent symbol across various cultures, signifying the eternal cycle of life, death, and rebirth. In the context of this database, the Ouroboros symbolizes the perpetual preservation and renewal of data. While the traditional Ouroboros depicts a serpent consuming its tail, our version deviates, hinting at both reverence for historical cycles and the importance of continuous adaptation in the face of change.
 
 ## Development Notes
+
+### Current Focus
+- Implementing the core database ASAP to validate architectural decisions and ensure the design can meet the requirements.
+
+### Future Focus
+- Heavy refactoring and optimization
+- Security hardening and complete audit of the codebase
+- Deterministic testing and fuzzing
+- Comprehensive documentation and examples
+- Release preparations
 
 ### Environmental Constraints
 
