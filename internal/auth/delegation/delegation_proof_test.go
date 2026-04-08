@@ -47,32 +47,11 @@ func TestDelegationProofInterface(t *testing.T) { // A
 	var _ canonical.DelegationProofLike = proof
 }
 
-func TestDelegationProofDefensiveCopiesByteFields( // A
+func assertConstructorCopies( // A
 	t *testing.T,
+	proof canonical.DelegationProofLike,
 ) {
-	tlsCertHash := []byte("cert-hash")
-	exporter := []byte("exporter")
-	transcript := []byte("transcript")
-	x509 := []byte("x509")
-	bundle := []byte("bundle")
-
-	proof := NewDelegationProof(
-		tlsCertHash,
-		exporter,
-		transcript,
-		x509,
-		bundle,
-		100,
-		400,
-	)
-
-	tlsCertHash[0] = 'X'
-	exporter[0] = 'Y'
-	transcriptHash := transcript
-	transcriptHash[0] = 'Z'
-	x509[0] = 'W'
-	bundle[0] = 'Q'
-
+	t.Helper()
 	if !bytes.Equal(proof.TLSCertPubKeyHash(), []byte("cert-hash")) {
 		t.Fatalf("TLSCertPubKeyHash mutated after constructor copy")
 	}
@@ -88,7 +67,13 @@ func TestDelegationProofDefensiveCopiesByteFields( // A
 	if !bytes.Equal(proof.NodeCertBundleHash(), []byte("bundle")) {
 		t.Fatalf("NodeCertBundleHash mutated after constructor copy")
 	}
+}
 
+func assertGetterCopies( // A
+	t *testing.T,
+	proof canonical.DelegationProofLike,
+) {
+	t.Helper()
 	returnedCertHash := proof.TLSCertPubKeyHash()
 	returnedExporter := proof.TLSExporterBinding()
 	returnedTranscript := proof.TLSTranscriptHash()
@@ -116,4 +101,34 @@ func TestDelegationProofDefensiveCopiesByteFields( // A
 	if !bytes.Equal(proof.NodeCertBundleHash(), []byte("bundle")) {
 		t.Fatalf("NodeCertBundleHash mutated through getter")
 	}
+}
+
+func TestDelegationProofDefensiveCopiesByteFields( // A
+	t *testing.T,
+) {
+	tlsCertHash := []byte("cert-hash")
+	exporter := []byte("exporter")
+	transcript := []byte("transcript")
+	x509 := []byte("x509")
+	bundle := []byte("bundle")
+
+	proof := NewDelegationProof(
+		tlsCertHash,
+		exporter,
+		transcript,
+		x509,
+		bundle,
+		100,
+		400,
+	)
+
+	tlsCertHash[0] = 'X'
+	exporter[0] = 'Y'
+	transcriptHash := transcript
+	transcriptHash[0] = 'Z'
+	x509[0] = 'W'
+	bundle[0] = 'Q'
+
+	assertConstructorCopies(t, proof)
+	assertGetterCopies(t, proof)
 }

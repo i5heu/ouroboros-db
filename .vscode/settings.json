@@ -52,6 +52,7 @@
         "mattn",
         "multierr",
         "nolint",
+        "nosec",
         "pgregory",
         "reedsolomon",
         "ristretto",

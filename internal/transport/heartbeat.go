@@ -38,11 +38,12 @@ func marshalHeartbeatPayload( // A
 		nodes[i] = &pb.HeartbeatNodeEntry{
 			NodeId:    n.NodeID[:],
 			Addresses: n.Addresses,
-			Role:      int32(n.Role),
+			Role:      int32(n.Role), //#nosec G115 // safe: NodeRole is a small enum value
 		}
 	}
 	msg := &pb.HeartbeatPayload{
-		SentAtUnix:       payload.SentAtUnix,
+		SentAtUnix: payload.SentAtUnix,
+		//#nosec G115 // safe: NodeRole is a small enum
 		SenderRole:       int32(payload.SenderRole),
 		KnownNodes:       nodes,
 		Stats:            payload.Stats,
@@ -171,6 +172,7 @@ func (c *carrierImpl) buildHeartbeatPayload( // A
 ) (heartbeatPayload, error) {
 	knownNodes := c.heartbeatKnownNodes()
 	stats := map[string]uint64{
+		//#nosec G115 // safe: connection count fits in uint64
 		"connectedNodes": uint64(c.connectedCount()),
 		"knownNodes":     uint64(len(knownNodes)),
 	}

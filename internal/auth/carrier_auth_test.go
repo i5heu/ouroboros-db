@@ -563,6 +563,91 @@ func TestVerifyPeerCertNilBundleEntryRejected( // A
 	}
 }
 
+func signNodeCertWithAdmin( // A
+	t *testing.T,
+	nodePub keys.PublicKey,
+	caHash string,
+	validFrom, validUntil int64,
+	serial, certNonce []byte,
+	adminAC *keys.AsyncCrypt,
+) []byte {
+	t.Helper()
+	cert, err := NewNodeCert(
+		nodePub, caHash,
+		validFrom, validUntil, serial, certNonce,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalCert, err := canonicalpkg.CanonicalNodeCert(cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certMsg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonicalCert)
+	caSig, err := adminAC.Sign(certMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return caSig
+}
+
+type attackerDelegationResult struct { // A
+	proof    canonicalpkg.DelegationProofLike
+	delSig   []byte
+	exporter []byte
+}
+
+func buildAttackerDelegation( // A
+	t *testing.T,
+	certHash, transcript, x509FP []byte,
+	presentedView canonicalpkg.NodeCertLike,
+	attackerAC *keys.AsyncCrypt,
+) attackerDelegationResult {
+	t.Helper()
+	bundleBytes, err := canonicalpkg.CanonicalNodeCertBundle(
+		[]canonicalpkg.NodeCertLike{presentedView},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleHash := sha256.Sum256(bundleBytes)
+
+	proof := delegationpkg.NewDelegationProof(
+		certHash, nil, transcript, x509FP,
+		bundleHash[:],
+		time.Now().Unix()-5,
+		time.Now().Unix()+delegationpkg.MaxDelegationTTL-10,
+	)
+	exporterCtx, err := canonicalpkg.CanonicalDelegationProofForExporter(
+		proof,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := deriveTestExporter(exporterCtx)
+
+	proof = delegationpkg.NewDelegationProof(
+		certHash, exporter, transcript, x509FP,
+		bundleHash[:], proof.NotBefore(), proof.NotAfter(),
+	)
+	proofCanonical, err := canonicalpkg.CanonicalDelegationProof(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegationMsg := canonicalpkg.DomainSeparate(
+		delegationpkg.CTXNodeDelegationV1, proofCanonical,
+	)
+	delegationSig, err := attackerAC.Sign(delegationMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return attackerDelegationResult{
+		proof: proof, delSig: delegationSig,
+		exporter: exporter,
+	}
+}
+
 func TestVerifyPeerCertRejectsStatefulCertView( // A
 	t *testing.T,
 ) {
@@ -586,26 +671,13 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 		t.Fatal(err)
 	}
 
-	signedView, err := NewNodeCert(
-		s.nodeAC.GetPublicKey(),
+	caSig := signNodeCertWithAdmin(
+		t, s.nodeAC.GetPublicKey(),
 		s.adminCA.Hash(),
-		s.cert.ValidFrom(),
-		s.cert.ValidUntil(),
-		s.cert.Serial(),
-		s.cert.CertNonce(),
+		s.cert.ValidFrom(), s.cert.ValidUntil(),
+		s.cert.Serial(), s.cert.CertNonce(),
+		s.adminAC,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	canonical, err := canonicalpkg.CanonicalNodeCert(signedView)
-	if err != nil {
-		t.Fatal(err)
-	}
-	certMsg := canonicalpkg.DomainSeparate(CTXNodeAdmissionV1, canonical)
-	caSig, err := s.adminAC.Sign(certMsg)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	presentedView, err := NewNodeCert(
 		attackerPub,
@@ -618,51 +690,11 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundleBytes, err := canonicalpkg.CanonicalNodeCertBundle(
-		[]canonicalpkg.NodeCertLike{presentedView},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundleHash := sha256.Sum256(bundleBytes)
 
-	proof := delegationpkg.NewDelegationProof(
-		s.certHash,
-		nil,
-		s.transcript,
-		s.x509FP,
-		bundleHash[:],
-		time.Now().Unix()-5,
-		time.Now().Unix()+delegationpkg.MaxDelegationTTL-10,
+	result := buildAttackerDelegation(
+		t, s.certHash, s.transcript, s.x509FP,
+		presentedView, attackerAC,
 	)
-	exporterCtx, err := canonicalpkg.CanonicalDelegationProofForExporter(
-		proof,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	exporter := deriveTestExporter(exporterCtx)
-	proof = delegationpkg.NewDelegationProof(
-		s.certHash,
-		exporter,
-		s.transcript,
-		s.x509FP,
-		bundleHash[:],
-		proof.NotBefore(),
-		proof.NotAfter(),
-	)
-	proofCanonical, err := canonicalpkg.CanonicalDelegationProof(proof)
-	if err != nil {
-		t.Fatal(err)
-	}
-	delegationMsg := canonicalpkg.DomainSeparate(
-		delegationpkg.CTXNodeDelegationV1,
-		proofCanonical,
-	)
-	delegationSig, err := attackerAC.Sign(delegationMsg)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	ctx, err := mustVerifyPeerCertWithoutPanic(
 		t,
@@ -670,11 +702,11 @@ func TestVerifyPeerCertRejectsStatefulCertView( // A
 		PeerHandshake{
 			Certs:           []canonicalpkg.NodeCertLike{maliciousCert},
 			CASignatures:    [][]byte{caSig},
-			DelegationProof: proof,
-			DelegationSig:   delegationSig,
+			DelegationProof: result.proof,
+			DelegationSig:   result.delSig,
 			TLS: TLSBindings{
 				CertPubKeyHash:  s.certHash,
-				ExporterBinding: exporter,
+				ExporterBinding: result.exporter,
 				X509Fingerprint: s.x509FP,
 				TranscriptHash:  s.transcript,
 			},

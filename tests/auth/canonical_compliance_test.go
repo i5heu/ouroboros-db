@@ -229,9 +229,13 @@ func TestPropertyDomainSeparationPrepends(t *testing.T) {
 		prefix := []byte(ctx)
 		l := len(prefix)
 		expected := make([]byte, 4+l+len(data))
+		//#nosec G115 // safe: byte extraction from upper bits
 		expected[0] = byte(l >> 24)
+		//#nosec G115 // safe: byte extraction from upper bits
 		expected[1] = byte(l >> 16)
+		//#nosec G115 // safe: byte extraction from upper bits
 		expected[2] = byte(l >> 8)
+		//#nosec G115 // safe: byte extraction from lower bits
 		expected[3] = byte(l)
 		copy(expected[4:], prefix)
 		copy(expected[4+l:], data)

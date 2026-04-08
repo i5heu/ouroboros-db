@@ -194,29 +194,7 @@ func (ts *trustSnapshot) isUserCAAnchorValid( // A
 func (ts *trustSnapshot) withEmbeddedAuthorities( // A
 	authorities []EmbeddedCA,
 ) (*trustSnapshot, error) {
-	clone := &trustSnapshot{
-		adminCAs:        make(map[string]*AdminCAImpl, len(ts.adminCAs)),
-		userCAs:         make(map[string]*UserCAImpl, len(ts.userCAs)),
-		revokedAdminCAs: make(map[string]struct{}, len(ts.revokedAdminCAs)),
-		revokedUserCAs:  make(map[string]struct{}, len(ts.revokedUserCAs)),
-		revokedNodes:    make(map[keys.NodeID]struct{}, len(ts.revokedNodes)),
-		logger:          ts.logger,
-	}
-	for key, value := range ts.adminCAs {
-		clone.adminCAs[key] = value
-	}
-	for key, value := range ts.userCAs {
-		clone.userCAs[key] = value
-	}
-	for key, value := range ts.revokedAdminCAs {
-		clone.revokedAdminCAs[key] = value
-	}
-	for key, value := range ts.revokedUserCAs {
-		clone.revokedUserCAs[key] = value
-	}
-	for key, value := range ts.revokedNodes {
-		clone.revokedNodes[key] = value
-	}
+	clone := ts.cloneTrustSnapshot()
 	for _, authority := range authorities {
 		if authority.Type != "admin-ca" {
 			continue
@@ -234,6 +212,43 @@ func (ts *trustSnapshot) withEmbeddedAuthorities( // A
 		}
 	}
 	return clone, nil
+}
+
+func (ts *trustSnapshot) cloneTrustSnapshot() *trustSnapshot { // A
+	clone := &trustSnapshot{
+		adminCAs: make(
+			map[string]*AdminCAImpl, len(ts.adminCAs),
+		),
+		userCAs: make(
+			map[string]*UserCAImpl, len(ts.userCAs),
+		),
+		revokedAdminCAs: make(
+			map[string]struct{}, len(ts.revokedAdminCAs),
+		),
+		revokedUserCAs: make(
+			map[string]struct{}, len(ts.revokedUserCAs),
+		),
+		revokedNodes: make(
+			map[keys.NodeID]struct{}, len(ts.revokedNodes),
+		),
+		logger: ts.logger,
+	}
+	for key, value := range ts.adminCAs {
+		clone.adminCAs[key] = value
+	}
+	for key, value := range ts.userCAs {
+		clone.userCAs[key] = value
+	}
+	for key, value := range ts.revokedAdminCAs {
+		clone.revokedAdminCAs[key] = value
+	}
+	for key, value := range ts.revokedUserCAs {
+		clone.revokedUserCAs[key] = value
+	}
+	for key, value := range ts.revokedNodes {
+		clone.revokedNodes[key] = value
+	}
+	return clone
 }
 
 func (ts *trustSnapshot) addEmbeddedAdmin( // A

@@ -29,14 +29,19 @@ func (r *nodeRegistry) AddNode( // A
 		return fmt.Errorf("node ID must not be zero")
 	}
 	copyNode := interfaces.Node{
-		NodeID:           node.NodeID,
-		Addresses:        append([]string(nil), node.Addresses...),
-		NodeCerts:        append([]interfaces.NodeCert(nil), certs...),
+		NodeID: node.NodeID,
+		Addresses: append(
+			[]string(nil), node.Addresses...,
+		),
+		NodeCerts: append(
+			[]interfaces.NodeCert(nil), certs...,
+		),
 		Role:             node.Role,
 		LastSeen:         node.LastSeen,
 		ConnectionStatus: node.ConnectionStatus,
 	}
-	if len(copyNode.NodeCerts) == 0 && len(node.NodeCerts) > 0 {
+	if len(copyNode.NodeCerts) == 0 &&
+		len(node.NodeCerts) > 0 {
 		copyNode.NodeCerts = append(
 			[]interfaces.NodeCert(nil),
 			node.NodeCerts...,
@@ -44,33 +49,40 @@ func (r *nodeRegistry) AddNode( // A
 	}
 	r.mu.Lock()
 	if existing, ok := r.nodes[node.NodeID]; ok {
-		copyNode.Addresses = compactAddresses(append(
-			existing.Addresses,
-			copyNode.Addresses...,
-		))
-		if len(copyNode.NodeCerts) == 0 {
-			copyNode.NodeCerts = append(
-				[]interfaces.NodeCert(nil),
-				existing.NodeCerts...,
-			)
-		}
-		if copyNode.LastSeen.IsZero() {
-			copyNode.LastSeen = existing.LastSeen
-		}
-		if copyNode.Role == interfaces.NodeRoleServer &&
-			existing.Role == interfaces.NodeRoleClient {
-			copyNode.Role = existing.Role
-		}
-		if copyNode.ConnectionStatus ==
-			interfaces.ConnectionStatusDisconnected &&
-			existing.ConnectionStatus !=
-				interfaces.ConnectionStatusDisconnected {
-			copyNode.ConnectionStatus = existing.ConnectionStatus
-		}
+		mergeExistingNode(&copyNode, existing)
 	}
 	r.nodes[node.NodeID] = copyNode
 	r.mu.Unlock()
 	return nil
+}
+
+func mergeExistingNode( // A
+	copyNode *interfaces.Node,
+	existing interfaces.Node,
+) {
+	copyNode.Addresses = compactAddresses(append(
+		existing.Addresses,
+		copyNode.Addresses...,
+	))
+	if len(copyNode.NodeCerts) == 0 {
+		copyNode.NodeCerts = append(
+			[]interfaces.NodeCert(nil),
+			existing.NodeCerts...,
+		)
+	}
+	if copyNode.LastSeen.IsZero() {
+		copyNode.LastSeen = existing.LastSeen
+	}
+	if copyNode.Role == interfaces.NodeRoleServer &&
+		existing.Role == interfaces.NodeRoleClient {
+		copyNode.Role = existing.Role
+	}
+	if copyNode.ConnectionStatus ==
+		interfaces.ConnectionStatusDisconnected &&
+		existing.ConnectionStatus !=
+			interfaces.ConnectionStatusDisconnected {
+		copyNode.ConnectionStatus = existing.ConnectionStatus
+	}
 }
 
 func (r *nodeRegistry) RemoveNode( // A

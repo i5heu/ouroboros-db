@@ -338,7 +338,8 @@ func configureUsage() { // A
 		)
 		_, _ = fmt.Fprintf(
 			out,
-			"  interactive -node-cert ./node.oucert -admin-ca ./admin.oukey -listen :9443 -bootstrap 127.0.0.1:9444\n",
+			"  interactive -node-cert ./node.oucert -admin-ca ./admin.oukey "+
+				"-listen :9443 -bootstrap 127.0.0.1:9444\n",
 		)
 	}
 }
@@ -478,45 +479,71 @@ func repl( // A
 			continue
 		}
 		fields := strings.Fields(line)
-		cmd := fields[0]
-		args := fields[1:]
-
-		switch cmd {
-		case "help":
-			printHelp()
-		case "id":
-			fmt.Printf("node ID: %s\n", shortNodeID(nodeID))
-		case "listen":
-			fmt.Printf("listening on: %s\n", transport.ListenAddress())
-		case "peers":
-			printPeers(transport)
-		case "hello", "broadcast":
-			text := "hello world"
-			if len(args) > 0 {
-				text = strings.Join(args, " ")
-			}
-			if err := broadcastHello(
-				transport,
-				shortNodeID(nodeID),
-				text,
-			); err != nil {
-				fmt.Printf("broadcast failed: %v\n", err)
-				continue
-			}
-		case "reconnect":
-			fmt.Println("reconnecting to bootstrap...")
-			if err := transport.Reconnect(); err != nil {
-				fmt.Printf("reconnect failed: %v\n", err)
-				continue
-			}
-			fmt.Println("reconnected successfully")
-		case "exit", "quit":
-			cancel()
+		if handleReplCommand(
+			fields[0], fields[1:],
+			transport, nodeID, cancel,
+		) {
 			return nil
-		default:
-			fmt.Printf("unknown command %q\n", cmd)
 		}
 	}
+}
+
+func handleReplCommand( // A
+	cmd string,
+	args []string,
+	tr transport.RuntimeCarrier,
+	nodeID keys.NodeID,
+	cancel context.CancelFunc,
+) bool {
+	switch cmd {
+	case "help":
+		printHelp()
+	case "id":
+		fmt.Printf("node ID: %s\n", shortNodeID(nodeID))
+	case "listen":
+		fmt.Printf(
+			"listening on: %s\n", tr.ListenAddress(),
+		)
+	case "peers":
+		printPeers(tr)
+	case "hello", "broadcast":
+		handleBroadcastCommand(args, tr, nodeID)
+	case "reconnect":
+		handleReconnectCommand(tr)
+	case "exit", "quit":
+		cancel()
+		return true
+	default:
+		fmt.Printf("unknown command %q\n", cmd)
+	}
+	return false
+}
+
+func handleBroadcastCommand( // A
+	args []string,
+	tr transport.RuntimeCarrier,
+	nodeID keys.NodeID,
+) {
+	text := "hello world"
+	if len(args) > 0 {
+		text = strings.Join(args, " ")
+	}
+	if err := broadcastHello(
+		tr, shortNodeID(nodeID), text,
+	); err != nil {
+		fmt.Printf("broadcast failed: %v\n", err)
+	}
+}
+
+func handleReconnectCommand( // A
+	tr transport.RuntimeCarrier,
+) {
+	fmt.Println("reconnecting to bootstrap...")
+	if err := tr.Reconnect(); err != nil {
+		fmt.Printf("reconnect failed: %v\n", err)
+		return
+	}
+	fmt.Println("reconnected successfully")
 }
 
 // broadcastHello sends a user-message payload to all

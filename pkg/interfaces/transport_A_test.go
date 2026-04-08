@@ -50,7 +50,7 @@ func TestBootstrapConfigLoadFromFileInvalidJSON(t *testing.T) { // A
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "invalid.json")
 
-	if err := os.WriteFile(path, []byte("not valid json"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("not valid json"), 0o600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -64,6 +64,7 @@ func TestBootstrapConfigLoadFromFileInvalidJSON(t *testing.T) { // A
 func TestBootstrapConfigSaveToReadOnlyDir(t *testing.T) { // A
 	tmpDir := t.TempDir()
 	roDir := filepath.Join(tmpDir, "readonly")
+	//#nosec G301 // safe: intentionally read-only for error path test
 	if err := os.Mkdir(roDir, 0o555); err != nil {
 		t.Fatalf("Mkdir failed: %v", err)
 	}

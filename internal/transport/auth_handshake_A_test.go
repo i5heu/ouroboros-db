@@ -112,7 +112,8 @@ func TestReadAuthHandshakeRejectsMalformedAuthoritiesProtobuf( // A
 	}
 	frame := make([]byte, 4+len(payload))
 	binary.BigEndian.PutUint32(
-		frame[:4], uint32(len(payload)),
+		frame[:4],
+		uint32(len(payload)), //#nosec G115 // safe: test payload size well within uint32 range
 	)
 	copy(frame[4:], payload)
 
@@ -141,9 +142,21 @@ func TestReadAuthHandshakeRejectsMalformedAuthoritiesProtobuf( // A
 	}
 }
 
-func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
+type authHandshakeRoundTripEnv struct { // A
+	adminCA   *auth.AdminCAImpl
+	adminKEM  []byte
+	adminSign []byte
+	userKEM   []byte
+	userSign  []byte
+	anchorSig []byte
+	cert      canonical.NodeCertLike
+	proof     *delegation.DelegationProofImpl
+}
+
+func setupAuthHandshakeRoundTrip( // A
 	t *testing.T,
-) {
+) authHandshakeRoundTripEnv {
+	t.Helper()
 	adminAC, err := keys.NewAsyncCrypt()
 	if err != nil {
 		t.Fatalf("admin key: %v", err)
@@ -206,26 +219,39 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 		now+10,
 	)
 
+	return authHandshakeRoundTripEnv{
+		adminCA: adminCA, adminKEM: adminKEM,
+		adminSign: adminSign, userKEM: userKEM,
+		userSign: userSign, anchorSig: anchorSig,
+		cert: cert, proof: proof,
+	}
+}
+
+func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
+	t *testing.T,
+) {
+	env := setupAuthHandshakeRoundTrip(t)
+
 	stream := newTestStream(nil)
-	err = writeAuthHandshake(
+	err := writeAuthHandshake(
 		stream,
-		[]canonical.NodeCertLike{cert},
+		[]canonical.NodeCertLike{env.cert},
 		[][]byte{[]byte("ca-sig")},
 		[]auth.EmbeddedCA{
 			{
 				Type:    "admin-ca",
-				PubKEM:  adminKEM,
-				PubSign: adminSign,
+				PubKEM:  env.adminKEM,
+				PubSign: env.adminSign,
 			},
 			{
 				Type:        "user-ca",
-				PubKEM:      userKEM,
-				PubSign:     userSign,
-				AnchorSig:   anchorSig,
-				AnchorAdmin: adminCA.Hash(),
+				PubKEM:      env.userKEM,
+				PubSign:     env.userSign,
+				AnchorSig:   env.anchorSig,
+				AnchorAdmin: env.adminCA.Hash(),
 			},
 		},
-		proof,
+		env.proof,
 		[]byte("delegation-sig"),
 	)
 	if err != nil {
@@ -267,18 +293,24 @@ func TestWriteReadAuthHandshakeRoundTripAuthorities( // A
 			len(hs.Authorities),
 		)
 	}
-	if hs.Authorities[1].AnchorAdmin != adminCA.Hash() {
+	if hs.Authorities[1].AnchorAdmin != env.adminCA.Hash() {
 		t.Fatalf(
 			"anchor admin = %q, want %q",
 			hs.Authorities[1].AnchorAdmin,
-			adminCA.Hash(),
+			env.adminCA.Hash(),
 		)
 	}
 }
 
-func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
+type noLeakTestEnv struct { // A
+	payload []byte
+	privKey ed25519.PrivateKey
+}
+
+func setupNoLeakTest( // A
 	t *testing.T,
-) {
+) noLeakTestEnv {
+	t.Helper()
 	adminAC, err := keys.NewAsyncCrypt()
 	if err != nil {
 		t.Fatalf("admin key: %v", err)
@@ -330,7 +362,7 @@ func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
 		[]canonical.NodeCertLike{cert},
 		session,
 		func(
-			label string,
+			_ string,
 			_ []byte,
 			length int,
 		) ([]byte, error) {
@@ -355,27 +387,42 @@ func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
 		t.Fatalf("writeAuthHandshake: %v", err)
 	}
 
-	payload := stream.writes.Bytes()
-	if len(payload) < 4 {
+	return noLeakTestEnv{
+		payload: stream.writes.Bytes(),
+		privKey: privKey,
+	}
+}
+
+func TestWriteAuthHandshakeDoesNotLeakSessionPrivateKey( // A
+	t *testing.T,
+) {
+	env := setupNoLeakTest(t)
+
+	if len(env.payload) < 4 {
 		t.Fatal("handshake output too short")
 	}
-	if bytes.Contains(payload[4:], privKey) {
-		t.Fatal(
-			"auth handshake leaked session" +
-				" private key bytes",
-		)
-	}
 
-	var wire pb.WireAuthMessage
-	if err := proto.Unmarshal(
-		payload[4:], &wire,
-	); err != nil {
-		t.Fatalf("decode handshake payload: %v", err)
-	}
-	if len(wire.Certs) != 1 {
-		t.Fatalf(
-			"expected 1 cert, got %d",
-			len(wire.Certs),
-		)
-	}
+	t.Run("no_private_key_leak", func(t *testing.T) {
+		if bytes.Contains(env.payload[4:], env.privKey) {
+			t.Fatal(
+				"auth handshake leaked session" +
+					" private key bytes",
+			)
+		}
+	})
+
+	t.Run("wire_has_one_cert", func(t *testing.T) {
+		var wire pb.WireAuthMessage
+		if err := proto.Unmarshal(
+			env.payload[4:], &wire,
+		); err != nil {
+			t.Fatalf("decode handshake payload: %v", err)
+		}
+		if len(wire.Certs) != 1 {
+			t.Fatalf(
+				"expected 1 cert, got %d",
+				len(wire.Certs),
+			)
+		}
+	})
 }

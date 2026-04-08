@@ -172,6 +172,34 @@ func New(conf CarrierConfig) (*carrierImpl, error) { // A
 	if conf.SelfCert == nil {
 		return nil, fmt.Errorf("SelfCert must not be nil")
 	}
+	applyConfigDefaults(&conf)
+	c := &carrierImpl{
+		logger:   conf.Logger,
+		config:   conf,
+		registry: newNodeRegistry(),
+		connections: make(
+			map[keys.NodeID]interfaces.Connection,
+		),
+		peerScopes: make(
+			map[keys.NodeID]auth.TrustScope,
+		),
+	}
+	if conf.NodeIdentity != nil {
+		qt, err := newQuicTransport(
+			conf.ListenAddress,
+			conf.NodeIdentity,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"init transport: %w", err,
+			)
+		}
+		c.transport = qt
+	}
+	return c, nil
+}
+
+func applyConfigDefaults(conf *CarrierConfig) { // A
 	if conf.HeartbeatInterval <= 0 {
 		conf.HeartbeatInterval = defaultHeartbeatInterval
 	}
@@ -199,28 +227,12 @@ func New(conf CarrierConfig) (*carrierImpl, error) { // A
 	if conf.Logger == nil {
 		h := slog.NewTextHandler(
 			os.Stderr,
-			&slog.HandlerOptions{Level: slog.LevelInfo},
+			&slog.HandlerOptions{
+				Level: slog.LevelInfo,
+			},
 		)
 		conf.Logger = slog.New(h)
 	}
-	c := &carrierImpl{
-		logger:      conf.Logger,
-		config:      conf,
-		registry:    newNodeRegistry(),
-		connections: make(map[keys.NodeID]interfaces.Connection),
-		peerScopes:  make(map[keys.NodeID]auth.TrustScope),
-	}
-	if conf.NodeIdentity != nil {
-		qt, err := newQuicTransport(
-			conf.ListenAddress,
-			conf.NodeIdentity,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("init transport: %w", err)
-		}
-		c.transport = qt
-	}
-	return c, nil
 }
 
 // ListenAddress returns the bound local QUIC address.
@@ -237,7 +249,10 @@ func (c *carrierImpl) ListenAddress() string { // A
 
 func (c *carrierImpl) ensureBackgroundLoops() { // A
 	c.backgroundOnce.Do(func() {
-		ctx, cancel := context.WithCancel(context.Background())
+		//#nosec G118 // safe: cancel stored in c.backgroundCancel
+		ctx, cancel := context.WithCancel(
+			context.Background(),
+		)
 		c.mu.Lock()
 		c.backgroundCtx = ctx
 		c.backgroundCancel = cancel
@@ -288,15 +303,10 @@ func (c *carrierImpl) Reconnect() error { // A
 	return fmt.Errorf("%w", ErrBootstrapFailed)
 }
 
-func peerAddress( // A
-	peer interfaces.PeerNode,
-	conn interfaces.Connection,
-) string {
-	if len(peer.Addresses) > 0 && peer.Addresses[0] != "" {
-		return peer.Addresses[0]
-	}
-	return conn.RemoteAddr()
-}
+// peerAddress previously returned the preferred peer
+// address from PeerNode.Addresses or the connection's
+// remote address. The helper was unused and removed to
+// satisfy linting rules.
 
 func compactAddresses(addresses []string) []string { // A
 	out := make([]string, 0, len(addresses))

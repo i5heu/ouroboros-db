@@ -198,10 +198,18 @@ func TestDomainSeparate(t *testing.T) { // A
 	prefix := []byte("CTX_")
 	l := len(prefix)
 	expected := make([]byte, 4+l+len(data))
-	expected[0] = byte(l >> 24)
-	expected[1] = byte(l >> 16)
-	expected[2] = byte(l >> 8)
-	expected[3] = byte(l)
+	expected[0] = byte(
+		l >> 24,
+	) //#nosec G115 // safe: byte extraction from upper bits of known-range int
+	expected[1] = byte(
+		l >> 16,
+	) //#nosec G115 // safe: byte extraction from upper bits of known-range int
+	expected[2] = byte(
+		l >> 8,
+	) //#nosec G115 // safe: byte extraction from upper bits of known-range int
+	expected[3] = byte(
+		l,
+	) //#nosec G115 // safe: byte extraction from lower bits of known-range int
 	copy(expected[4:], prefix)
 	copy(expected[4+l:], data)
 	if string(sep) != string(expected) {

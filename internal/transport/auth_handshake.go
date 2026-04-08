@@ -66,81 +66,123 @@ func readAuthHandshake( // A
 	stream interfaces.Stream,
 	conn interfaces.Connection,
 ) (interfaces.PeerHandshake, error) {
-	// Read 4-byte big-endian message length.
+	msg, err := readWireMessage(stream)
+	if err != nil {
+		return interfaces.PeerHandshake{}, err
+	}
+
+	certs, err := parseWireCerts(msg)
+	if err != nil {
+		return interfaces.PeerHandshake{}, err
+	}
+
+	authorities := make(
+		[]auth.EmbeddedCA, len(msg.Authorities),
+	)
+	for i, a := range msg.Authorities {
+		authorities[i] = auth.EmbeddedCA{
+			Type: a.Type,
+			PubKEM: append(
+				[]byte(nil), a.PubKem...,
+			),
+			PubSign: append(
+				[]byte(nil), a.PubSign...,
+			),
+			AnchorSig: append(
+				[]byte(nil), a.AnchorSig...,
+			),
+			AnchorAdmin: a.AnchorAdmin,
+		}
+	}
+
+	proof := pbToDelegation(msg.Delegation)
+	tls, err := derivePeerTLSBindings(
+		conn, proof,
+	)
+	if err != nil {
+		return interfaces.PeerHandshake{}, err
+	}
+
+	return interfaces.PeerHandshake{
+		Certs:           certs,
+		CASignatures:    msg.CaSignatures,
+		Authorities:     authorities,
+		DelegationProof: proof,
+		DelegationSig:   msg.DelegationSig,
+		TLS:             tls,
+	}, nil
+}
+
+func readWireMessage( // A
+	stream interfaces.Stream,
+) (*pb.WireAuthMessage, error) {
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(
 		stream, lenBuf[:],
 	); err != nil {
-		return interfaces.PeerHandshake{},
-			fmt.Errorf("read length: %w", err)
+		return nil, fmt.Errorf(
+			"read length: %w", err,
+		)
 	}
 	msgLen := binary.BigEndian.Uint32(lenBuf[:])
 	if msgLen == 0 || msgLen > maxAuthMessageSize {
-		return interfaces.PeerHandshake{},
-			fmt.Errorf(
-				"message size %d out of bounds",
-				msgLen,
-			)
+		return nil, fmt.Errorf(
+			"message size %d out of bounds",
+			msgLen,
+		)
 	}
 
-	// Read the protobuf payload.
 	buf := make([]byte, msgLen)
-	if _, err := io.ReadFull(stream, buf); err != nil {
-		return interfaces.PeerHandshake{},
-			fmt.Errorf("read payload: %w", err)
+	if _, err := io.ReadFull(
+		stream, buf,
+	); err != nil {
+		return nil, fmt.Errorf(
+			"read payload: %w", err,
+		)
 	}
 
 	var msg pb.WireAuthMessage
-	if err := proto.Unmarshal(buf, &msg); err != nil {
-		return interfaces.PeerHandshake{},
-			fmt.Errorf("decode handshake: %w", err)
+	if err := proto.Unmarshal(
+		buf, &msg,
+	); err != nil {
+		return nil, fmt.Errorf(
+			"decode handshake: %w", err,
+		)
 	}
+	return &msg, nil
+}
 
-	// Convert wire certs to NodeCertLike.
+func parseWireCerts( // A
+	msg *pb.WireAuthMessage,
+) ([]canonical.NodeCertLike, error) {
 	certs := make(
 		[]canonical.NodeCertLike, len(msg.Certs),
 	)
 	for i, wc := range msg.Certs {
 		nc, err := pbToNodeCert(wc)
 		if err != nil {
-			return interfaces.PeerHandshake{},
-				fmt.Errorf(
-					"cert %d: %w", i, err,
-				)
+			return nil, fmt.Errorf(
+				"cert %d: %w", i, err,
+			)
 		}
 		certs[i] = nc
 	}
+	return certs, nil
+}
 
-	// Convert wire delegation proof.
-	proof := pbToDelegation(msg.Delegation)
-	authorities := make(
-		[]auth.EmbeddedCA, len(msg.Authorities),
-	)
-	for i, a := range msg.Authorities {
-		authorities[i] = auth.EmbeddedCA{
-			Type:        a.Type,
-			PubKEM:      append([]byte(nil), a.PubKem...),
-			PubSign:     append([]byte(nil), a.PubSign...),
-			AnchorSig:   append([]byte(nil), a.AnchorSig...),
-			AnchorAdmin: a.AnchorAdmin,
-		}
-	}
-
-	// Derive TLS bindings. Static values come from
-	// the connection; exporter and transcript
-	// bindings are derived via EKM using the proof
-	// context so the verifier produces the same
-	// values independently of the prover.
+func derivePeerTLSBindings( // A
+	conn interfaces.Connection,
+	proof *delegation.DelegationProofImpl,
+) (interfaces.TLSBindings, error) {
 	tls := conn.TLSBindings()
 
-	// Transcript binding via EKM (RFC 9266).
 	transcript, err := conn.ExportKeyingMaterial(
 		delegation.TranscriptBindingLabel,
 		nil,
 		delegation.TLSTranscriptHashSize,
 	)
 	if err != nil {
-		return interfaces.PeerHandshake{},
+		return interfaces.TLSBindings{},
 			fmt.Errorf(
 				"derive transcript binding: %w",
 				err,
@@ -148,14 +190,11 @@ func readAuthHandshake( // A
 	}
 	tls.TranscriptHash = transcript
 
-	// Exporter binding uses the proof-minus-exporter
-	// as EKM context, binding the exporter value to
-	// the specific delegation proof.
 	expCtx, err := canonical.CanonicalDelegationProofForExporter(
 		proof,
 	)
 	if err != nil {
-		return interfaces.PeerHandshake{},
+		return interfaces.TLSBindings{},
 			fmt.Errorf(
 				"exporter context: %w", err,
 			)
@@ -166,22 +205,14 @@ func readAuthHandshake( // A
 		delegation.TLSExporterBindingSize,
 	)
 	if err != nil {
-		return interfaces.PeerHandshake{},
+		return interfaces.TLSBindings{},
 			fmt.Errorf(
 				"derive exporter binding: %w",
 				err,
 			)
 	}
 	tls.ExporterBinding = exporter
-
-	return interfaces.PeerHandshake{
-		Certs:           certs,
-		CASignatures:    msg.CaSignatures,
-		Authorities:     authorities,
-		DelegationProof: proof,
-		DelegationSig:   msg.DelegationSig,
-		TLS:             tls,
-	}, nil
+	return tls, nil
 }
 
 // pbToNodeCert converts a protobuf WireNodeCert to a
@@ -312,6 +343,7 @@ func writeAuthHandshake( // A
 
 	// Write 4-byte big-endian length prefix.
 	var lenBuf [4]byte
+	//#nosec G115 // safe: payload size checked against maxAuthMessageSize
 	binary.BigEndian.PutUint32(
 		lenBuf[:], uint32(len(payload)),
 	)

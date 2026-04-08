@@ -12,7 +12,18 @@ import (
 	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 )
 
-func TestSignDelegation(t *testing.T) { // A
+type signDelegationTestEnv struct { // A
+	ac    *keys.AsyncCrypt
+	pub   keys.PublicKey
+	proof canonical.DelegationProofLike
+	sig   []byte
+	si    *delegation.SessionIdentity
+}
+
+func setupSignDelegationTest( // A
+	t *testing.T,
+) signDelegationTestEnv {
+	t.Helper()
 	ac, err := keys.NewAsyncCrypt()
 	if err != nil {
 		t.Fatalf("NewAsyncCrypt: %v", err)
@@ -38,9 +49,9 @@ func TestSignDelegation(t *testing.T) { // A
 
 	certs := []canonical.NodeCertLike{cert}
 
-	fakeExporter := func(
+	fakeExporter := func( // A
 		label string,
-		ctx []byte,
+		_ []byte,
 		length int,
 	) ([]byte, error) {
 		out := make([]byte, length)
@@ -54,9 +65,7 @@ func TestSignDelegation(t *testing.T) { // A
 				out[i] = 0xAB
 			}
 		default:
-			t.Fatalf(
-				"unexpected label: %s", label,
-			)
+			t.Fatalf("unexpected label: %s", label)
 		}
 		return out, nil
 	}
@@ -68,6 +77,17 @@ func TestSignDelegation(t *testing.T) { // A
 		t.Fatalf("SignDelegation: %v", err)
 	}
 
+	return signDelegationTestEnv{
+		ac: ac, pub: pub, proof: proof,
+		sig: sig, si: si,
+	}
+}
+
+func verifyProofFieldSizes( // A
+	t *testing.T,
+	proof canonical.DelegationProofLike,
+) {
+	t.Helper()
 	if len(proof.TLSCertPubKeyHash()) != 32 {
 		t.Fatal("TLSCertPubKeyHash wrong size")
 	}
@@ -86,31 +106,49 @@ func TestSignDelegation(t *testing.T) { // A
 	if proof.NotAfter()-proof.NotBefore() != delegation.MaxDelegationTTL {
 		t.Fatal("TTL not MaxDelegationTTL")
 	}
+}
 
-	if !bytes.Equal(
-		proof.TLSCertPubKeyHash(),
-		si.CertPubKeyHash[:],
-	) {
-		t.Fatal("CertPubKeyHash mismatch")
-	}
-
-	if !bytes.Equal(
-		proof.X509Fingerprint(),
-		si.X509Fingerprint[:],
-	) {
-		t.Fatal("X509Fingerprint mismatch")
-	}
-
+func verifyDelegationSignature( // A
+	t *testing.T,
+	pub keys.PublicKey,
+	proof canonical.DelegationProofLike,
+	sig []byte,
+) {
+	t.Helper()
 	canon, err := canonical.CanonicalDelegationProof(proof)
 	if err != nil {
 		t.Fatalf("canonical proof: %v", err)
 	}
-	msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
+	msg := canonical.DomainSeparate(
+		delegation.CTXNodeDelegationV1, canon,
+	)
 	if !pub.Verify(msg, sig) {
 		t.Fatal(
 			"delegation signature failed verification",
 		)
 	}
+}
+
+func TestSignDelegation(t *testing.T) { // A
+	env := setupSignDelegationTest(t)
+
+	verifyProofFieldSizes(t, env.proof)
+
+	if !bytes.Equal(
+		env.proof.TLSCertPubKeyHash(),
+		env.si.CertPubKeyHash[:],
+	) {
+		t.Fatal("CertPubKeyHash mismatch")
+	}
+
+	if !bytes.Equal(
+		env.proof.X509Fingerprint(),
+		env.si.X509Fingerprint[:],
+	) {
+		t.Fatal("X509Fingerprint mismatch")
+	}
+
+	verifyDelegationSignature(t, env.pub, env.proof, env.sig)
 }
 
 func TestSignDelegationBundleHash(t *testing.T) { // A

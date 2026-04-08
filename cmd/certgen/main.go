@@ -116,14 +116,24 @@ func cmdUserCA(args []string) error { // A
 	if !ok {
 		return fmt.Errorf("missing -out flag")
 	}
+	adminAC, adminCA, err := loadAdminCA(adminPath)
+	if err != nil {
+		return err
+	}
+	return buildUserCAFile(adminAC, adminCA, out)
+}
+
+func loadAdminCA( // A
+	adminPath string,
+) (*keys.AsyncCrypt, *auth.AdminCAImpl, error) {
 	adminAC, adminFile, err := authfile.ReadCAKey(
 		adminPath,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if adminFile.Type != "admin-ca" {
-		return fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%s is %s, need admin-ca",
 			adminPath, adminFile.Type,
 		)
@@ -133,13 +143,24 @@ func cmdUserCA(args []string) error { // A
 		&adminPub,
 	)
 	if err != nil {
-		return fmt.Errorf("admin pubkey: %w", err)
+		return nil, nil, fmt.Errorf(
+			"admin pubkey: %w", err,
+		)
 	}
 	adminCA, err := auth.NewAdminCA(adminPubBytes)
 	if err != nil {
-		return fmt.Errorf("admin CA: %w", err)
+		return nil, nil, fmt.Errorf(
+			"admin CA: %w", err,
+		)
 	}
+	return adminAC, adminCA, nil
+}
 
+func buildUserCAFile( // A
+	adminAC *keys.AsyncCrypt,
+	adminCA *auth.AdminCAImpl,
+	out string,
+) error {
 	userAC, err := keys.NewAsyncCrypt()
 	if err != nil {
 		return fmt.Errorf("key generation: %w", err)
@@ -164,9 +185,12 @@ func cmdUserCA(args []string) error { // A
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
+	adminPub := adminAC.GetPublicKey()
 	adminPubKEM, err := adminPub.MarshalBinaryKEM()
 	if err != nil {
-		return fmt.Errorf("admin pubkey KEM: %w", err)
+		return fmt.Errorf(
+			"admin pubkey KEM: %w", err,
+		)
 	}
 	adminPubSign, err := adminPub.MarshalBinarySign()
 	if err != nil {
@@ -197,122 +221,50 @@ func cmdUserCA(args []string) error { // A
 }
 
 func cmdSignNode(args []string) error { // A
-	caPath, ok := parseFlag(args, "-ca-key")
-	if !ok {
-		return fmt.Errorf("missing -ca-key flag")
-	}
-	out, ok := parseFlag(args, "-out")
-	if !ok {
-		return fmt.Errorf("missing -out flag")
-	}
-	validityStr, _ := parseFlag(args, "-validity")
-	validity := 365 * 24 * time.Hour
-	if validityStr != "" {
-		v, err := time.ParseDuration(validityStr)
-		if err != nil {
-			return fmt.Errorf(
-				"invalid -validity: %w", err,
-			)
-		}
-		validity = v
-	}
-
-	caAC, caFile, err := authfile.ReadCAKey(caPath)
+	caPath, out, validity, err := parseSignNodeArgs(args)
 	if err != nil {
 		return err
 	}
-	caPub := caAC.GetPublicKey()
-	caPubBytes, err := auth.MarshalPubKeyBytes(&caPub)
+	caInfo, err := loadCAKeyInfo(caPath)
 	if err != nil {
-		return fmt.Errorf("ca pubkey: %w", err)
+		return err
 	}
-	caPubKEM, err := caPub.MarshalBinaryKEM()
-	if err != nil {
-		return fmt.Errorf("ca pubkey KEM: %w", err)
-	}
-	caPubSign, err := caPub.MarshalBinarySign()
-	if err != nil {
-		return fmt.Errorf("ca pubkey Sign: %w", err)
-	}
-
-	h := sha256.Sum256(
-		caPubBytes[auth.KEMPublicKeySize:],
-	)
-	caHash := fmt.Sprintf("%x", h)
-
-	nodeAC, err := keys.NewAsyncCrypt()
-	if err != nil {
-		return fmt.Errorf("node key gen: %w", err)
-	}
-	nodePub := nodeAC.GetPublicKey()
-
-	now := time.Now()
-	serial := make([]byte, 16)
-	if _, err := rand.Read(serial); err != nil {
-		return fmt.Errorf("serial: %w", err)
-	}
-	certNonce := make([]byte, 16)
-	if _, err := rand.Read(certNonce); err != nil {
-		return fmt.Errorf("nonce: %w", err)
-	}
-
-	cert, err := certpkg.NewNodeCert(
-		nodePub,
-		caHash,
-		now.Unix(),
-		now.Add(validity).Unix(),
-		serial,
-		certNonce,
+	result, err := createNodeCertificate(
+		caInfo, validity,
 	)
 	if err != nil {
-		return fmt.Errorf("node cert: %w", err)
+		return err
 	}
 
-	canonicalData, err := canonical.CanonicalNodeCert(cert)
-	if err != nil {
-		return fmt.Errorf("canonical cert: %w", err)
-	}
-	msg := canonical.DomainSeparate(
-		auth.CTXNodeAdmissionV1, canonicalData,
+	keyJSON, err := authfile.MarshalKeyJSON(
+		result.nodeAC,
 	)
-	caSig, err := caAC.Sign(msg)
-	if err != nil {
-		return fmt.Errorf("sign cert: %w", err)
-	}
-
-	ca, err := auth.NewAdminCA(caPubBytes)
-	if err != nil {
-		return fmt.Errorf("verify CA: %w", err)
-	}
-	if _, err := ca.VerifyNodeCert(cert, caSig); err != nil {
-		return fmt.Errorf("verify failed: %w", err)
-	}
-
-	keyJSON, err := authfile.MarshalKeyJSON(nodeAC)
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
 	authorities, err := authfile.BuildEmbeddedTrustChain(
-		caAC,
-		caFile,
+		caInfo.caAC,
+		caInfo.caFile,
 	)
 	if err != nil {
 		return fmt.Errorf(
 			"embedded trust chain: %w", err,
 		)
 	}
+
+	now := result.createdAt
 	f := authfile.NodeCertFile{
 		Type:         "node-cert",
 		KeyJSON:      keyJSON,
-		CAPubKEM:     caPubKEM,
-		CAPubSign:    caPubSign,
-		CASignature:  caSig,
+		CAPubKEM:     caInfo.caPubKEM,
+		CAPubSign:    caInfo.caPubSign,
+		CASignature:  result.caSig,
 		Authorities:  authorities,
-		IssuerCAHash: caHash,
+		IssuerCAHash: caInfo.caHash,
 		ValidFrom:    now.Unix(),
 		ValidUntil:   now.Add(validity).Unix(),
-		Serial:       serial,
-		CertNonce:    certNonce,
+		Serial:       result.serial,
+		CertNonce:    result.certNonce,
 	}
 	data, err := authfile.MarshalNodeCert(&f)
 	if err != nil {
@@ -321,10 +273,10 @@ func cmdSignNode(args []string) error { // A
 	if err := authfile.WriteFile(out, data); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	nodeID := cert.NodeID()
+	nodeID := result.cert.NodeID()
 	fmt.Printf("node cert created: %s\n", out)
 	fmt.Printf("  node ID:   %x\n", nodeID[:])
-	fmt.Printf("  issuer CA: %s\n", caHash)
+	fmt.Printf("  issuer CA: %s\n", caInfo.caHash)
 	fmt.Printf("  valid:     %s to %s\n",
 		now.Format(time.DateOnly),
 		now.Add(validity).Format(time.DateOnly),
@@ -332,11 +284,173 @@ func cmdSignNode(args []string) error { // A
 	return nil
 }
 
+func parseSignNodeArgs( // A
+	args []string,
+) (string, string, time.Duration, error) {
+	caPath, ok := parseFlag(args, "-ca-key")
+	if !ok {
+		return "", "", 0, fmt.Errorf(
+			"missing -ca-key flag",
+		)
+	}
+	out, ok := parseFlag(args, "-out")
+	if !ok {
+		return "", "", 0, fmt.Errorf(
+			"missing -out flag",
+		)
+	}
+	validity := 365 * 24 * time.Hour
+	validityStr, _ := parseFlag(args, "-validity")
+	if validityStr != "" {
+		v, err := time.ParseDuration(validityStr)
+		if err != nil {
+			return "", "", 0, fmt.Errorf(
+				"invalid -validity: %w", err,
+			)
+		}
+		validity = v
+	}
+	return caPath, out, validity, nil
+}
+
+type caKeyInfo struct { // A
+	caAC       *keys.AsyncCrypt
+	caFile     *authfile.CAKeyFile
+	caPubBytes []byte
+	caPubKEM   []byte
+	caPubSign  []byte
+	caHash     string
+}
+
+func loadCAKeyInfo( // A
+	caPath string,
+) (*caKeyInfo, error) {
+	caAC, caFile, err := authfile.ReadCAKey(caPath)
+	if err != nil {
+		return nil, err
+	}
+	caPub := caAC.GetPublicKey()
+	caPubBytes, err := auth.MarshalPubKeyBytes(&caPub)
+	if err != nil {
+		return nil, fmt.Errorf("ca pubkey: %w", err)
+	}
+	caPubKEM, err := caPub.MarshalBinaryKEM()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"ca pubkey KEM: %w", err,
+		)
+	}
+	caPubSign, err := caPub.MarshalBinarySign()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"ca pubkey Sign: %w", err,
+		)
+	}
+	h := sha256.Sum256(
+		caPubBytes[auth.KEMPublicKeySize:],
+	)
+	return &caKeyInfo{
+		caAC: caAC, caFile: caFile,
+		caPubBytes: caPubBytes,
+		caPubKEM:   caPubKEM,
+		caPubSign:  caPubSign,
+		caHash:     fmt.Sprintf("%x", h),
+	}, nil
+}
+
+type nodeCertResult struct { // A
+	nodeAC    *keys.AsyncCrypt
+	cert      *certpkg.NodeCertImpl
+	caSig     []byte
+	serial    []byte
+	certNonce []byte
+	createdAt time.Time
+}
+
+func createNodeCertificate( // A
+	caInfo *caKeyInfo,
+	validity time.Duration,
+) (*nodeCertResult, error) {
+	nodeAC, err := keys.NewAsyncCrypt()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"node key gen: %w", err,
+		)
+	}
+	nodePub := nodeAC.GetPublicKey()
+
+	now := time.Now()
+	serial := make([]byte, 16)
+	if _, err := rand.Read(serial); err != nil {
+		return nil, fmt.Errorf("serial: %w", err)
+	}
+	certNonce := make([]byte, 16)
+	if _, err := rand.Read(certNonce); err != nil {
+		return nil, fmt.Errorf("nonce: %w", err)
+	}
+
+	cert, err := certpkg.NewNodeCert(
+		nodePub,
+		caInfo.caHash,
+		now.Unix(),
+		now.Add(validity).Unix(),
+		serial,
+		certNonce,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"node cert: %w", err,
+		)
+	}
+
+	canonicalData, err := canonical.CanonicalNodeCert(
+		cert,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"canonical cert: %w", err,
+		)
+	}
+	msg := canonical.DomainSeparate(
+		auth.CTXNodeAdmissionV1, canonicalData,
+	)
+	caSig, err := caInfo.caAC.Sign(msg)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"sign cert: %w", err,
+		)
+	}
+
+	ca, err := auth.NewAdminCA(caInfo.caPubBytes)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"verify CA: %w", err,
+		)
+	}
+	if _, err := ca.VerifyNodeCert(
+		cert, caSig,
+	); err != nil {
+		return nil, fmt.Errorf(
+			"verify failed: %w", err,
+		)
+	}
+
+	return &nodeCertResult{
+		nodeAC:    nodeAC,
+		cert:      cert,
+		caSig:     caSig,
+		serial:    serial,
+		certNonce: certNonce,
+		createdAt: now,
+	}, nil
+}
+
 func cmdShow(args []string) error { // A
 	path, ok := parseFlag(args, "-file")
 	if !ok {
 		return fmt.Errorf("missing -file flag")
 	}
+	//#nosec G304 G703 // safe: path from CLI flag
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read: %w", err)

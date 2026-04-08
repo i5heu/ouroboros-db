@@ -162,10 +162,10 @@ func DomainSeparate( // A
 	prefix := []byte(ctx)
 	l := len(prefix)
 	out := make([]byte, 4+l+len(data))
-	out[0] = byte(l >> 24)
-	out[1] = byte(l >> 16)
-	out[2] = byte(l >> 8)
-	out[3] = byte(l)
+	out[0] = byte(l >> 24) //#nosec G115 // safe: byte extraction from upper bits of known-range int
+	out[1] = byte(l >> 16) //#nosec G115 // safe: byte extraction from upper bits of known-range int
+	out[2] = byte(l >> 8)  //#nosec G115 // safe: byte extraction from upper bits of known-range int
+	out[3] = byte(l)       //#nosec G115 // safe: byte extraction from lower bits of known-range int
 	copy(out[4:], prefix)
 	copy(out[4+l:], data)
 	return out

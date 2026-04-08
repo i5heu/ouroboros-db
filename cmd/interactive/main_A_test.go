@@ -17,10 +17,19 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )
 
-func TestLoadCarrierAuthEmbeddedAdminTrust( // A
+type adminSetupResult struct { // A
+	adminCA   *auth.AdminCAImpl
+	adminAC   *keys.AsyncCrypt
+	caPubKEM  []byte
+	caPubSign []byte
+	caHash    string
+	chain     []authfile.EmbeddedCAFile
+}
+
+func setupAdminForEmbeddedTrust( // A
 	t *testing.T,
-) {
-	dir := t.TempDir()
+) adminSetupResult {
+	t.Helper()
 	adminAC, err := keys.NewAsyncCrypt()
 	if err != nil {
 		t.Fatalf("admin key: %v", err)
@@ -60,6 +69,19 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 	h := sha256.Sum256(adminPubBytes[auth.KEMPublicKeySize:])
 	caHash := fmt.Sprintf("%x", h)
 
+	return adminSetupResult{
+		adminCA: adminCA, adminAC: adminAC,
+		caPubKEM: caPubKEM, caPubSign: caPubSign,
+		caHash: caHash, chain: chain,
+	}
+}
+
+func writeNodeCertFile( // A
+	t *testing.T,
+	dir string,
+	admin adminSetupResult,
+) string {
+	t.Helper()
 	nodeAC, err := keys.NewAsyncCrypt()
 	if err != nil {
 		t.Fatalf("node key: %v", err)
@@ -71,12 +93,10 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
 	cert, err := auth.NewNodeCert(
-		nodePub,
-		caHash,
+		nodePub, admin.caHash,
 		now.Unix(),
 		now.Add(24*time.Hour).Unix(),
-		serial,
-		nonce,
+		serial, nonce,
 	)
 	if err != nil {
 		t.Fatalf("NewNodeCert: %v", err)
@@ -85,8 +105,10 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 	if err != nil {
 		t.Fatalf("CanonicalNodeCert: %v", err)
 	}
-	msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
-	caSig, err := adminAC.Sign(msg)
+	msg := canonical.DomainSeparate(
+		auth.CTXNodeAdmissionV1, canonicalData,
+	)
+	caSig, err := admin.adminAC.Sign(msg)
 	if err != nil {
 		t.Fatalf("sign cert: %v", err)
 	}
@@ -95,25 +117,38 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 		t.Fatalf("node marshal: %v", err)
 	}
 	nodePath := filepath.Join(dir, "node.oucert")
-	nodeData, err := authfile.MarshalNodeCert(&authfile.NodeCertFile{
-		Type:         "node-cert",
-		KeyJSON:      nodeJSON,
-		CAPubKEM:     caPubKEM,
-		CAPubSign:    caPubSign,
-		CASignature:  caSig,
-		Authorities:  chain,
-		IssuerCAHash: caHash,
-		ValidFrom:    now.Unix(),
-		ValidUntil:   now.Add(24 * time.Hour).Unix(),
-		Serial:       serial,
-		CertNonce:    nonce,
-	})
+	nodeData, err := authfile.MarshalNodeCert(
+		&authfile.NodeCertFile{
+			Type:         "node-cert",
+			KeyJSON:      nodeJSON,
+			CAPubKEM:     admin.caPubKEM,
+			CAPubSign:    admin.caPubSign,
+			CASignature:  caSig,
+			Authorities:  admin.chain,
+			IssuerCAHash: admin.caHash,
+			ValidFrom:    now.Unix(),
+			ValidUntil:   now.Add(24 * time.Hour).Unix(),
+			Serial:       serial,
+			CertNonce:    nonce,
+		},
+	)
 	if err != nil {
 		t.Fatalf("MarshalNodeCert: %v", err)
 	}
-	if err := os.WriteFile(nodePath, nodeData, 0o600); err != nil {
+	if err := os.WriteFile(
+		nodePath, nodeData, 0o600,
+	); err != nil {
 		t.Fatalf("write node cert: %v", err)
 	}
+	return nodePath
+}
+
+func TestLoadCarrierAuthEmbeddedAdminTrust( // A
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	admin := setupAdminForEmbeddedTrust(t)
+	nodePath := writeNodeCertFile(t, dir, admin)
 
 	carrierAuth, err := loadCarrierAuth(
 		ouroboros.Config{
@@ -126,7 +161,9 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 	if err != nil {
 		t.Fatalf("loadCarrierAuth: %v", err)
 	}
-	if err := carrierAuth.RemoveAdminPubKey(adminCA.Hash()); err != nil {
+	if err := carrierAuth.RemoveAdminPubKey(
+		admin.adminCA.Hash(),
+	); err != nil {
 		t.Fatalf("RemoveAdminPubKey: %v", err)
 	}
 }

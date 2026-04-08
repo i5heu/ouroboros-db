@@ -30,7 +30,7 @@ func marshalMessage( // A
 	msg interfaces.Message,
 ) ([]byte, error) {
 	out := make([]byte, 1+len(msg.Payload))
-	out[0] = byte(msg.Type)
+	out[0] = byte(msg.Type) //#nosec G115 // safe: MessageType is a small enum value
 	copy(out[1:], msg.Payload)
 	return out, nil
 }
@@ -64,7 +64,7 @@ func writeMessageStream( // A
 			1+len(msg.Payload),
 		)
 	}
-	typeBuf := [1]byte{byte(msg.Type)}
+	typeBuf := [1]byte{byte(msg.Type)} //#nosec G115 // safe: MessageType is a small enum value
 	if _, err := stream.Write(typeBuf[:]); err != nil {
 		return fmt.Errorf("write type: %w", err)
 	}
