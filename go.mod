@@ -1,6 +1,6 @@
 module github.com/i5heu/ouroboros-db
 
-go 1.24.6
+go 1.25
 
 require (
 	github.com/i5heu/ouroboros-crypt v1.1.2

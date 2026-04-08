@@ -1,48 +1,77 @@
 # AGENTS.md — OuroborosDB Developer Guidelines
 
-## Communication Guidelines
+## Overview
 
-**Always use the `question` tool** to ask users for clarification or decisions before taking actions. Do not make assumptions or proceed without user confirmation on implementation choices, preferences, or ambiguous requirements.
+OuroborosDB is a Go content-addressable distributed database using a Git-like DAG structure.
+The data pipeline transforms cleartext through encryption, buffering, batching, and erasure coding:
+
+```
+Chunk (cleartext)
+  → SealedChunk (encrypted with SealedHash)
+  → DistributedWAL (intake buffer, ~16MB batches)
+  → Block (DataSection + VertexSection + KeyRegistry + Indexes)
+  → BlockSlice (Reed-Solomon shard, distributed to cluster nodes)
+```
+
+- Root package: `ouroboros` (see `ouroboros.go`, `config.go`)
+- Stable public helpers: `pkg/`
+- Internal services: `internal/`
+- Binaries/daemons: `cmd/`
+
+**Core principle**: Content addressing with DAG (Directed Acyclic Graph) where everything is identified by cryptographic hashes.
+
+## Design Principles
+
+1. **Masterless AP**: No single point of failure, eventual consistency, high availability
+2. **Idempotency**: Operations are safely retryable (stateless-ish nodes)
+3. **Content Addressing**: Everything identified by cryptographic hash (Git-like DAG via Vertices)
+4. **Encryption Granularity**: Individual chunks encrypted with per-user key wrappers
+
+## Architecture
+
+Read `README.md` and `docs/diagrams/architecture.mmd` for the full picture.
+
+**Important files**: `ouroboros.go`, `config.go` (note `Config.Paths[0]` usage), `internal/logging/clusterlog` (logging).
+
+### Key Data Structures
+
+- **Vertex**: DAG node with metadata, parent references, and ChunkHash pointers (stored UNENCRYPTED in Block's VertexSection)
+- **Chunk**: Temporary cleartext content with hash and size
+- **SealedChunk**: Encrypted content with Nonce, OriginalSize, and SealedHash (integrity check without decryption)
+- **Block**: Central archive unit (~16MB) containing BlockHeader, DataSection (encrypted SealedChunks), VertexSection (unencrypted Vertices), ChunkRegion/VertexRegion indexes, and KeyRegistry (map[Hash][]KeyEntry)
+- **KeyEntry**: Per-user encryption key wrapper linking pubKey to chunkHash
+- **BlockSlice**: RS-encoded shard with reconstruction params, distributed across nodes
 
 ## Quick Commands
 
 ```bash
-# Build and test
 go build ./...
 go test ./...
 go test -race -count=1 ./...
-
-# Run specific test
-go test ./... -run TestNew
-go test ./pkg/cas -run TestNew
-
-# Coverage (85% minimum required)
-./coverage.sh
-
-# Heavy testing suite
-./testHeavy.sh
-
-# Lint and format
-golangci-lint run
-golangci-lint run --fix
+go test ./pkg/cas -run TestNew    # specific package + test
+./coverage.sh                     # coverage report
+./testHeavy.sh                    # race + repeated + bench + property (takes time)
+golangci-lint-v2 run                 # lint
+golangci-lint-v2 run --fix           # lint + auto-format
 go mod tidy
 ```
 
 ## Function Annotations (Mandatory)
 
-All functions MUST have authorship annotations on the same line as `func`:
+Every function MUST have an annotation on the same line as `func`:
 
-- `// A` - AI-authored, no review
-- `// AP` - AI-authored, reviewed with TODO
-- `// AC` - AI-authored, reviewed and approved
-- `// H` - Human-authored
-- `// HP` - Human-authored with TODO
-- `// HC` - Human-comprehended and confident
+- `// A` — AI-authored, no review
+- `// AP` — AI-authored, reviewed with TODO
+- `// AC` — AI-authored, reviewed and approved
+- `// H` — Human-authored
+- `// HP` — Human-authored with TODO
+- `// HC` — Human-comprehended and confident
 
-Production-critical functions (prefix with `P`):
-- `// PAP`, `// PAC`, `// PHC` - Must reach `// PHC` before production
+Production-critical functions prefix with `P`: `// PAP`, `// PAC`, `// PHC`.
+All `P` functions must reach `// PHC` before production.
 
-Example:
+Multiline parameters: annotation goes on the `func` line, not the closing paren.
+
 ```go
 func exampleFunction() { // A
     // Low-risk, AI-authored
@@ -53,97 +82,82 @@ func criticalFunction() { // PHC
 }
 ```
 
-## Code Style
+## Test File Convention
 
-**Formatting:**
-- Line length: 80 characters max
-- Cyclomatic complexity: max 10
-- Use `gofumpt`, `goimports`, `gci`, `golines`
-
-**Imports (grouped):**
-```go
-import (
-    // stdlib
-    "context"
-    
-    // third-party
-    "github.com/example/lib"
-    
-    // local
-    "github.com/i5heu/ouroboros-db/pkg/interfaces"
-)
-```
-
-**Naming:**
-- Test functions: `TestXxx`, `BenchmarkXxx`, `ExampleXxx`
-- Table-driven tests preferred
-- Property tests with `pgregory.net/rapid`
-
-## Logging Policy
-
-**Always use `pkg/clusterlog`** for logging. Exception only when it would create subscription loops (document with `// LOGGER` comment).
-
-**sloglint rules:**
-- kv-only (no mixed args)
-- context-aware methods
-- Static messages
-- camelCase keys
-- lowercased messages
-- No raw keys
-
-## Testing Requirements
-
-- Coverage: 85% minimum (files, packages, total)
-- Tests live in `_test.go` files alongside code
-- Use table-driven tests
-- Property testing with `pgregory.net/rapid`
-- Set `RAPID_CHECKS=10_000` for thorough property testing
+AI-generated test files use `_A_test.go` suffix (e.g. `cluster_log_A_test.go`).
+Humans should NOT add tests in `_A` files — create new files without the suffix.
 
 ## Project Structure
 
 ```
-├── ouroboros.go       # Root type and constructor
-├── config.go          # Config struct
-├── pkg/               # Public packages
-│   ├── cas/           # CAS primitives
-│   ├── clusterlog/    # Logging (use this!)
-│   └── interfaces/    # Interface definitions
-├── internal/          # Internal services
-├── cmd/               # Binaries
-└── benchmark/         # Benchmarking tools
+ouroboros.go            # Root type + constructor New(Config)
+config.go               # Config, StorageConfig, NetworkConfig, IdentityConfig
+pkg/
+  interfaces/           # All interface definitions (Carrier, Storage, etc.)
+  authfile/             # Auth file handling
+internal/
+  auth/                 # Auth system: CA, certificates, delegation, canonical
+    ca/                 # Admin/User CA logic
+    cert/               # Node identity/cert management
+    delegation/         # Delegation proofs, session identity
+    canonical/          # Canonical encoding for verification
+  control/              # ClusterController
+  datacas/cas/          # CAS primitives + privilege checker
+  entities/node/        # Node entity
+  logging/
+    clusterlog/         # Cluster-wide logging (USE THIS for all logging)
+    logtypes/           # LogLevel, LogEntry types
+  transport/            # QUIC carrier, auth handshake, heartbeat, bootstrap
+proto/                  # Generated protobuf code (DO NOT EDIT)
+  auth/                 # Canonical protobuf
+  authfile/             # Authfile protobuf
+  carrier/              # Message, heartbeat, auth handshake protobufs
+cmd/
+  start/                # Main daemon entrypoint
+  certgen/              # Certificate generation tool
+  interactive/          # Interactive CLI
+tests/                  # Integration/compliance tests (outside packages)
+benchmark/              # Docker-based benchmarking tools
+docs/diagrams/          # Architecture diagrams
 ```
 
-## Linting Configuration
+## Code Style
 
-Linters enabled in `.golangci.yml`:
-- `govet`, `errcheck`, `staticcheck`, `unused`, `ineffassign`
-- `gosec` - Security
-- `sloglint` - Structured logging
-- `cyclop` - Complexity (max 10)
-- `lll` - Line length (80 chars, tab-width 2)
+- **Line length**: 100 chars max (enforced by `lll` and `golines`); unlimited in test files
+- **Cyclomatic complexity**: max 10 (`cyclop`)
+- **Formatters**: `gofumpt`, `goimports`, `gci`, `golines`, `gofmt` (via `golangci-lint-v2 run --fix`)
+- **Imports grouped**: stdlib → third-party → local
+- **Test naming**: `TestXxx`, `BenchmarkXxx`, `ExampleXxx`
+- **Table-driven tests** preferred
+- **Property tests**: `pgregory.net/rapid` (uses fork: `replace pgregory.net/rapid => github.com/flyingmutant/rapid v1.2.0` in go.mod)
 
-Formatters auto-applied with `--fix`:
-- `gofumpt`, `goimports`, `gci`, `golines`, `gofmt`
+## Logging Policy
 
-## Key Dependencies
+**Always use `internal/logging/clusterlog`** for logging.
+Exception only when it would create subscription loops — document with `// LOGGER` comment.
 
-- `github.com/i5heu/ouroboros-crypt` - Encryption
-- `github.com/dgraph-io/badger/v4` - KV store
-- `github.com/klauspost/reedsolomon` - Erasure coding
-- `pgregory.net/rapid` - Property testing
+**sloglint rules** (enforced by linter):
+- kv-only (no mixed args, no attributes)
+- context-aware methods (`context` must be `"all"`)
+- Static messages only
+- camelCase keys, no raw keys
+- Lowercased messages
+- No global loggers
 
-## PR Checklist
+## Testing Requirements
 
-1. Add tests demonstrating behavior
-2. Add function annotation (`// A`, `// AC`, etc.)
-3. Run `go test ./...` and `golangci-lint run`
-4. Add/update `Example...` tests for public API changes
-5. Mark production-critical changes with `P` prefix and request human review
+- Coverage: file 50%, package 80%, total 85% minimum — enforced in CI via `.github/.testcoverage.yml`
+- Tests in `_test.go` files alongside code
+- Integration/compliance tests in `tests/` at repo root
+- Set `RAPID_CHECKS=10_000` for thorough property testing
 
-## Important Files
+```bash
+./coverage.sh    # runs tests + prints per-function coverage
+```
 
-- `CLAUDE.md` - Full architecture overview
-- `.github/copilot-instructions.md` - AI developer instructions
-- `docs/diagrams/architecture.mmd` - Architecture diagram
-- `.golangci.yml` - Linting rules
-- `.github/.testcoverage.yml` - Coverage thresholds
+## Reference Files
+
+- `README.md` — Annotation legend, hardware constraints, development focus
+- `docs/diagrams/architecture.mmd` — Architecture diagram (457 lines, comprehensive reference)
+- `.golangci.yml` — Linting/formatting rules
+- `.github/.testcoverage.yml` — CI coverage configuration

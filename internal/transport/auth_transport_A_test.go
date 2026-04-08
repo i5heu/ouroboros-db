@@ -3,7 +3,6 @@ package transport
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -191,7 +190,7 @@ func newCarrierTestHarness( // A
 ) *carrierImpl {
 	return &carrierImpl{
 		logger: slog.New(
-			slog.NewTextHandler(io.Discard, nil),
+			slog.DiscardHandler,
 		),
 		config:      conf,
 		registry:    newNodeRegistry(),
