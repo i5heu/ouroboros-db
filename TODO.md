@@ -9,7 +9,7 @@
 - [x] Refactor the message parsing location and logic to be mre elegant and efficient
 - [x] Refactor project structure to include submodules and better domain representation
 - [x] Fix all golangci-lint-v2 run problems
-- [ ] Simplify and optimize code where possible
+- [x] Simplify and optimize code where possible
 - [ ] Search for unnecessary complexity
 - [ ] Search for unnecessary allocations or copies of values
 - [ ] NodeStats
