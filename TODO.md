@@ -7,7 +7,7 @@
 - [x] Verify Authentication with QUIC Streams and Datagrams - Ensure that Auth is always performed over reliable QUIC streams and Datagrams just pigigyback on the existing TLS connection
 - [x] Heartbeat
 - [x] Refactor the message parsing location and logic to be mre elegant and efficient
-- [ ] Refactor project structure to include submodules and better domain representation
+- [x] Refactor project structure to include submodules and better domain representation
 - [ ] Fix all golangci-lint-v2 run problems
 - [ ] Simplify and optimize code where possible
 - [ ] Search for unnecessary complexity
