@@ -116,7 +116,7 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 	}
 
 	carrierAuth, err := loadCarrierAuth(
-		ouroboros.Config{
+		&ouroboros.Config{
 			Identity: ouroboros.IdentityConfig{
 				NodeCertPath: nodePath,
 			},

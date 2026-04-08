@@ -91,14 +91,14 @@ func (cl *ClusterLog) Stop() { // H
 // level can format its own attributes.
 func (cl *ClusterLog) record( // AC
 	ctx context.Context,
-	entry LogEntry,
+	entry *LogEntry,
 ) {
 	cl.mu.Lock()
-	cl.entries = append(cl.entries, entry)
+	cl.entries = append(cl.entries, *entry)
 	subs := cl.getSubscribers(cl.selfID)
 	cl.mu.Unlock()
 
-	cl.push(ctx, subs, []LogEntry{entry})
+	cl.push(ctx, subs, []LogEntry{*entry})
 }
 
 // baseAttrs returns the common slog attributes for
@@ -139,7 +139,7 @@ func (cl *ClusterLog) Log( // AC
 		append(cl.baseAttrs(level, fields), keyMessage, msg)...,
 	)
 
-	cl.record(ctx, entry)
+	cl.record(ctx, &entry)
 }
 
 // Info logs a message at Info level.
@@ -161,7 +161,7 @@ func (cl *ClusterLog) Info( // H
 		append(cl.baseAttrs(LogLevelInfo, fields), keyMessage, msg)...,
 	)
 
-	cl.record(ctx, entry)
+	cl.record(ctx, &entry)
 }
 
 // Warn logs a message at Warn level.
@@ -183,7 +183,7 @@ func (cl *ClusterLog) Warn( // H
 		append(cl.baseAttrs(LogLevelWarn, fields), keyMessage, msg)...,
 	)
 
-	cl.record(ctx, entry)
+	cl.record(ctx, &entry)
 }
 
 // Debug logs a message at Debug level.
@@ -205,7 +205,7 @@ func (cl *ClusterLog) Debug( // H
 		append(cl.baseAttrs(LogLevelDebug, fields), keyMessage, msg)...,
 	)
 
-	cl.record(ctx, entry)
+	cl.record(ctx, &entry)
 }
 
 // Err logs a message at Error level. The error is
@@ -245,7 +245,7 @@ func (cl *ClusterLog) Err( // AC
 		append(attrs, keyMessage, msg)...,
 	)
 
-	cl.record(ctx, entry)
+	cl.record(ctx, &entry)
 }
 
 // cleanupLoop periodically removes expired entries.

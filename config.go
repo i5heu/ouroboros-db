@@ -56,7 +56,7 @@ type Config struct {
 }
 
 // PrimaryPath returns the effective data path.
-func (c Config) PrimaryPath() (string, error) { // A
+func (c *Config) PrimaryPath() (string, error) { // A
 	if len(c.Storage.Paths) > 0 {
 		return c.Storage.Paths[0], nil
 	}
@@ -69,7 +69,7 @@ func (c Config) PrimaryPath() (string, error) { // A
 }
 
 // EffectivePaths returns the normalized storage path list.
-func (c Config) EffectivePaths() []string { // A
+func (c *Config) EffectivePaths() []string { // A
 	if len(c.Storage.Paths) > 0 {
 		out := make([]string, len(c.Storage.Paths))
 		copy(out, c.Storage.Paths)
@@ -81,7 +81,7 @@ func (c Config) EffectivePaths() []string { // A
 }
 
 // EffectiveMinimumFreeGB returns the normalized free-space threshold.
-func (c Config) EffectiveMinimumFreeGB() uint { // A
+func (c *Config) EffectiveMinimumFreeGB() uint { // A
 	if c.Storage.MinimumFreeGB != 0 {
 		return c.Storage.MinimumFreeGB
 	}
@@ -89,12 +89,12 @@ func (c Config) EffectiveMinimumFreeGB() uint { // A
 }
 
 // EffectiveListenAddress returns the configured bind address.
-func (c Config) EffectiveListenAddress() string { // A
+func (c *Config) EffectiveListenAddress() string { // A
 	return c.Network.ListenAddress
 }
 
 // EffectiveBootstrapAddresses returns a copy of the configured seeds.
-func (c Config) EffectiveBootstrapAddresses() []string { // A
+func (c *Config) EffectiveBootstrapAddresses() []string { // A
 	out := make([]string, len(c.Network.BootstrapAddresses))
 	copy(out, c.Network.BootstrapAddresses)
 	return out

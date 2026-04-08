@@ -169,7 +169,7 @@ const ( // A
 
 // New creates a new Carrier from the given configuration.
 func New( //nolint:cyclop // A: constructor validates multiple required config fields
-	conf CarrierConfig,
+	conf *CarrierConfig,
 ) (*carrierImpl, error) {
 	if conf.SelfCert == nil {
 		return nil, fmt.Errorf("SelfCert must not be nil")
@@ -207,7 +207,7 @@ func New( //nolint:cyclop // A: constructor validates multiple required config f
 	}
 	c := &carrierImpl{
 		logger:      conf.Logger,
-		config:      conf,
+		config:      *conf,
 		registry:    newNodeRegistry(),
 		connections: make(map[keys.NodeID]interfaces.Connection),
 		peerScopes:  make(map[keys.NodeID]auth.TrustScope),

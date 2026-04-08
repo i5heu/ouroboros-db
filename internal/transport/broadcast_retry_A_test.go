@@ -57,7 +57,7 @@ func TestBroadcastReliableRetriesFailedPeers( // A
 		),
 		failCount: 2,
 	}
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           peerID,
 		Addresses:        []string{"retry:1"},
 		Role:             interfaces.NodeRoleServer,
@@ -110,7 +110,7 @@ func TestBroadcastReliableGivesUpAfterMaxRetries( // A
 		),
 		failCount: 100, // never succeeds
 	}
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           peerID,
 		Addresses:        []string{"fail:1"},
 		Role:             interfaces.NodeRoleServer,
@@ -165,7 +165,7 @@ func TestBroadcastReliableNoRetryOnSuccess( // A
 		),
 		failCount: 0, // succeeds immediately
 	}
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           peerID,
 		Addresses:        []string{"ok:1"},
 		Role:             interfaces.NodeRoleServer,
@@ -208,7 +208,7 @@ func TestMergeHeartbeatNodesReturnsDiscoveredPeers( // A
 		CarrierConfig{SelfCert: cert},
 	)
 	existingID := keys.NodeID{20}
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           existingID,
 		Addresses:        []string{"existing:1"},
 		Role:             interfaces.NodeRoleServer,

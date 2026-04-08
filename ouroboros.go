@@ -22,7 +22,7 @@ type OuroborosDB struct {
 	node   *node.Node
 }
 
-func New(conf Config) (*OuroborosDB, error) { // AC
+func New(conf *Config) (*OuroborosDB, error) { // AC
 	primaryPath, err := conf.PrimaryPath()
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func New(conf Config) (*OuroborosDB, error) { // AC
 
 	return &OuroborosDB{
 		log:    conf.Logger,
-		config: conf,
+		config: *conf,
 		node:   n,
 	}, nil
 }

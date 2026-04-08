@@ -17,7 +17,7 @@ type stubDialTransport struct { // A
 }
 
 func (s *stubDialTransport) Dial( // A
-	node interfaces.Node,
+	node *interfaces.Node,
 ) (interfaces.Connection, error) {
 	if len(node.Addresses) == 0 {
 		return nil, errors.New("missing address")
@@ -127,14 +127,14 @@ func TestHeartbeatBatchSkipsClientPeers( // A
 	carrier := newCarrierTestHarness(CarrierConfig{SelfCert: cert})
 	serverID := keys.NodeID{2}
 	clientID := keys.NodeID{3}
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           serverID,
 		Addresses:        []string{"server:1"},
 		Role:             interfaces.NodeRoleServer,
 		ConnectionStatus: interfaces.ConnectionStatusConnected,
 		LastSeen:         time.Now(),
 	}, nil, nil)
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           clientID,
 		Addresses:        []string{"client:1"},
 		Role:             interfaces.NodeRoleClient,
@@ -170,7 +170,7 @@ func TestHandleHeartbeatUpdatesRegistryAndMergesNodes( // A
 	carrier := newCarrierTestHarness(CarrierConfig{SelfCert: cert})
 	peerID := keys.NodeID{7}
 	newNodeID := keys.NodeID{8}
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           peerID,
 		Addresses:        []string{"peer:1"},
 		Role:             interfaces.NodeRoleServer,
@@ -233,7 +233,7 @@ func TestFailStalePeersMarksNodeFailed( // A
 		newExportersForCarrierTest(),
 	)
 	carrier.connections[peerID] = conn
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           peerID,
 		Addresses:        []string{"stale:1"},
 		Role:             interfaces.NodeRoleServer,
@@ -277,7 +277,7 @@ func TestDialKnownAddressesTriesAllAddresses( // A
 	carrier := newCarrierTestHarness(CarrierConfig{})
 	carrier.transport = transport
 
-	_, usedAddress, err := carrier.dialKnownAddresses(interfaces.Node{
+	_, usedAddress, err := carrier.dialKnownAddresses(&interfaces.Node{
 		NodeID:    keys.NodeID{4},
 		Addresses: []string{"bad:1", "good:1"},
 	})
@@ -302,7 +302,7 @@ func TestRetryUnreachablePeersSkipsClientNodes( // A
 	transport := &stubDialTransport{}
 	carrier := newCarrierTestHarness(CarrierConfig{})
 	carrier.transport = transport
-	_ = carrier.registry.AddNode(interfaces.Node{
+	_ = carrier.registry.AddNode(&interfaces.Node{
 		NodeID:           keys.NodeID{5},
 		Addresses:        []string{"client:2"},
 		Role:             interfaces.NodeRoleClient,

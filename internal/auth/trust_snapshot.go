@@ -191,7 +191,7 @@ func (ts *trustSnapshot) isUserCAAnchorValid( // A
 // withEmbeddedAuthorities returns a copy of the
 // trust snapshot augmented with peer-supplied public
 // CA chain data from the auth handshake.
-func (ts *trustSnapshot) withEmbeddedAuthorities( //nolint:cyclop
+func (ts *trustSnapshot) withEmbeddedAuthorities( //nolint:cyclop // type-dispatched loops
 	authorities []EmbeddedCA,
 ) (*trustSnapshot, error) {
 	clone := &trustSnapshot{
@@ -221,7 +221,7 @@ func (ts *trustSnapshot) withEmbeddedAuthorities( //nolint:cyclop
 		if authority.Type != "admin-ca" {
 			continue
 		}
-		if err := clone.addEmbeddedAdmin(authority); err != nil {
+		if err := clone.addEmbeddedAdmin(&authority); err != nil {
 			return nil, err
 		}
 	}
@@ -229,7 +229,7 @@ func (ts *trustSnapshot) withEmbeddedAuthorities( //nolint:cyclop
 		if authority.Type != "user-ca" {
 			continue
 		}
-		if err := clone.addEmbeddedUser(authority); err != nil {
+		if err := clone.addEmbeddedUser(&authority); err != nil {
 			return nil, err
 		}
 	}
@@ -237,7 +237,7 @@ func (ts *trustSnapshot) withEmbeddedAuthorities( //nolint:cyclop
 }
 
 func (ts *trustSnapshot) addEmbeddedAdmin( // A
-	authority EmbeddedCA,
+	authority *EmbeddedCA,
 ) error {
 	pubBytes, err := embeddedAuthorityPubKeyBytes(authority)
 	if err != nil {
@@ -258,7 +258,7 @@ func (ts *trustSnapshot) addEmbeddedAdmin( // A
 }
 
 func (ts *trustSnapshot) addEmbeddedUser( // A
-	authority EmbeddedCA,
+	authority *EmbeddedCA,
 ) error {
 	pubBytes, err := embeddedAuthorityPubKeyBytes(authority)
 	if err != nil {
@@ -295,7 +295,7 @@ func (ts *trustSnapshot) addEmbeddedUser( // A
 }
 
 func embeddedAuthorityPubKeyBytes( // A
-	authority EmbeddedCA,
+	authority *EmbeddedCA,
 ) ([]byte, error) {
 	pub, err := keys.NewPublicKeyFromBinary(
 		authority.PubKEM,

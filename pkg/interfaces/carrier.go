@@ -141,14 +141,14 @@ type Carrier interface { // A
 	// peer is admitted to the registry only after CarrierAuth
 	// verification succeeds.
 	OpenPeerChannel(
-		clusterNode PeerNode,
+		clusterNode *PeerNode,
 		cert NodeCert,
 	) error
 
 	// LeaveCluster gracefully disconnects from the given
 	// peer. The node may remain in the registry for a
 	// future reconnection attempt.
-	LeaveCluster(clusterNode PeerNode) error
+	LeaveCluster(clusterNode *PeerNode) error
 
 	// RemoveNode removes a node from the cluster registry
 	// and immediately tears down its active connection.

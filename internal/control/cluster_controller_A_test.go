@@ -86,14 +86,14 @@ func (m *mockCarrier) SendMessageToNode( // A
 }
 
 func (m *mockCarrier) OpenPeerChannel( // A
-	_ interfaces.PeerNode,
+	_ *interfaces.PeerNode,
 	_ interfaces.NodeCert,
 ) error {
 	return nil
 }
 
 func (m *mockCarrier) LeaveCluster( // A
-	_ interfaces.PeerNode,
+	_ *interfaces.PeerNode,
 ) error {
 	return nil
 }

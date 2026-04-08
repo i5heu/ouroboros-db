@@ -117,7 +117,7 @@ func (c *carrierImpl) sendHeartbeatBatch( // A
 	ctx context.Context,
 ) {
 	for _, peer := range c.GetNodes() {
-		if !c.shouldHeartbeatPeer(peer) {
+		if !c.shouldHeartbeatPeer(&peer) {
 			continue
 		}
 		if err := c.sendHeartbeat(ctx, peer.NodeID); err != nil {
@@ -138,7 +138,7 @@ func (c *carrierImpl) sendHeartbeatBatch( // A
 }
 
 func (c *carrierImpl) shouldHeartbeatPeer( // A
-	peer interfaces.PeerNode,
+	peer *interfaces.PeerNode,
 ) bool {
 	return c.IsConnected(peer.NodeID) && peer.Role != interfaces.NodeRoleClient
 }
@@ -257,7 +257,7 @@ func (c *carrierImpl) mergeHeartbeatNodes( // A
 					ConnectionStatusDisconnected,
 			}
 			addErr := c.registry.AddNode(
-				newNode, nil, nil,
+				&newNode, nil, nil,
 			)
 			if addErr != nil {
 				return discovered, addErr
@@ -271,7 +271,7 @@ func (c *carrierImpl) mergeHeartbeatNodes( // A
 		))
 		node.Role = entry.Role
 		if addErr := c.registry.AddNode(
-			node,
+			&node,
 			node.NodeCerts,
 			nil,
 		); addErr != nil {
@@ -295,7 +295,7 @@ func (c *carrierImpl) connectDiscoveredPeers( // A
 		if c.IsConnected(node.NodeID) {
 			continue
 		}
-		if err := c.connectNode(node); err != nil {
+		if err := c.connectNode(&node); err != nil {
 			c.logger.WarnContext(
 				ctx,
 				"gossip peer connect failed",
@@ -350,7 +350,7 @@ func (c *carrierImpl) retryUnreachablePeers( // A
 		if c.IsConnected(node.NodeID) {
 			continue
 		}
-		if err := c.connectNode(node); err != nil {
+		if err := c.connectNode(&node); err != nil {
 			c.logger.WarnContext(
 				ctx,
 				"peer reconnect failed",

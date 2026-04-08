@@ -119,7 +119,7 @@ func run() error { // A
 	resolvedLogger := slog.New(h)
 	conf.Logger = resolvedLogger
 
-	db, err := ouroboros.New(conf)
+	db, err := ouroboros.New(&conf)
 	if err != nil {
 		return err
 	}
@@ -130,12 +130,12 @@ func run() error { // A
 	if err != nil {
 		return err
 	}
-	carrierAuth, err := loadCarrierAuth(conf, resolvedLogger)
+	carrierAuth, err := loadCarrierAuth(&conf, resolvedLogger)
 	if err != nil {
 		return err
 	}
 
-	tr, err := transport.New(transport.CarrierConfig{
+	tr, err := transport.New(&transport.CarrierConfig{
 		BootstrapAddresses: conf.EffectiveBootstrapAddresses(),
 		SelfCert:           nodeIdentity.Certs()[0],
 		ListenAddress:      conf.EffectiveListenAddress(),
@@ -373,7 +373,7 @@ func loadNodeIdentity( // A
 // files can be verified against their referenced admin
 // roots during insertion.
 func loadCarrierAuth( // A
-	conf ouroboros.Config,
+	conf *ouroboros.Config,
 	logger *slog.Logger,
 ) (interfaces.CarrierAuth, error) {
 	carrierAuth := auth.NewCarrierAuth(logger)
@@ -459,7 +459,7 @@ func addCAFile( // A
 func repl( //nolint:cyclop // A: REPL command dispatch inherently requires multiple branches
 	ctx context.Context,
 	cancel context.CancelFunc,
-	transport transport.RuntimeCarrier,
+	rc transport.RuntimeCarrier,
 	nodeID keys.NodeID,
 ) error {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -488,16 +488,16 @@ func repl( //nolint:cyclop // A: REPL command dispatch inherently requires multi
 		case "id":
 			fmt.Printf("node ID: %s\n", shortNodeID(nodeID))
 		case "listen":
-			fmt.Printf("listening on: %s\n", transport.ListenAddress())
+			fmt.Printf("listening on: %s\n", rc.ListenAddress())
 		case "peers":
-			printPeers(transport)
+			printPeers(rc)
 		case "hello", "broadcast":
 			text := "hello world"
 			if len(args) > 0 {
 				text = strings.Join(args, " ")
 			}
 			if err := broadcastHello(
-				transport,
+				rc,
 				shortNodeID(nodeID),
 				text,
 			); err != nil {
@@ -506,7 +506,7 @@ func repl( //nolint:cyclop // A: REPL command dispatch inherently requires multi
 			}
 		case "reconnect":
 			fmt.Println("reconnecting to bootstrap...")
-			if err := transport.Reconnect(); err != nil {
+			if err := rc.Reconnect(); err != nil {
 				fmt.Printf("reconnect failed: %v\n", err)
 				continue
 			}
@@ -527,7 +527,7 @@ func repl( //nolint:cyclop // A: REPL command dispatch inherently requires multi
 // backed so operators can confirm basic connectivity
 // before more complex cluster message types are added.
 func broadcastHello( // A
-	transport transport.RuntimeCarrier,
+	rc transport.RuntimeCarrier,
 	from string,
 	text string,
 ) error {
@@ -538,7 +538,7 @@ func broadcastHello( // A
 	if err != nil {
 		return fmt.Errorf("encode hello payload: %w", err)
 	}
-	success, failed, err := transport.BroadcastReliable(
+	success, failed, err := rc.BroadcastReliable(
 		interfaces.Message{
 			Type:    interfaces.MessageTypeUserMessage,
 			Payload: payload,

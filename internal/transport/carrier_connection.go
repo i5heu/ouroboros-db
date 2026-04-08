@@ -22,7 +22,7 @@ func (c *carrierImpl) GetNode( // A
 	if err != nil {
 		return interfaces.PeerNode{}, err
 	}
-	return toPeerNode(node), nil
+	return toPeerNode(&node), nil
 }
 
 func (c *carrierImpl) GetNodeConnection( // A
@@ -36,17 +36,17 @@ func (c *carrierImpl) GetNodeConnection( // A
 	conn := c.connections[nodeID]
 	c.mu.RUnlock()
 	return interfaces.NodeConnection{
-		Peer: toPeerNode(node),
+		Peer: toPeerNode(&node),
 		Conn: conn,
 	}, nil
 }
 
 func (c *carrierImpl) OpenPeerChannel( // A
-	peer interfaces.PeerNode,
+	peer *interfaces.PeerNode,
 	_ interfaces.NodeCert,
 ) error {
 	c.ensureBackgroundLoops()
-	return c.connectNode(interfaces.Node{
+	return c.connectNode(&interfaces.Node{
 		NodeID:    peer.NodeID,
 		Addresses: peer.Addresses,
 		NodeCerts: nil,
@@ -55,7 +55,7 @@ func (c *carrierImpl) OpenPeerChannel( // A
 }
 
 func (c *carrierImpl) connectNode( // A
-	node interfaces.Node,
+	node *interfaces.Node,
 ) error {
 	ni := c.config.NodeIdentity
 	if ni == nil {
@@ -108,13 +108,13 @@ func (c *carrierImpl) getNodesUnlocked() []interfaces.PeerNode { // A
 	nodes := c.registry.GetAllNodes()
 	out := make([]interfaces.PeerNode, 0, len(nodes))
 	for _, node := range nodes {
-		out = append(out, toPeerNode(node))
+		out = append(out, toPeerNode(&node))
 	}
 	return out
 }
 
 // toPeerNode converts an interfaces.Node to a PeerNode.
-func toPeerNode(n interfaces.Node) interfaces.PeerNode { // A
+func toPeerNode(n *interfaces.Node) interfaces.PeerNode { // A
 	return interfaces.PeerNode{
 		NodeID:    n.NodeID,
 		Addresses: n.Addresses,
@@ -133,14 +133,14 @@ func (c *carrierImpl) IsConnected( // A
 }
 
 func (c *carrierImpl) dialKnownAddresses( // A
-	node interfaces.Node,
+	node *interfaces.Node,
 ) (interfaces.Connection, string, error) {
 	if len(node.Addresses) == 0 {
 		return nil, "", fmt.Errorf("node has no addresses")
 	}
 	var lastErr error
 	for _, address := range compactAddresses(node.Addresses) {
-		conn, err := c.transport.Dial(interfaces.Node{
+		conn, err := c.transport.Dial(&interfaces.Node{
 			NodeID:    node.NodeID,
 			Addresses: []string{address},
 			NodeCerts: node.NodeCerts,

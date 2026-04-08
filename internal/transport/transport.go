@@ -88,7 +88,7 @@ func (qt *quicTransport) startListener() error { // A
 // Dial connects to a remote node using the first
 // available address.
 func (qt *quicTransport) Dial( // A
-	node interfaces.Node,
+	node *interfaces.Node,
 ) (interfaces.Connection, error) {
 	if len(node.Addresses) == 0 {
 		return nil, fmt.Errorf(

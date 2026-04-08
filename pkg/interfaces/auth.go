@@ -66,7 +66,7 @@ type UserCA interface { // A
 // identity context.
 type Verifier interface { // A
 	VerifyPeerCert(
-		hs PeerHandshake,
+		hs *PeerHandshake,
 	) (AuthContext, error)
 }
 

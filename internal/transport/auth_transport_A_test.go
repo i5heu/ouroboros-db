@@ -22,7 +22,7 @@ type stubCarrierAuth struct { // A
 }
 
 func (s *stubCarrierAuth) VerifyPeerCert( // A
-	_ interfaces.PeerHandshake,
+	_ *interfaces.PeerHandshake,
 ) (interfaces.AuthContext, error) {
 	if s.err != nil {
 		return interfaces.AuthContext{}, s.err

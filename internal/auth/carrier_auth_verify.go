@@ -81,7 +81,7 @@ type bindingField struct { // A
 // authorization scope, or an error wrapping one of
 // the sentinel errors from errors.go.
 func (ca *carrierAuth) VerifyPeerCert( // A
-	hs PeerHandshake,
+	hs *PeerHandshake,
 ) (AuthContext, error) {
 	if err := validateHandshake(hs); err != nil {
 		return AuthContext{}, err
@@ -212,7 +212,7 @@ func validateBindingFields( // A
 
 // validateHandshake checks PeerHandshake invariants
 // before expensive cryptographic operations.
-func validateHandshake(hs PeerHandshake) error { // A
+func validateHandshake(hs *PeerHandshake) error { // A
 	if len(hs.Certs) == 0 {
 		return ErrNoCerts
 	}

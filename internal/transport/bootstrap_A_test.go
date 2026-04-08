@@ -32,7 +32,7 @@ func newBootstrapDialTransport() *bootstrapDialTransport { // A
 }
 
 func (t *bootstrapDialTransport) Dial( // A
-	node interfaces.Node,
+	node *interfaces.Node,
 ) (interfaces.Connection, error) {
 	if len(node.Addresses) == 0 {
 		return nil, errors.New("no addresses")
@@ -668,7 +668,7 @@ type countingDialTransport struct { // A
 }
 
 func (t *countingDialTransport) Dial( // A
-	node interfaces.Node,
+	_ *interfaces.Node,
 ) (interfaces.Connection, error) {
 	n := int(t.dialCount.Add(1))
 	if n <= t.failUntil {
@@ -698,9 +698,9 @@ type funcDialTransport struct { // A
 }
 
 func (t *funcDialTransport) Dial( // A
-	node interfaces.Node,
+	node *interfaces.Node,
 ) (interfaces.Connection, error) {
-	return t.dialFn(node)
+	return t.dialFn(*node)
 }
 
 func (t *funcDialTransport) Accept() ( // A
@@ -1136,7 +1136,7 @@ type multiPeerStubAuth struct { // A
 }
 
 func (m *multiPeerStubAuth) VerifyPeerCert( // A
-	_ interfaces.PeerHandshake,
+	_ *interfaces.PeerHandshake,
 ) (interfaces.AuthContext, error) {
 	idx := int(m.callIdx.Add(1)) - 1
 	ctx, ok := m.peers[idx]

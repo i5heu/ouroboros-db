@@ -113,7 +113,7 @@ func (c *carrierImpl) dialBootstrapAddr( // A
 	if tp == nil {
 		return fmt.Errorf("%w", ErrTransportNotInitialized)
 	}
-	conn, err := tp.Dial(interfaces.Node{
+	conn, err := tp.Dial(&interfaces.Node{
 		Addresses: []string{addr},
 	})
 	if err != nil {

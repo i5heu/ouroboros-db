@@ -19,7 +19,7 @@ func TestPropertyEmptyCertBundleRejected(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		ca := auth.NewCarrierAuth(testLogger())
 
-		_, err := ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           nil,
 			CASignatures:    nil,
 			DelegationProof: nil,
@@ -45,7 +45,7 @@ func TestPropertySignatureCountMismatch(t *testing.T) {
 		s.certData.validUntil = s.now + 600
 		cert, _ := s.certData.toNodeCert()
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{cert},
 			CASignatures:    nil,
 			DelegationProof: s.proof,
@@ -87,7 +87,7 @@ func TestPropertyUnknownIssuerRejected(t *testing.T) {
 			now-5, now+delegation.MaxDelegationTTL-10,
 		)
 
-		_, err = ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err = ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{cert},
 			CASignatures:    [][]byte{[]byte("sig")},
 			DelegationProof: proof,
@@ -124,7 +124,7 @@ func TestPropertyExpiredCertFiltered(t *testing.T) {
 		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		sig, _ := s.adminKP.ac.Sign(msg)
 
-		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err = s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{expired},
 			CASignatures:    [][]byte{sig},
 			DelegationProof: s.proof,
@@ -161,7 +161,7 @@ func TestPropertyNotYetValidCertFiltered(t *testing.T) {
 		msg := canonical.DomainSeparate(auth.CTXNodeAdmissionV1, canonicalData)
 		sig, _ := s.adminKP.ac.Sign(msg)
 
-		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err = s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{future},
 			CASignatures:    [][]byte{sig},
 			DelegationProof: s.proof,
@@ -189,7 +189,7 @@ func TestPropertyRevokedCAFiltersCerts(t *testing.T) {
 			rt.Fatalf("RevokeAdminCA: %v", err)
 		}
 
-		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err = s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -218,7 +218,7 @@ func TestPropertyRevokedNodeFiltersAllCerts(t *testing.T) {
 			rt.Fatalf("RevokeNode: %v", err)
 		}
 
-		_, err = s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err = s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -245,7 +245,7 @@ func TestPropertyInvalidCASigRejected(t *testing.T) {
 			rapid.Byte(), 32, 64,
 		).Draw(rt, "badSig")
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{badSig},
 			DelegationProof: s.proof,
@@ -301,7 +301,7 @@ func TestPropertyMismatchedNodeIDRejected(t *testing.T) {
 			now-5, now+delegation.MaxDelegationTTL-10,
 		)
 
-		_, err := ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{cert1, cert2},
 			CASignatures:    [][]byte{sig1, sig2},
 			DelegationProof: proof,
@@ -328,7 +328,7 @@ func TestPropertyWrongDelegationSigRejected(t *testing.T) {
 			rapid.Byte(), 32, 64,
 		).Draw(rt, "badDelSig")
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -358,7 +358,7 @@ func TestPropertyTLSCertHashMismatchRejected(t *testing.T) {
 			wrongHash[0] ^= 0xFF
 		}
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -388,7 +388,7 @@ func TestPropertyX509FingerprintMismatchRejected(t *testing.T) {
 			wrongFP[0] ^= 0xFF
 		}
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -432,7 +432,7 @@ func TestPropertyBundleHashMismatchRejected(t *testing.T) {
 		msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
 		sig, _ := s.nodeKP.ac.Sign(msg)
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: tampered,
@@ -470,7 +470,7 @@ func TestPropertyDelegationExpiredRejected(t *testing.T) {
 		msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
 		sig, _ := s.nodeKP.ac.Sign(msg)
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: expiredProof,
@@ -509,7 +509,7 @@ func TestPropertyDelegationTTLTooLong(t *testing.T) {
 		msg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, canon)
 		sig, _ := s.nodeKP.ac.Sign(msg)
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: longProof,
@@ -539,7 +539,7 @@ func TestPropertyExporterBindingMismatchRejected(t *testing.T) {
 			wrongExp[0] ^= 0xFF
 		}
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -569,7 +569,7 @@ func TestPropertyTranscriptHashMismatchRejected(t *testing.T) {
 			wrongTrans[0] ^= 0xFF
 		}
 
-		_, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -592,7 +592,7 @@ func TestPropertyAdminScopeFromAdminCert(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		s := buildAdminScenario(rt)
 
-		ctx, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		ctx, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,
@@ -675,7 +675,7 @@ func TestPropertyUserScopeFromUserCert(t *testing.T) {
 		delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanon)
 		delSig, _ := nodeKP.ac.Sign(delMsg)
 
-		ctx, err := ca.VerifyPeerCert(auth.PeerHandshake{
+		ctx, err := ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           certs,
 			CASignatures:    [][]byte{caSig},
 			DelegationProof: proof,
@@ -767,7 +767,7 @@ func TestPropertyAdminDominatesUserScope(t *testing.T) {
 		delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanon)
 		delSig, _ := nodeKP.ac.Sign(delMsg)
 
-		ctx, err := ca.VerifyPeerCert(auth.PeerHandshake{
+		ctx, err := ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           certs,
 			CASignatures:    [][]byte{adminSig, userSig},
 			DelegationProof: proof,
@@ -864,7 +864,7 @@ func TestPropertyAnchorAdminRemovalInvalidatesUserCA(t *testing.T) {
 		delMsg := canonical.DomainSeparate(delegation.CTXNodeDelegationV1, delCanon)
 		delSig, _ := nodeKP.ac.Sign(delMsg)
 
-		_, err := ca.VerifyPeerCert(auth.PeerHandshake{
+		_, err := ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           certs,
 			CASignatures:    [][]byte{caSig},
 			DelegationProof: proof,
@@ -887,7 +887,7 @@ func TestPropertySuccessfulVerification(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		s := buildAdminScenario(rt)
 
-		ctx, err := s.ca.VerifyPeerCert(auth.PeerHandshake{
+		ctx, err := s.ca.VerifyPeerCert(&auth.PeerHandshake{
 			Certs:           []canonical.NodeCertLike{s.cert},
 			CASignatures:    [][]byte{s.caSig},
 			DelegationProof: s.proof,

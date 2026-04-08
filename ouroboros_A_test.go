@@ -8,7 +8,7 @@ func TestNew(t *testing.T) { // A
 	t.Parallel()
 
 	dir := t.TempDir()
-	db, err := New(Config{
+	db, err := New(&Config{
 		Paths: []string{dir},
 	})
 	if err != nil {
@@ -22,7 +22,7 @@ func TestNew(t *testing.T) { // A
 func TestNewNoPaths(t *testing.T) { // A
 	t.Parallel()
 
-	_, err := New(Config{})
+	_, err := New(&Config{})
 	if err == nil {
 		t.Fatal("expected error for empty paths")
 	}
@@ -33,7 +33,7 @@ func TestNewWithLogger(t *testing.T) { // A
 
 	dir := t.TempDir()
 	logger := defaultLogger()
-	db, err := New(Config{
+	db, err := New(&Config{
 		Paths:  []string{dir},
 		Logger: logger,
 	})
@@ -49,7 +49,7 @@ func TestNodeID(t *testing.T) { // A
 	t.Parallel()
 
 	dir := t.TempDir()
-	db, err := New(Config{
+	db, err := New(&Config{
 		Paths: []string{dir},
 	})
 	if err != nil {
@@ -78,14 +78,14 @@ func TestNodeIDDeterministic(t *testing.T) { // A
 	t.Parallel()
 
 	dir := t.TempDir()
-	db1, err := New(Config{
+	db1, err := New(&Config{
 		Paths: []string{dir},
 	})
 	if err != nil {
 		t.Fatalf("New 1: %v", err)
 	}
 
-	db2, err := New(Config{
+	db2, err := New(&Config{
 		Paths: []string{dir},
 	})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestConfigPrimaryPathUsesStorage(t *testing.T) { // A
 	t.Parallel()
 
 	dir := t.TempDir()
-	path, err := (Config{
+	path, err := (&Config{
 		Storage: StorageConfig{
 			Paths: []string{dir},
 		},
@@ -118,7 +118,7 @@ func TestNewNormalizesStorageConfig(t *testing.T) { // A
 	t.Parallel()
 
 	dir := t.TempDir()
-	db, err := New(Config{
+	db, err := New(&Config{
 		Paths: []string{dir},
 		Network: NetworkConfig{
 			ListenAddress: ":0",

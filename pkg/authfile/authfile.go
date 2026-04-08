@@ -365,7 +365,7 @@ func AddEmbeddedTrust( // A
 		if authority.Type != "admin-ca" {
 			continue
 		}
-		pubBytes, err := embeddedCAPubKeyBytes(authority)
+		pubBytes, err := embeddedCAPubKeyBytes(&authority)
 		if err != nil {
 			return err
 		}
@@ -377,7 +377,7 @@ func AddEmbeddedTrust( // A
 		if authority.Type != "user-ca" {
 			continue
 		}
-		pubBytes, err := embeddedCAPubKeyBytes(authority)
+		pubBytes, err := embeddedCAPubKeyBytes(&authority)
 		if err != nil {
 			return err
 		}
@@ -393,7 +393,7 @@ func AddEmbeddedTrust( // A
 }
 
 func embeddedCAPubKeyBytes( // A
-	authority EmbeddedCAFile,
+	authority *EmbeddedCAFile,
 ) ([]byte, error) {
 	pub, err := keys.NewPublicKeyFromBinary(
 		authority.PubKEM,

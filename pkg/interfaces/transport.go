@@ -10,7 +10,7 @@ import (
 )
 
 type QuicTransport interface { // A
-	Dial(node Node) (Connection, error)
+	Dial(node *Node) (Connection, error)
 	Accept() (Connection, error)
 	Close() error
 	GetActiveConnections() []Connection
@@ -69,7 +69,7 @@ func (b *BootstrapConfig) SaveToFile(path string) error { // A
 }
 
 type NodeRegistry interface { // A
-	AddNode(node Node, certs []NodeCert, signatures [][]byte) error
+	AddNode(node *Node, certs []NodeCert, signatures [][]byte) error
 	RemoveNode(nodeID keys.NodeID) error
 	GetNode(nodeID keys.NodeID) (Node, error)
 	GetAllNodes() []Node

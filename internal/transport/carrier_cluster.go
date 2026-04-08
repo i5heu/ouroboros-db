@@ -14,7 +14,7 @@ import (
 )
 
 func (c *carrierImpl) LeaveCluster( // A
-	peer interfaces.PeerNode,
+	peer *interfaces.PeerNode,
 ) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -116,7 +116,7 @@ func (c *carrierImpl) handleIncomingConn( // A
 		return
 	}
 	_ = stream.Close()
-	authCtx, err := c.config.Auth.VerifyPeerCert(hs)
+	authCtx, err := c.config.Auth.VerifyPeerCert(&hs)
 	if err != nil {
 		c.logger.WarnContext(
 			ctx,
@@ -219,7 +219,7 @@ func (c *carrierImpl) awaitPeerAuth( // A
 	if err != nil {
 		return auth.AuthContext{}, nil, err
 	}
-	authCtx, err := c.config.Auth.VerifyPeerCert(hs)
+	authCtx, err := c.config.Auth.VerifyPeerCert(&hs)
 	if err != nil {
 		return auth.AuthContext{}, nil, err
 	}
@@ -280,7 +280,7 @@ func (c *carrierImpl) registerPeer( // A
 		LastSeen:         seenAt,
 		ConnectionStatus: interfaces.ConnectionStatusConnected,
 	}
-	if err := c.registry.AddNode(node, nodeCerts, nil); err != nil {
+	if err := c.registry.AddNode(&node, nodeCerts, nil); err != nil {
 		return err
 	}
 	c.mu.Lock()

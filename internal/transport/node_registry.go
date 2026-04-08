@@ -9,7 +9,7 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
-func copyNode(n interfaces.Node) interfaces.Node { // A
+func copyNode(n *interfaces.Node) interfaces.Node { // A
 	return interfaces.Node{
 		NodeID:           n.NodeID,
 		Addresses:        append([]string(nil), n.Addresses...),
@@ -32,7 +32,7 @@ func newNodeRegistry() *nodeRegistry { // A
 }
 
 func (r *nodeRegistry) AddNode( // A: node validation requires multiple checks
-	node interfaces.Node,
+	node *interfaces.Node,
 	certs []interfaces.NodeCert,
 	_ [][]byte,
 ) error {
@@ -54,7 +54,7 @@ func (r *nodeRegistry) AddNode( // A: node validation requires multiple checks
 
 	r.mu.Lock()
 	if existing, ok := r.nodes[node.NodeID]; ok {
-		n = mergeNode(existing, n)
+		n = mergeNode(&existing, &n)
 	}
 	r.nodes[node.NodeID] = n
 	r.mu.Unlock()
@@ -62,7 +62,7 @@ func (r *nodeRegistry) AddNode( // A: node validation requires multiple checks
 }
 
 func mergeNode( // A
-	existing, incoming interfaces.Node,
+	existing, incoming *interfaces.Node,
 ) interfaces.Node {
 	if len(incoming.Addresses) == 0 {
 		incoming.Addresses = append([]string(nil), existing.Addresses...)
@@ -85,7 +85,7 @@ func mergeNode( // A
 		existing.ConnectionStatus != interfaces.ConnectionStatusDisconnected {
 		incoming.ConnectionStatus = existing.ConnectionStatus
 	}
-	return incoming
+	return *incoming
 }
 
 func (r *nodeRegistry) RemoveNode( // A
@@ -109,7 +109,7 @@ func (r *nodeRegistry) GetNode( // A
 	if !ok {
 		return interfaces.Node{}, fmt.Errorf("node not found")
 	}
-	return copyNode(node), nil
+	return copyNode(&node), nil
 }
 
 func (r *nodeRegistry) GetAllNodes() []interfaces.Node { // A
@@ -196,7 +196,7 @@ func (r *nodeRegistry) GetUnreachableNodes() []interfaces.Node { // A
 	for _, node := range r.nodes {
 		if node.ConnectionStatus !=
 			interfaces.ConnectionStatusConnected {
-			out = append(out, copyNode(node))
+			out = append(out, copyNode(&node))
 		}
 	}
 	return out
@@ -208,7 +208,7 @@ func (r *nodeRegistry) GetServerNodes() []interfaces.Node { // A
 	out := make([]interfaces.Node, 0, len(r.nodes))
 	for _, node := range r.nodes {
 		if node.Role != interfaces.NodeRoleClient {
-			out = append(out, copyNode(node))
+			out = append(out, copyNode(&node))
 		}
 	}
 	return out
@@ -217,7 +217,7 @@ func (r *nodeRegistry) GetServerNodes() []interfaces.Node { // A
 func (r *nodeRegistry) copyNodesLocked() []interfaces.Node { // A
 	out := make([]interfaces.Node, 0, len(r.nodes))
 	for _, node := range r.nodes {
-		out = append(out, copyNode(node))
+		out = append(out, copyNode(&node))
 	}
 	return out
 }
