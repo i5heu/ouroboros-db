@@ -31,7 +31,7 @@ func newNodeRegistry() *nodeRegistry { // A
 	}
 }
 
-func (r *nodeRegistry) AddNode( //nolint:cyclop // A: node validation requires multiple checks
+func (r *nodeRegistry) AddNode( // A: node validation requires multiple checks
 	node interfaces.Node,
 	certs []interfaces.NodeCert,
 	_ [][]byte,
@@ -39,6 +39,7 @@ func (r *nodeRegistry) AddNode( //nolint:cyclop // A: node validation requires m
 	if node.NodeID.IsZero() {
 		return fmt.Errorf("node ID must not be zero")
 	}
+
 	n := interfaces.Node{
 		NodeID:           node.NodeID,
 		Addresses:        append([]string(nil), node.Addresses...),
@@ -50,27 +51,41 @@ func (r *nodeRegistry) AddNode( //nolint:cyclop // A: node validation requires m
 	if len(n.NodeCerts) == 0 && len(node.NodeCerts) > 0 {
 		n.NodeCerts = append([]interfaces.NodeCert(nil), node.NodeCerts...)
 	}
+
 	r.mu.Lock()
 	if existing, ok := r.nodes[node.NodeID]; ok {
-		n.Addresses = compactAddresses(append(existing.Addresses, n.Addresses...))
-		if len(n.NodeCerts) == 0 {
-			n.NodeCerts = append([]interfaces.NodeCert(nil), existing.NodeCerts...)
-		}
-		if n.LastSeen.IsZero() {
-			n.LastSeen = existing.LastSeen
-		}
-		if n.Role == interfaces.NodeRoleServer &&
-			existing.Role == interfaces.NodeRoleClient {
-			n.Role = existing.Role
-		}
-		if n.ConnectionStatus == interfaces.ConnectionStatusDisconnected &&
-			existing.ConnectionStatus != interfaces.ConnectionStatusDisconnected {
-			n.ConnectionStatus = existing.ConnectionStatus
-		}
+		n = mergeNode(existing, n)
 	}
 	r.nodes[node.NodeID] = n
 	r.mu.Unlock()
 	return nil
+}
+
+func mergeNode( // A
+	existing, incoming interfaces.Node,
+) interfaces.Node {
+	if len(incoming.Addresses) == 0 {
+		incoming.Addresses = append([]string(nil), existing.Addresses...)
+	} else {
+		incoming.Addresses = compactAddresses(
+			append(existing.Addresses, incoming.Addresses...),
+		)
+	}
+	if len(incoming.NodeCerts) == 0 {
+		incoming.NodeCerts = append([]interfaces.NodeCert(nil), existing.NodeCerts...)
+	}
+	if incoming.LastSeen.IsZero() {
+		incoming.LastSeen = existing.LastSeen
+	}
+	if incoming.Role == interfaces.NodeRoleServer &&
+		existing.Role == interfaces.NodeRoleClient {
+		incoming.Role = existing.Role
+	}
+	if incoming.ConnectionStatus == interfaces.ConnectionStatusDisconnected &&
+		existing.ConnectionStatus != interfaces.ConnectionStatusDisconnected {
+		incoming.ConnectionStatus = existing.ConnectionStatus
+	}
+	return incoming
 }
 
 func (r *nodeRegistry) RemoveNode( // A
