@@ -11,7 +11,11 @@ linters:
     - sloglint
     - cyclop
     - lll
+    - gocritic
+    - staticcheck
   settings:
+    gocritic:
+      enable-all: true
     cyclop:
       # The maximal code complexity to report.
       max-complexity: 10
@@ -88,6 +92,7 @@ linters:
           - lll
           - cyclop
           - gosec
+          - gocritic
 
 formatters:
   enable:
