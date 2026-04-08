@@ -15,24 +15,12 @@ func NewUserCA( // A
 	anchorSig []byte,
 	anchorAdminHash string,
 ) (*UserCAImpl, error) {
-	pub, err := splitAndParsePubKey(pubKeyBytes)
-	if err != nil {
-		return nil, err
-	}
-	h, err := caHash(pub)
-	if err != nil {
-		return nil, err
-	}
-	cached, err := marshalPubKeyBytes(pub)
+	base, err := newCABase(pubKeyBytes)
 	if err != nil {
 		return nil, err
 	}
 	return &UserCAImpl{
-		caBase: caBase{
-			pubKey:      pub,
-			pubKeyBytes: cached,
-			hash:        h,
-		},
+		caBase:          base,
 		anchorSig:       anchorSig,
 		anchorAdminHash: anchorAdminHash,
 	}, nil

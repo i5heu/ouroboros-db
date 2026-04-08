@@ -52,28 +52,21 @@ func unmarshalMessage( // A
 }
 
 // writeMessageStream writes [type][payload] to stream
-// using two Write calls and relies on the QUIC stream
+// as a single Write and relies on the QUIC stream
 // close to signal the end of the message.
 func writeMessageStream( // A
 	stream interfaces.Stream,
 	msg interfaces.Message,
 ) error {
-	if 1+len(msg.Payload) > maxMessageSize {
-		return fmt.Errorf(
-			"message too large: %d bytes",
-			1+len(msg.Payload),
-		)
+	size := 1 + len(msg.Payload)
+	if size > maxMessageSize {
+		return fmt.Errorf("message too large: %d bytes", size)
 	}
-	typeBuf := [1]byte{
-		byte(msg.Type), //nolint:gosec // G115: MessageType is a defined enum that fits in a byte
-	}
-	if _, err := stream.Write(typeBuf[:]); err != nil {
-		return fmt.Errorf("write type: %w", err)
-	}
-	if len(msg.Payload) > 0 {
-		if _, err := stream.Write(msg.Payload); err != nil {
-			return fmt.Errorf("write payload: %w", err)
-		}
+	buf := make([]byte, size)
+	buf[0] = byte(msg.Type) //nolint:gosec // G115: MessageType is a defined enum that fits in a byte
+	copy(buf[1:], msg.Payload)
+	if _, err := stream.Write(buf); err != nil {
+		return fmt.Errorf("write message: %w", err)
 	}
 	return nil
 }

@@ -278,7 +278,7 @@ func (c *carrierImpl) Reconnect() error { // A
 	c.setOnline()
 	addrs := c.config.BootstrapAddresses
 	if len(addrs) == 0 {
-		return fmt.Errorf("%w", ErrNoBootstrapAddresses)
+		return ErrNoBootstrapAddresses
 	}
 	c.mu.RLock()
 	ctx := c.backgroundCtx
@@ -289,7 +289,7 @@ func (c *carrierImpl) Reconnect() error { // A
 	if c.attemptBootstrap(ctx, addrs) {
 		return nil
 	}
-	return fmt.Errorf("%w", ErrBootstrapFailed)
+	return ErrBootstrapFailed
 }
 
 func compactAddresses(addresses []string) []string { // A

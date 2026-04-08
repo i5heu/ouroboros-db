@@ -1,10 +1,9 @@
 package delegation
 
+import "github.com/i5heu/ouroboros-db/internal/auth/byteutil"
+
 func cloneBytes(src []byte) []byte { // A
-	if src == nil {
-		return nil
-	}
-	return append([]byte(nil), src...)
+	return byteutil.CloneBytes(src)
 }
 
 // DelegationProofImpl is a concrete implementation of

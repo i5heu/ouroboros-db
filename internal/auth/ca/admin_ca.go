@@ -23,25 +23,11 @@ type AdminCAImpl struct { // A
 func NewAdminCA( // A
 	pubKeyBytes []byte,
 ) (*AdminCAImpl, error) {
-	pub, err := splitAndParsePubKey(pubKeyBytes)
+	base, err := newCABase(pubKeyBytes)
 	if err != nil {
 		return nil, err
 	}
-	h, err := caHash(pub)
-	if err != nil {
-		return nil, err
-	}
-	cached, err := marshalPubKeyBytes(pub)
-	if err != nil {
-		return nil, err
-	}
-	return &AdminCAImpl{
-		caBase: caBase{
-			pubKey:      pub,
-			pubKeyBytes: cached,
-			hash:        h,
-		},
-	}, nil
+	return &AdminCAImpl{caBase: base}, nil
 }
 
 // splitAndParsePubKey splits concatenated KEM+Sign

@@ -2,6 +2,7 @@ package cert
 
 import (
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	"github.com/i5heu/ouroboros-db/internal/auth/byteutil"
 )
 
 // DefaultCertVersion is the current NodeCert payload
@@ -9,10 +10,7 @@ import (
 const DefaultCertVersion uint16 = 1 // A
 
 func cloneBytes(src []byte) []byte { // A
-	if src == nil {
-		return nil
-	}
-	return append([]byte(nil), src...)
+	return byteutil.CloneBytes(src)
 }
 
 // NodeCertImpl is a concrete implementation of the

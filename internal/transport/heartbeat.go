@@ -140,13 +140,7 @@ func (c *carrierImpl) sendHeartbeatBatch( // A
 func (c *carrierImpl) shouldHeartbeatPeer( // A
 	peer interfaces.PeerNode,
 ) bool {
-	if !c.IsConnected(peer.NodeID) {
-		return false
-	}
-	if peer.Role == interfaces.NodeRoleClient {
-		return false
-	}
-	return true
+	return c.IsConnected(peer.NodeID) && peer.Role != interfaces.NodeRoleClient
 }
 
 func (c *carrierImpl) sendHeartbeat( // A

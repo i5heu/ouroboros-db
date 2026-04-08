@@ -9,6 +9,17 @@ import (
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )
 
+func copyNode(n interfaces.Node) interfaces.Node { // A
+	return interfaces.Node{
+		NodeID:           n.NodeID,
+		Addresses:        append([]string(nil), n.Addresses...),
+		NodeCerts:        append([]interfaces.NodeCert(nil), n.NodeCerts...),
+		Role:             n.Role,
+		LastSeen:         n.LastSeen,
+		ConnectionStatus: n.ConnectionStatus,
+	}
+}
+
 type nodeRegistry struct { // A
 	mu    sync.RWMutex
 	nodes map[keys.NodeID]interfaces.Node
@@ -28,7 +39,7 @@ func (r *nodeRegistry) AddNode( //nolint:cyclop // A: node validation requires m
 	if node.NodeID.IsZero() {
 		return fmt.Errorf("node ID must not be zero")
 	}
-	copyNode := interfaces.Node{
+	n := interfaces.Node{
 		NodeID:           node.NodeID,
 		Addresses:        append([]string(nil), node.Addresses...),
 		NodeCerts:        append([]interfaces.NodeCert(nil), certs...),
@@ -36,39 +47,28 @@ func (r *nodeRegistry) AddNode( //nolint:cyclop // A: node validation requires m
 		LastSeen:         node.LastSeen,
 		ConnectionStatus: node.ConnectionStatus,
 	}
-	if len(copyNode.NodeCerts) == 0 && len(node.NodeCerts) > 0 {
-		copyNode.NodeCerts = append(
-			[]interfaces.NodeCert(nil),
-			node.NodeCerts...,
-		)
+	if len(n.NodeCerts) == 0 && len(node.NodeCerts) > 0 {
+		n.NodeCerts = append([]interfaces.NodeCert(nil), node.NodeCerts...)
 	}
 	r.mu.Lock()
 	if existing, ok := r.nodes[node.NodeID]; ok {
-		copyNode.Addresses = compactAddresses(append(
-			existing.Addresses,
-			copyNode.Addresses...,
-		))
-		if len(copyNode.NodeCerts) == 0 {
-			copyNode.NodeCerts = append(
-				[]interfaces.NodeCert(nil),
-				existing.NodeCerts...,
-			)
+		n.Addresses = compactAddresses(append(existing.Addresses, n.Addresses...))
+		if len(n.NodeCerts) == 0 {
+			n.NodeCerts = append([]interfaces.NodeCert(nil), existing.NodeCerts...)
 		}
-		if copyNode.LastSeen.IsZero() {
-			copyNode.LastSeen = existing.LastSeen
+		if n.LastSeen.IsZero() {
+			n.LastSeen = existing.LastSeen
 		}
-		if copyNode.Role == interfaces.NodeRoleServer &&
+		if n.Role == interfaces.NodeRoleServer &&
 			existing.Role == interfaces.NodeRoleClient {
-			copyNode.Role = existing.Role
+			n.Role = existing.Role
 		}
-		if copyNode.ConnectionStatus ==
-			interfaces.ConnectionStatusDisconnected &&
-			existing.ConnectionStatus !=
-				interfaces.ConnectionStatusDisconnected {
-			copyNode.ConnectionStatus = existing.ConnectionStatus
+		if n.ConnectionStatus == interfaces.ConnectionStatusDisconnected &&
+			existing.ConnectionStatus != interfaces.ConnectionStatusDisconnected {
+			n.ConnectionStatus = existing.ConnectionStatus
 		}
 	}
-	r.nodes[node.NodeID] = copyNode
+	r.nodes[node.NodeID] = n
 	r.mu.Unlock()
 	return nil
 }
@@ -94,14 +94,7 @@ func (r *nodeRegistry) GetNode( // A
 	if !ok {
 		return interfaces.Node{}, fmt.Errorf("node not found")
 	}
-	return interfaces.Node{
-		NodeID:           node.NodeID,
-		Addresses:        append([]string(nil), node.Addresses...),
-		NodeCerts:        append([]interfaces.NodeCert(nil), node.NodeCerts...),
-		Role:             node.Role,
-		LastSeen:         node.LastSeen,
-		ConnectionStatus: node.ConnectionStatus,
-	}, nil
+	return copyNode(node), nil
 }
 
 func (r *nodeRegistry) GetAllNodes() []interfaces.Node { // A
@@ -188,14 +181,7 @@ func (r *nodeRegistry) GetUnreachableNodes() []interfaces.Node { // A
 	for _, node := range r.nodes {
 		if node.ConnectionStatus !=
 			interfaces.ConnectionStatusConnected {
-			out = append(out, interfaces.Node{
-				NodeID:           node.NodeID,
-				Addresses:        append([]string(nil), node.Addresses...),
-				NodeCerts:        append([]interfaces.NodeCert(nil), node.NodeCerts...),
-				Role:             node.Role,
-				LastSeen:         node.LastSeen,
-				ConnectionStatus: node.ConnectionStatus,
-			})
+			out = append(out, copyNode(node))
 		}
 	}
 	return out
@@ -207,14 +193,7 @@ func (r *nodeRegistry) GetServerNodes() []interfaces.Node { // A
 	out := make([]interfaces.Node, 0, len(r.nodes))
 	for _, node := range r.nodes {
 		if node.Role != interfaces.NodeRoleClient {
-			out = append(out, interfaces.Node{
-				NodeID:           node.NodeID,
-				Addresses:        append([]string(nil), node.Addresses...),
-				NodeCerts:        append([]interfaces.NodeCert(nil), node.NodeCerts...),
-				Role:             node.Role,
-				LastSeen:         node.LastSeen,
-				ConnectionStatus: node.ConnectionStatus,
-			})
+			out = append(out, copyNode(node))
 		}
 	}
 	return out
@@ -223,19 +202,7 @@ func (r *nodeRegistry) GetServerNodes() []interfaces.Node { // A
 func (r *nodeRegistry) copyNodesLocked() []interfaces.Node { // A
 	out := make([]interfaces.Node, 0, len(r.nodes))
 	for _, node := range r.nodes {
-		out = append(out, interfaces.Node{
-			NodeID: node.NodeID,
-			Addresses: append(
-				[]string(nil), node.Addresses...,
-			),
-			NodeCerts: append(
-				[]interfaces.NodeCert(nil),
-				node.NodeCerts...,
-			),
-			Role:             node.Role,
-			LastSeen:         node.LastSeen,
-			ConnectionStatus: node.ConnectionStatus,
-		})
+		out = append(out, copyNode(node))
 	}
 	return out
 }

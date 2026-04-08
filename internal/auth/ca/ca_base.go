@@ -23,6 +23,24 @@ const CTXNodeAdmissionV1 = "OUROBOROS_NODE_ADMISSION_V1" // A
 // context for AdminCA anchoring UserCAs.
 const CTXUserCAAnchorV1 = "OUROBOROS_USER_CA_ANCHOR_V1" // A
 
+// newCABase constructs a caBase from concatenated
+// KEM+Sign public key bytes.
+func newCABase(pubKeyBytes []byte) (caBase, error) { // A
+	pub, err := splitAndParsePubKey(pubKeyBytes)
+	if err != nil {
+		return caBase{}, err
+	}
+	h, err := caHash(pub)
+	if err != nil {
+		return caBase{}, err
+	}
+	cached, err := marshalPubKeyBytes(pub)
+	if err != nil {
+		return caBase{}, err
+	}
+	return caBase{pubKey: pub, pubKeyBytes: cached, hash: h}, nil
+}
+
 // caBase holds the shared public key and hash fields
 // common to AdminCAImpl and UserCAImpl.
 type caBase struct { // A
