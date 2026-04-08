@@ -13,6 +13,19 @@ linters:
     - lll
     - gocritic
     - staticcheck
+    - iface
+    - ineffassign
+    - nestif
+    - nilerr
+    - nilnil
+    - perfsprint
+    # - protogetter
+    - thelper
+    - unparam
+    - unused
+    - bidichk
+    - copyloopvar
+    - dupl
   settings:
     gocritic:
       enable-all: true
