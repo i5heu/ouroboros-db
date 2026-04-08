@@ -78,6 +78,22 @@ func BenchmarkWriteMessageStream(b *testing.B) { // A
 	}
 }
 
+func BenchmarkWriteMessageStreamLargePayload(b *testing.B) { // A
+	msg := interfaces.Message{
+		Type:    interfaces.MessageTypeHeartbeat,
+		Payload: bytes.Repeat([]byte{0xAA}, 1<<20-1),
+	}
+	stream := newTestStream(nil)
+	b.SetBytes(int64(1 + len(msg.Payload)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stream.writes.Reset()
+		benchSinkErr = writeMessageStream(stream, msg)
+		benchSinkBytes = stream.writes.Bytes()
+	}
+}
+
 func BenchmarkReadMessageStream(b *testing.B) { // A
 	for _, size := range benchPayloadSizes {
 		b.Run(fmt.Sprintf("payload_%d", size), func(b *testing.B) {
