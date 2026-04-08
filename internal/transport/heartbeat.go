@@ -38,12 +38,12 @@ func marshalHeartbeatPayload( // A
 		nodes[i] = &pb.HeartbeatNodeEntry{
 			NodeId:    n.NodeID[:],
 			Addresses: n.Addresses,
-			Role:      int32(n.Role),
+			Role:      int32(n.Role), //nolint:gosec // G115: role enum fits in int32
 		}
 	}
 	msg := &pb.HeartbeatPayload{
 		SentAtUnix:       payload.SentAtUnix,
-		SenderRole:       int32(payload.SenderRole),
+		SenderRole:       int32(payload.SenderRole), //nolint:gosec // G115: role enum fits in int32
 		KnownNodes:       nodes,
 		Stats:            payload.Stats,
 		StorageFreeBytes: payload.StorageFreeBytes,
@@ -171,8 +171,10 @@ func (c *carrierImpl) buildHeartbeatPayload( // A
 ) (heartbeatPayload, error) {
 	knownNodes := c.heartbeatKnownNodes()
 	stats := map[string]uint64{
-		"connectedNodes": uint64(c.connectedCount()),
-		"knownNodes":     uint64(len(knownNodes)),
+		"connectedNodes": uint64( //nolint:gosec // G115: count is always non-negative
+			c.connectedCount(),
+		),
+		"knownNodes": uint64(len(knownNodes)),
 	}
 	return heartbeatPayload{
 		SentAtUnix: time.Now().Unix(),

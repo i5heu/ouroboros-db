@@ -64,12 +64,12 @@ func MarshalKeyJSON( // A
 		return nil, err
 	}
 	name := tmp.Name()
-	tmp.Close()
-	defer os.Remove(name)
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(name) }()
 	if err := ac.SaveToFile(name); err != nil {
 		return nil, err
 	}
-	return os.ReadFile(name)
+	return os.ReadFile(name) //nolint:gosec // G304: name comes from os.CreateTemp
 }
 
 // LoadKeyFromJSON reconstructs an AsyncCrypt
@@ -82,8 +82,8 @@ func LoadKeyFromJSON(data []byte) ( // A
 		return nil, err
 	}
 	name := tmp.Name()
-	tmp.Close()
-	defer os.Remove(name)
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(name) }()
 	if err := os.WriteFile(name, data, 0o600); err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func UnmarshalNodeCert( // A
 func ReadCAKey(path string) ( // A
 	*keys.AsyncCrypt, *CAKeyFile, error,
 ) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is a caller-supplied file argument
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"read %s: %w", path, err,
@@ -230,7 +230,7 @@ func ReadCAKey(path string) ( // A
 func ReadNodeCert(path string) ( // A
 	*keys.AsyncCrypt, *NodeCertFile, error,
 ) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is a caller-supplied file argument
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"read %s: %w", path, err,

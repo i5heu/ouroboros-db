@@ -107,7 +107,9 @@ func cmdAdminCA(args []string) error { // A
 	return nil
 }
 
-func cmdUserCA(args []string) error { // A
+func cmdUserCA( //nolint:cyclop // A: CLI flag parsing requires multiple branches
+	args []string,
+) error {
 	adminPath, ok := parseFlag(args, "-admin-key")
 	if !ok {
 		return fmt.Errorf("missing -admin-key flag")
@@ -196,7 +198,9 @@ func cmdUserCA(args []string) error { // A
 	return nil
 }
 
-func cmdSignNode(args []string) error { // A
+func cmdSignNode( //nolint:cyclop // A: CLI flag parsing requires multiple branches
+	args []string,
+) error {
 	caPath, ok := parseFlag(args, "-ca-key")
 	if !ok {
 		return fmt.Errorf("missing -ca-key flag")
@@ -337,7 +341,7 @@ func cmdShow(args []string) error { // A
 	if !ok {
 		return fmt.Errorf("missing -file flag")
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is a user-supplied flag argument
 	if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}

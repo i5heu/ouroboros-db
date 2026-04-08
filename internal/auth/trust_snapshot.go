@@ -191,7 +191,7 @@ func (ts *trustSnapshot) isUserCAAnchorValid( // A
 // withEmbeddedAuthorities returns a copy of the
 // trust snapshot augmented with peer-supplied public
 // CA chain data from the auth handshake.
-func (ts *trustSnapshot) withEmbeddedAuthorities( // A
+func (ts *trustSnapshot) withEmbeddedAuthorities( //nolint:cyclop
 	authorities []EmbeddedCA,
 ) (*trustSnapshot, error) {
 	clone := &trustSnapshot{

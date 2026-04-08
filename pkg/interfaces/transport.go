@@ -41,7 +41,7 @@ type BootstrapConfig struct { // A
 }
 
 func (b *BootstrapConfig) LoadFromFile(path string) error { // A
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is a caller-supplied file argument
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (b *BootstrapConfig) SaveToFile(path string) error { // A
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 type NodeRegistry interface { // A

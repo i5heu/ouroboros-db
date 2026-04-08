@@ -62,7 +62,7 @@ const maxAuthMessageSize = 1 << 20 // A
 // auth message from the stream and combines it with
 // TLS bindings from the connection to produce a
 // PeerHandshake.
-func readAuthHandshake( // A
+func readAuthHandshake( //nolint:cyclop // A: protocol parsing with multiple validation steps
 	stream interfaces.Stream,
 	conn interfaces.Connection,
 ) (interfaces.PeerHandshake, error) {
@@ -313,7 +313,7 @@ func writeAuthHandshake( // A
 	// Write 4-byte big-endian length prefix.
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(
-		lenBuf[:], uint32(len(payload)),
+		lenBuf[:], uint32(len(payload)), //nolint:gosec // G115: payload length fits in uint32
 	)
 	if _, err := stream.Write(lenBuf[:]); err != nil {
 		return fmt.Errorf("write length: %w", err)

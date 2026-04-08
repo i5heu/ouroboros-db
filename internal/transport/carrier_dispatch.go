@@ -66,7 +66,16 @@ func (c *carrierImpl) handleDatagrams( // A
 			)
 			continue
 		}
-		c.dispatchMessage(ctx, nodeID, msg)
+		if _, err := c.dispatchMessage(ctx, nodeID, msg); err != nil {
+			c.logger.WarnContext(
+				ctx,
+				"discarding datagram: dispatch failed",
+				auth.LogKeyNodeID,
+				nodeID.String(),
+				auth.LogKeyReason,
+				err.Error(),
+			)
+		}
 	}
 }
 

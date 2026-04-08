@@ -168,7 +168,9 @@ const ( // A
 )
 
 // New creates a new Carrier from the given configuration.
-func New(conf CarrierConfig) (*carrierImpl, error) { // A
+func New( //nolint:cyclop // A: constructor validates multiple required config fields
+	conf CarrierConfig,
+) (*carrierImpl, error) {
 	if conf.SelfCert == nil {
 		return nil, fmt.Errorf("SelfCert must not be nil")
 	}
@@ -237,7 +239,9 @@ func (c *carrierImpl) ListenAddress() string { // A
 
 func (c *carrierImpl) ensureBackgroundLoops() { // A
 	c.backgroundOnce.Do(func() {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel( //nolint:gosec // G118: cancel stored in c.backgroundCancel
+			context.Background(),
+		)
 		c.mu.Lock()
 		c.backgroundCtx = ctx
 		c.backgroundCancel = cancel
@@ -286,16 +290,6 @@ func (c *carrierImpl) Reconnect() error { // A
 		return nil
 	}
 	return fmt.Errorf("%w", ErrBootstrapFailed)
-}
-
-func peerAddress( // A
-	peer interfaces.PeerNode,
-	conn interfaces.Connection,
-) string {
-	if len(peer.Addresses) > 0 && peer.Addresses[0] != "" {
-		return peer.Addresses[0]
-	}
-	return conn.RemoteAddr()
 }
 
 func compactAddresses(addresses []string) []string { // A

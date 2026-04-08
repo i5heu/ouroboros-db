@@ -338,7 +338,8 @@ func configureUsage() { // A
 		)
 		_, _ = fmt.Fprintf(
 			out,
-			"  interactive -node-cert ./node.oucert -admin-ca ./admin.oukey -listen :9443 -bootstrap 127.0.0.1:9444\n",
+			"  interactive -node-cert ./node.oucert -admin-ca ./admin.oukey"+
+				" -listen :9443 -bootstrap 127.0.0.1:9444\n",
 		)
 	}
 }
@@ -455,7 +456,7 @@ func addCAFile( // A
 // The loop also exits when the process context is
 // cancelled, which happens on SIGINT/SIGTERM or when
 // the listener fails fatally.
-func repl( // A
+func repl( //nolint:cyclop // A: REPL command dispatch inherently requires multiple branches
 	ctx context.Context,
 	cancel context.CancelFunc,
 	transport transport.RuntimeCarrier,

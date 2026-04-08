@@ -20,7 +20,7 @@ func newNodeRegistry() *nodeRegistry { // A
 	}
 }
 
-func (r *nodeRegistry) AddNode( // A
+func (r *nodeRegistry) AddNode( //nolint:cyclop // A: node validation requires multiple checks
 	node interfaces.Node,
 	certs []interfaces.NodeCert,
 	_ [][]byte,

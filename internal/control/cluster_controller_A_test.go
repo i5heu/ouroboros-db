@@ -149,10 +149,6 @@ func nodeID(b byte) keys.NodeID { // A
 	return id
 }
 
-func newTestPayload() proto.Message { // A
-	return &pb.UserMessage{}
-}
-
 func testUserMessagePayload( // A
 	from string,
 	text string,

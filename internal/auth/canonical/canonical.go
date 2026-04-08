@@ -162,10 +162,10 @@ func DomainSeparate( // A
 	prefix := []byte(ctx)
 	l := len(prefix)
 	out := make([]byte, 4+l+len(data))
-	out[0] = byte(l >> 24)
-	out[1] = byte(l >> 16)
-	out[2] = byte(l >> 8)
-	out[3] = byte(l)
+	out[0] = byte(l >> 24) //nolint:gosec // G115: bit-shifted value always fits in byte
+	out[1] = byte(l >> 16) //nolint:gosec // G115: bit-shifted value always fits in byte
+	out[2] = byte(l >> 8)  //nolint:gosec // G115: bit-shifted value always fits in byte
+	out[3] = byte(l)       //nolint:gosec // G115: bit-shifted value always fits in byte
 	copy(out[4:], prefix)
 	copy(out[4+l:], data)
 	return out

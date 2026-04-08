@@ -51,8 +51,8 @@ go test -race -count=1 ./...
 go test ./pkg/cas -run TestNew    # specific package + test
 ./coverage.sh                     # coverage report
 ./testHeavy.sh                    # race + repeated + bench + property (takes time)
-golangci-lint-v2 run                 # lint
-golangci-lint-v2 run --fix           # lint + auto-format
+golangci-lint run                 # lint
+golangci-lint run --fix           # lint + auto-format
 go mod tidy
 ```
 
@@ -125,7 +125,7 @@ docs/diagrams/          # Architecture diagrams
 
 - **Line length**: 100 chars max (enforced by `lll` and `golines`); unlimited in test files
 - **Cyclomatic complexity**: max 10 (`cyclop`)
-- **Formatters**: `gofumpt`, `goimports`, `gci`, `golines`, `gofmt` (via `golangci-lint-v2 run --fix`)
+- **Formatters**: `gofumpt`, `goimports`, `gci`, `golines`, `gofmt` (via `golangci-lint run --fix`)
 - **Imports grouped**: stdlib → third-party → local
 - **Test naming**: `TestXxx`, `BenchmarkXxx`, `ExampleXxx`
 - **Table-driven tests** preferred
