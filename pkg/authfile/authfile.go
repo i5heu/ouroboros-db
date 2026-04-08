@@ -4,11 +4,11 @@ package authfile
 
 import (
 	"fmt"
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"os"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	pb "github.com/i5heu/ouroboros-db/proto/authfile"

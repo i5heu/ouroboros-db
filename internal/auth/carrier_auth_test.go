@@ -3,14 +3,14 @@ package auth
 import (
 	"crypto/sha256"
 	"errors"
-	canonicalpkg "github.com/i5heu/ouroboros-db/internal/auth/canonical"
-	delegationpkg "github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
+	canonicalpkg "github.com/i5heu/ouroboros-db/internal/auth/canonical"
+	delegationpkg "github.com/i5heu/ouroboros-db/internal/auth/delegation"
 )
 
 const oversizedPeerCertBundleSize = 1025 // A

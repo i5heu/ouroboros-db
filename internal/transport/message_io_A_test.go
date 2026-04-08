@@ -17,9 +17,11 @@ var benchPayloadSizes = []int{
 	1<<20 - 1,
 }
 
-var benchSinkMsg interfaces.Message
-var benchSinkBytes []byte
-var benchSinkErr error
+var (
+	benchSinkMsg   interfaces.Message
+	benchSinkBytes []byte
+	benchSinkErr   error
+)
 
 func BenchmarkMarshalMessage(b *testing.B) { // A
 	for _, size := range benchPayloadSizes {

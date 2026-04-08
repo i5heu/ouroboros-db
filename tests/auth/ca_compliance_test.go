@@ -1,13 +1,13 @@
 package auth_test // A
 
 import (
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"pgregory.net/rapid"
 )
 

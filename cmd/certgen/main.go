@@ -13,12 +13,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"os"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 	"github.com/i5heu/ouroboros-db/pkg/authfile"
 )

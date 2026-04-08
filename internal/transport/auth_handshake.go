@@ -3,11 +3,11 @@ package transport
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"io"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	certpkg "github.com/i5heu/ouroboros-db/internal/auth/cert"
 	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"

@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"testing"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"pgregory.net/rapid"
 )

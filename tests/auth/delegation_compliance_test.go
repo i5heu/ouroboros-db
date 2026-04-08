@@ -1,10 +1,10 @@
 package auth_test // A
 
 import (
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"testing"
 	"time"
 
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"pgregory.net/rapid"
 )

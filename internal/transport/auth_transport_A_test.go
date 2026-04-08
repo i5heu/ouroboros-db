@@ -3,7 +3,6 @@ package transport
 import (
 	"context"
 	"errors"
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"io"
 	"log/slog"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 )

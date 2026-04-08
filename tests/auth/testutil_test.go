@@ -3,7 +3,6 @@ package auth_test // A
 import (
 	"crypto/sha256"
 	"fmt"
-	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"log/slog"
 	"os"
 	"sync"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 	"github.com/i5heu/ouroboros-db/internal/auth"
+	"github.com/i5heu/ouroboros-db/internal/auth/canonical"
 	"github.com/i5heu/ouroboros-db/internal/auth/delegation"
 	"github.com/i5heu/ouroboros-db/pkg/interfaces"
 	"pgregory.net/rapid"
