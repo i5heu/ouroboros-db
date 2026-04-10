@@ -51,7 +51,7 @@ func TestMarshalMessageEmpty(t *testing.T) {
 	msg := interfaces.Message{}
 	result := marshalMessage(msg)
 
-	if !(len(result) == 1 && result[0] == 0) {
+	if len(result) != 1 || result[0] != 0 {
 		t.Errorf("expected [0], got %d : %v", len(result), result)
 	}
 }
