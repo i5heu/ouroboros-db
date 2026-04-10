@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,7 +21,7 @@ func (c *carrierImpl) LeaveCluster( // A
 	defer c.mu.Unlock()
 	conn, ok := c.connections[peer.NodeID]
 	if !ok {
-		return fmt.Errorf("node not connected")
+		return errors.New("node not connected")
 	}
 	if err := conn.Close(); err != nil {
 		return err
@@ -50,13 +51,13 @@ func (c *carrierImpl) StartListener( // A
 ) error {
 	c.ensureBackgroundLoops()
 	if c.config.ListenAddress == "" {
-		return fmt.Errorf("ListenAddress is not configured")
+		return errors.New("ListenAddress is not configured")
 	}
 	c.mu.RLock()
 	tp := c.transport
 	c.mu.RUnlock()
 	if tp == nil {
-		return fmt.Errorf("transport is not initialized")
+		return errors.New("transport is not initialized")
 	}
 	if qt, ok := tp.(*quicTransport); ok {
 		if err := qt.startListener(); err != nil {
@@ -203,7 +204,7 @@ func (c *carrierImpl) awaitPeerAuth( // A
 	conn interfaces.Connection,
 ) (auth.AuthContext, []canonical.NodeCertLike, error) {
 	if c.config.Auth == nil {
-		return auth.AuthContext{}, nil, fmt.Errorf(
+		return auth.AuthContext{}, nil, errors.New(
 			"carrier auth is required to verify peers",
 		)
 	}
@@ -231,7 +232,7 @@ func (c *carrierImpl) writeLocalAuth( // A
 ) error {
 	ni := c.config.NodeIdentity
 	if ni == nil {
-		return fmt.Errorf("node identity is not configured")
+		return errors.New("node identity is not configured")
 	}
 	proof, sig, err := delegation.SignDelegation(
 		ni.Key(),

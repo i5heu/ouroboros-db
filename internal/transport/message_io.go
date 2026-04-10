@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -28,11 +29,11 @@ const maxMessageSize = 1 << 20 // A
 // already has a flat []byte to send.
 func marshalMessage( // A
 	msg interfaces.Message,
-) ([]byte, error) {
+) []byte {
 	out := make([]byte, 1+len(msg.Payload))
 	out[0] = byte(msg.Type) //nolint:gosec // G115: MessageType is a defined enum that fits in a byte
 	copy(out[1:], msg.Payload)
-	return out, nil
+	return out
 }
 
 // unmarshalMessage decodes a [type][payload] slice.
@@ -43,7 +44,7 @@ func unmarshalMessage( // A
 ) (interfaces.Message, error) {
 	if len(data) < 1 {
 		return interfaces.Message{},
-			fmt.Errorf("message too short: 0 bytes")
+			errors.New("message too short: 0 bytes")
 	}
 	return interfaces.Message{
 		Type:    interfaces.MessageType(data[0]),

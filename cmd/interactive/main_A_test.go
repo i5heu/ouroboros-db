@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
+	"encoding/hex"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -58,7 +58,7 @@ func TestLoadCarrierAuthEmbeddedAdminTrust( // A
 		t.Fatalf("admin Sign pub: %v", err)
 	}
 	h := sha256.Sum256(adminPubBytes[auth.KEMPublicKeySize:])
-	caHash := fmt.Sprintf("%x", h)
+	caHash := hex.EncodeToString(h[:])
 
 	nodeAC, err := keys.NewAsyncCrypt()
 	if err != nil {

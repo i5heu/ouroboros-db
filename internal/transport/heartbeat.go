@@ -147,10 +147,7 @@ func (c *carrierImpl) sendHeartbeat( // A
 	_ context.Context,
 	nodeID keys.NodeID,
 ) error {
-	payload, err := c.buildHeartbeatPayload()
-	if err != nil {
-		return err
-	}
+	payload := c.buildHeartbeatPayload()
 	encoded, err := marshalHeartbeatPayload(payload)
 	if err != nil {
 		return fmt.Errorf("marshal heartbeat: %w", err)
@@ -162,7 +159,7 @@ func (c *carrierImpl) sendHeartbeat( // A
 }
 
 func (c *carrierImpl) buildHeartbeatPayload( // A
-) (heartbeatPayload, error) {
+) heartbeatPayload {
 	knownNodes := c.heartbeatKnownNodes()
 	stats := map[string]uint64{
 		"connectedNodes": uint64( //nolint:gosec // G115: count is always non-negative
@@ -175,7 +172,7 @@ func (c *carrierImpl) buildHeartbeatPayload( // A
 		SenderRole: c.config.NodeRole,
 		KnownNodes: knownNodes,
 		Stats:      stats,
-	}, nil
+	}
 }
 
 func (c *carrierImpl) heartbeatKnownNodes() []heartbeatNodeEntry { // A

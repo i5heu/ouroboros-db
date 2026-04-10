@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -43,7 +44,7 @@ func (m *mockCarrier) GetNode( // A
 		}
 	}
 	return interfaces.PeerNode{},
-		fmt.Errorf("node not found")
+		errors.New("node not found")
 }
 
 func (m *mockCarrier) BroadcastReliable( // A
@@ -119,9 +120,7 @@ func (m *mockCarrier) StartListener( // A
 func (m *mockCarrier) GetNodeConnection( // A
 	_ keys.NodeID,
 ) (interfaces.NodeConnection, error) {
-	return interfaces.NodeConnection{}, fmt.Errorf(
-		"node not found",
-	)
+	return interfaces.NodeConnection{}, errors.New("node not found")
 }
 
 func testLogger() *slog.Logger { // A
@@ -150,11 +149,10 @@ func nodeID(b byte) keys.NodeID { // A
 }
 
 func testUserMessagePayload( // A
-	from string,
 	text string,
 ) *pb.UserMessage {
 	return &pb.UserMessage{
-		From: from,
+		From: "alice",
 		Text: text,
 	}
 }
@@ -197,9 +195,7 @@ func registerSyntheticTestHandler( // A
 	handler interfaces.MessageHandler,
 ) error {
 	if len(scopes) == 0 {
-		return fmt.Errorf(
-			"at least one scope is required",
-		)
+		return errors.New("at least one scope is required")
 	}
 	reg := interfaces.MessageRegistration{
 		MsgType:       msgType,
@@ -632,7 +628,7 @@ func TestHandleIncomingMessageAuthorized( // A
 
 	payload := marshalTestPayload(
 		t,
-		testUserMessagePayload("alice", "test-payload"),
+		testUserMessagePayload("test-payload"),
 	)
 	_ = registerTestHandler(
 		cc,
@@ -681,7 +677,7 @@ func TestHandleIncomingMessageDenied( // A
 
 	payload := marshalTestPayload(
 		t,
-		testUserMessagePayload("alice", "denied"),
+		testUserMessagePayload("denied"),
 	)
 	msg := interfaces.Message{
 		Type:    interfaces.MessageTypeHeartbeat,
@@ -779,7 +775,7 @@ func TestHandleIncomingMessageHandlerError( // A
 			_ auth.TrustScope,
 		) (*interfaces.ResponseEmptyPayload, error) {
 			return nil,
-				fmt.Errorf("handler failed")
+				errors.New("handler failed")
 		},
 	)
 
@@ -794,7 +790,7 @@ func TestHandleIncomingMessageHandlerError( // A
 		Type: interfaces.MessageTypeHeartbeat,
 		Payload: marshalTestPayload(
 			t,
-			testUserMessagePayload("alice", "boom"),
+			testUserMessagePayload("boom"),
 		),
 	}
 	_, err := cc.HandleIncomingMessage(
@@ -840,7 +836,7 @@ func TestHandleIncomingMessagePeerIDPassed( // A
 		Type: interfaces.MessageTypeHeartbeat,
 		Payload: marshalTestPayload(
 			t,
-			testUserMessagePayload("alice", "peer"),
+			testUserMessagePayload("peer"),
 		),
 	}
 	_, err := cc.HandleIncomingMessage(
@@ -892,7 +888,7 @@ func TestHandleIncomingMessageScopePassed( // A
 		Type: interfaces.MessageTypeHeartbeat,
 		Payload: marshalTestPayload(
 			t,
-			testUserMessagePayload("alice", "scope"),
+			testUserMessagePayload("scope"),
 		),
 	}
 	_, err := cc.HandleIncomingMessage(
@@ -941,7 +937,7 @@ func TestHandleIncomingMessageResponsePayload( // A
 		Type: interfaces.MessageTypeHeartbeat,
 		Payload: marshalTestPayload(
 			t,
-			testUserMessagePayload("alice", "meta"),
+			testUserMessagePayload("meta"),
 		),
 	}
 	resp, err := cc.HandleIncomingMessage(
@@ -1007,7 +1003,6 @@ func TestConcurrentRegisterAndHandle( // A
 				Payload: marshalTestPayload(
 					t,
 					testUserMessagePayload(
-						"alice",
 						"concurrent",
 					),
 				),
@@ -1090,6 +1085,30 @@ func TestPropertyRegisterUnregister( // A
 			interfaces.MessageTypeKeyEntryResponse,
 		}
 
+		doUnregister := func(mt interfaces.MessageType) {
+			if err := cc.UnregisterHandler(mt); err != nil {
+				t.Fatalf("unregister %d: %v", mt, err)
+			}
+			delete(registered, mt)
+			if _, ok := cc.GetHandler(mt); ok {
+				t.Fatal("found after unregister")
+			}
+		}
+		doRegister := func(mt interfaces.MessageType) {
+			err := registerTestHandler(
+				cc, mt,
+				[]auth.TrustScope{auth.ScopeAdmin},
+				echoHandler,
+			)
+			if err != nil {
+				t.Fatalf("register %d: %v", mt, err)
+			}
+			registered[mt] = true
+			if _, ok := cc.GetHandler(mt); !ok {
+				t.Fatal("not found after register")
+			}
+		}
+
 		ops := rapid.IntRange(1, 50).Draw(t, "ops")
 		for i := 0; i < ops; i++ {
 			mt := supportedTypes[rapid.IntRange(
@@ -1098,40 +1117,9 @@ func TestPropertyRegisterUnregister( // A
 			).Draw(t, "msgType")]
 
 			if registered[mt] {
-				// Try unregister.
-				err := cc.UnregisterHandler(mt)
-				if err != nil {
-					t.Fatalf(
-						"unregister %d: %v",
-						mt, err,
-					)
-				}
-				delete(registered, mt)
-
-				_, ok := cc.GetHandler(mt)
-				if ok {
-					t.Fatal("found after unregister")
-				}
+				doUnregister(mt)
 			} else {
-				// Try register.
-				err := registerTestHandler(
-					cc,
-					mt,
-					[]auth.TrustScope{auth.ScopeAdmin},
-					echoHandler,
-				)
-				if err != nil {
-					t.Fatalf(
-						"register %d: %v",
-						mt, err,
-					)
-				}
-				registered[mt] = true
-
-				_, ok := cc.GetHandler(mt)
-				if !ok {
-					t.Fatal("not found after register")
-				}
+				doRegister(mt)
 			}
 		}
 	})
@@ -1274,7 +1262,7 @@ func TestRegisterHandlerValueResponse( // A
 			Type: interfaces.MessageTypeUserMessage,
 			Payload: marshalTestPayload(
 				t,
-				testUserMessagePayload("alice", "typed"),
+				testUserMessagePayload("typed"),
 			),
 		},
 		nodeID(1),

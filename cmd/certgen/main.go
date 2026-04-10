@@ -12,6 +12,8 @@ package main
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -72,7 +74,7 @@ func parseFlag( // A
 func cmdAdminCA(args []string) error { // A
 	out, ok := parseFlag(args, "-out")
 	if !ok {
-		return fmt.Errorf("missing -out flag")
+		return errors.New("missing -out flag")
 	}
 	ac, err := keys.NewAsyncCrypt()
 	if err != nil {
@@ -112,11 +114,11 @@ func cmdUserCA( //nolint:cyclop // A: CLI flag parsing requires multiple branche
 ) error {
 	adminPath, ok := parseFlag(args, "-admin-key")
 	if !ok {
-		return fmt.Errorf("missing -admin-key flag")
+		return errors.New("missing -admin-key flag")
 	}
 	out, ok := parseFlag(args, "-out")
 	if !ok {
-		return fmt.Errorf("missing -out flag")
+		return errors.New("missing -out flag")
 	}
 	adminAC, adminFile, err := authfile.ReadCAKey(
 		adminPath,
@@ -203,11 +205,11 @@ func cmdSignNode( //nolint:cyclop // A: CLI flag parsing requires multiple branc
 ) error {
 	caPath, ok := parseFlag(args, "-ca-key")
 	if !ok {
-		return fmt.Errorf("missing -ca-key flag")
+		return errors.New("missing -ca-key flag")
 	}
 	out, ok := parseFlag(args, "-out")
 	if !ok {
-		return fmt.Errorf("missing -out flag")
+		return errors.New("missing -out flag")
 	}
 	validityStr, _ := parseFlag(args, "-validity")
 	validity := 365 * 24 * time.Hour
@@ -242,7 +244,7 @@ func cmdSignNode( //nolint:cyclop // A: CLI flag parsing requires multiple branc
 	h := sha256.Sum256(
 		caPubBytes[auth.KEMPublicKeySize:],
 	)
-	caHash := fmt.Sprintf("%x", h)
+	caHash := hex.EncodeToString(h[:])
 
 	nodeAC, err := keys.NewAsyncCrypt()
 	if err != nil {
@@ -339,7 +341,7 @@ func cmdSignNode( //nolint:cyclop // A: CLI flag parsing requires multiple branc
 func cmdShow(args []string) error { // A
 	path, ok := parseFlag(args, "-file")
 	if !ok {
-		return fmt.Errorf("missing -file flag")
+		return errors.New("missing -file flag")
 	}
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path is a user-supplied flag argument
 	if err != nil {
@@ -359,7 +361,7 @@ func cmdShow(args []string) error { // A
 		}
 	}
 
-	return fmt.Errorf("unrecognized file format")
+	return errors.New("unrecognized file format")
 }
 
 func showCA(f *authfile.CAKeyFile) error { // A

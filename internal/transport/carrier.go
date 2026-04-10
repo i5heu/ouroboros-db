@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -172,7 +173,7 @@ func New( //nolint:cyclop // A: constructor validates multiple required config f
 	conf *CarrierConfig,
 ) (*carrierImpl, error) {
 	if conf.SelfCert == nil {
-		return nil, fmt.Errorf("SelfCert must not be nil")
+		return nil, errors.New("SelfCert must not be nil")
 	}
 	if conf.HeartbeatInterval <= 0 {
 		conf.HeartbeatInterval = defaultHeartbeatInterval

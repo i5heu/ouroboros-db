@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -59,13 +60,13 @@ func (c *carrierImpl) connectNode( // A
 ) error {
 	ni := c.config.NodeIdentity
 	if ni == nil {
-		return fmt.Errorf("NodeIdentity is required to open peer channel")
+		return errors.New("NodeIdentity is required to open peer channel")
 	}
 	c.mu.RLock()
 	tp := c.transport
 	c.mu.RUnlock()
 	if tp == nil {
-		return fmt.Errorf("transport is not initialized")
+		return errors.New("transport is not initialized")
 	}
 	conn, usedAddress, err := c.dialKnownAddresses(node)
 	if err != nil {
@@ -136,7 +137,7 @@ func (c *carrierImpl) dialKnownAddresses( // A
 	node *interfaces.Node,
 ) (interfaces.Connection, string, error) {
 	if len(node.Addresses) == 0 {
-		return nil, "", fmt.Errorf("node has no addresses")
+		return nil, "", errors.New("node has no addresses")
 	}
 	var lastErr error
 	for _, address := range compactAddresses(node.Addresses) {
@@ -152,7 +153,7 @@ func (c *carrierImpl) dialKnownAddresses( // A
 		lastErr = err
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("no dial attempts were made")
+		lastErr = errors.New("no dial attempts were made")
 	}
 	return nil, "", lastErr
 }

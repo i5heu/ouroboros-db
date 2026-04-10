@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -381,7 +382,7 @@ func (ca *carrierAuth) deriveScope( // A
 	ca.logger.DebugContext(
 		context.TODO(),
 		"peer cert verified",
-		LogKeyNodeID, fmt.Sprintf("%x", result.nodeID[:8]),
+		LogKeyNodeID, hex.EncodeToString(result.nodeID[:8]),
 		LogKeyScope, ctx.EffectiveScope.String(),
 	)
 	return ctx

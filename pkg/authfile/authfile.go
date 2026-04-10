@@ -3,6 +3,7 @@
 package authfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -315,7 +316,7 @@ func BuildEmbeddedTrustChain( // A
 	case "user-ca":
 		if len(f.AnchorAdminPubKEM) == 0 ||
 			len(f.AnchorAdminPubSign) == 0 {
-			return nil, fmt.Errorf(
+			return nil, errors.New(
 				"user CA is missing anchor admin" +
 					" public key",
 			)

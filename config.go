@@ -1,7 +1,7 @@
 package ouroboros
 
 import (
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 )
@@ -63,7 +63,7 @@ func (c *Config) PrimaryPath() (string, error) { // A
 	if len(c.Paths) > 0 {
 		return c.Paths[0], nil
 	}
-	return "", fmt.Errorf(
+	return "", errors.New(
 		"at least one path must be provided in config",
 	)
 }

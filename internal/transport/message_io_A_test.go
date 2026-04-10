@@ -34,8 +34,7 @@ func BenchmarkMarshalMessage(b *testing.B) { // A
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				benchSinkBytes, benchSinkErr = marshalMessage(msg)
-				_ = benchSinkErr
+				benchSinkBytes = marshalMessage(msg)
 			}
 		})
 	}

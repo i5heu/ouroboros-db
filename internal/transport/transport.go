@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -91,9 +92,7 @@ func (qt *quicTransport) Dial( // A
 	node *interfaces.Node,
 ) (interfaces.Connection, error) {
 	if len(node.Addresses) == 0 {
-		return nil, fmt.Errorf(
-			"node has no addresses",
-		)
+		return nil, errors.New("node has no addresses")
 	}
 	addr, err := net.ResolveUDPAddr(
 		"udp", node.Addresses[0],
@@ -129,9 +128,7 @@ func (qt *quicTransport) Accept() ( // A
 	l := qt.listener
 	qt.mu.RUnlock()
 	if l == nil {
-		return nil, fmt.Errorf(
-			"listener not started",
-		)
+		return nil, errors.New("listener not started")
 	}
 	conn, err := l.Accept(context.Background())
 	if err != nil {

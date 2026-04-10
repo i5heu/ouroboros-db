@@ -1,7 +1,7 @@
 package transport
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 
@@ -37,7 +37,7 @@ func (r *nodeRegistry) AddNode( // A: node validation requires multiple checks
 	_ [][]byte,
 ) error {
 	if node.NodeID.IsZero() {
-		return fmt.Errorf("node ID must not be zero")
+		return errors.New("node ID must not be zero")
 	}
 
 	n := interfaces.Node{
@@ -94,7 +94,7 @@ func (r *nodeRegistry) RemoveNode( // A
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.nodes[nodeID]; !ok {
-		return fmt.Errorf("node not found")
+		return errors.New("node not found")
 	}
 	delete(r.nodes, nodeID)
 	return nil
@@ -107,7 +107,7 @@ func (r *nodeRegistry) GetNode( // A
 	defer r.mu.RUnlock()
 	node, ok := r.nodes[nodeID]
 	if !ok {
-		return interfaces.Node{}, fmt.Errorf("node not found")
+		return interfaces.Node{}, errors.New("node not found")
 	}
 	return copyNode(&node), nil
 }
@@ -134,7 +134,7 @@ func (r *nodeRegistry) UpdateLastSeen( // A
 	defer r.mu.Unlock()
 	node, ok := r.nodes[nodeID]
 	if !ok {
-		return fmt.Errorf("node not found")
+		return errors.New("node not found")
 	}
 	node.LastSeen = seenAt
 	r.nodes[nodeID] = node
@@ -149,7 +149,7 @@ func (r *nodeRegistry) SetStatus( // A
 	defer r.mu.Unlock()
 	node, ok := r.nodes[nodeID]
 	if !ok {
-		return fmt.Errorf("node not found")
+		return errors.New("node not found")
 	}
 	node.ConnectionStatus = status
 	r.nodes[nodeID] = node
@@ -164,7 +164,7 @@ func (r *nodeRegistry) SetRole( // A
 	defer r.mu.Unlock()
 	node, ok := r.nodes[nodeID]
 	if !ok {
-		return fmt.Errorf("node not found")
+		return errors.New("node not found")
 	}
 	node.Role = role
 	r.nodes[nodeID] = node
@@ -179,7 +179,7 @@ func (r *nodeRegistry) MergeAddresses( // A
 	defer r.mu.Unlock()
 	node, ok := r.nodes[nodeID]
 	if !ok {
-		return fmt.Errorf("node not found")
+		return errors.New("node not found")
 	}
 	node.Addresses = compactAddresses(append(
 		node.Addresses,

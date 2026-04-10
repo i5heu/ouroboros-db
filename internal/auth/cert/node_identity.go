@@ -2,6 +2,7 @@ package cert
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -48,9 +49,7 @@ func NewNodeIdentity( // A
 	authorities []EmbeddedCA,
 ) (*NodeIdentity, error) {
 	if len(certs) == 0 {
-		return nil, fmt.Errorf(
-			"at least one NodeCert is required",
-		)
+		return nil, errors.New("at least one NodeCert is required")
 	}
 	if len(caSigs) != len(certs) {
 		return nil, fmt.Errorf(

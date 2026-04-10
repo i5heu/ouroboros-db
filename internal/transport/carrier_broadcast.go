@@ -16,7 +16,7 @@ func (c *carrierImpl) BroadcastReliable( // A
 	nodes := c.getNodesUnlocked()
 	c.mu.RUnlock()
 	if len(nodes) == 0 {
-		return nil, nil, fmt.Errorf("no peers available")
+		return nil, nil, errors.New("no peers available")
 	}
 	maxRetries := c.config.BroadcastMaxRetries
 	retryInterval := c.config.BroadcastRetryInterval
@@ -108,10 +108,7 @@ func (c *carrierImpl) SendMessageToNodeUnreliable( // A
 	if err != nil {
 		return err
 	}
-	data, err := marshalMessage(message)
-	if err != nil {
-		return err
-	}
+	data := marshalMessage(message)
 	return conn.SendDatagram(data)
 }
 
@@ -136,7 +133,7 @@ func (c *carrierImpl) connectionForNode( // A
 	defer c.mu.RUnlock()
 	conn, ok := c.connections[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node not connected")
+		return nil, errors.New("node not connected")
 	}
 	return conn, nil
 }

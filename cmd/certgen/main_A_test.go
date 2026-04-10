@@ -39,17 +39,16 @@ func run( // A
 
 func runExpectFail( // A
 	t *testing.T, bin string, args ...string,
-) string {
+) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf(
-			"expected failure: certgen %s",
-			strings.Join(args, " "),
+			"expected failure: certgen %s\n%s",
+			strings.Join(args, " "), out,
 		)
 	}
-	return string(out)
 }
 
 func TestFullWorkflow(t *testing.T) { // A

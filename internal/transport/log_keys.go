@@ -1,7 +1,7 @@
 package transport
 
 import (
-	"fmt"
+	"encoding/hex"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
 )
@@ -21,5 +21,5 @@ const ( // A
 // readable peer identifier for log output that stays
 // consistent with the interactive CLI's shortNodeID.
 func shortID(nodeID keys.NodeID) string { // A
-	return fmt.Sprintf("%x", nodeID[:8])
+	return hex.EncodeToString(nodeID[:8])
 }

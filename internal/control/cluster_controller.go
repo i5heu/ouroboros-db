@@ -6,6 +6,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -37,14 +38,10 @@ func NewClusterController( // A
 	logger *slog.Logger,
 ) (*clusterController, error) {
 	if carrier == nil {
-		return nil, fmt.Errorf(
-			"carrier must not be nil",
-		)
+		return nil, errors.New("carrier must not be nil")
 	}
 	if logger == nil {
-		return nil, fmt.Errorf(
-			"logger must not be nil",
-		)
+		return nil, errors.New("logger must not be nil")
 	}
 	return &clusterController{
 		handlers: make(
@@ -73,9 +70,7 @@ func (cc *clusterController) RegisterHandler( // A
 	handler any,
 ) error {
 	if len(scopes) == 0 {
-		return fmt.Errorf(
-			"at least one scope is required",
-		)
+		return errors.New("at least one scope is required")
 	}
 
 	cc.mu.Lock()

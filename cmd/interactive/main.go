@@ -48,6 +48,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -110,7 +112,7 @@ func main() { // A
 func run() error { // A
 	conf, logLevel := parseConfig()
 	if conf.Identity.NodeCertPath == "" {
-		return fmt.Errorf("-node-cert is required")
+		return errors.New("-node-cert is required")
 	}
 
 	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -644,5 +646,5 @@ func splitCSV(raw string) []string { // A
 // output so peer lists and received-message prints stay
 // readable during manual testing.
 func shortNodeID(nodeID keys.NodeID) string { // A
-	return fmt.Sprintf("%x", nodeID[:8])
+	return hex.EncodeToString(nodeID[:8])
 }

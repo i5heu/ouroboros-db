@@ -85,16 +85,11 @@ type scriptedConn struct { // A
 func newScriptedConn( // A
 	tlsBindings interfaces.TLSBindings,
 	exporter map[string][]byte,
-	acceptStreams ...interfaces.Stream,
 ) *scriptedConn {
 	return &scriptedConn{
 		tlsBindings: tlsBindings,
 		exporter:    exporter,
 		closed:      make(chan struct{}),
-		acceptStreams: append(
-			[]interfaces.Stream(nil),
-			acceptStreams...,
-		),
 	}
 }
 
@@ -267,7 +262,8 @@ func newExportersForCarrierTest() map[string][]byte { // A
 	}
 }
 
-func bytesOf(fill byte, size int) []byte { // A
+//nolint:unparam // size is always 32 today but kept for clarity
+func bytesOf(fill byte, size int) []byte {
 	out := make([]byte, size)
 	for i := range out {
 		out[i] = fill

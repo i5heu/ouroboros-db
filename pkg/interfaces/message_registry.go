@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -76,9 +77,7 @@ func RegisterTypedHandler[In, Out proto.Message]( // A
 	) (Out, error),
 ) error {
 	if controller == nil {
-		return fmt.Errorf(
-			"controller must not be nil",
-		)
+		return errors.New("controller must not be nil")
 	}
 	return controller.RegisterHandler(
 		msgType,
@@ -105,7 +104,7 @@ func BuildMessageRegistration( // A
 	}
 	mh, ok := handler.(MessageHandler)
 	if !ok || mh == nil {
-		return MessageRegistration{}, fmt.Errorf(
+		return MessageRegistration{}, errors.New(
 			"handler must be a non-nil " +
 				"MessageHandler; use " +
 				"TypedHandler or " +

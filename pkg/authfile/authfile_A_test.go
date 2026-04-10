@@ -3,7 +3,7 @@ package authfile_test
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -191,7 +191,7 @@ func TestNodeCertSignAndVerify(t *testing.T) { // A
 	h := sha256.Sum256(
 		caPubBytes[auth.KEMPublicKeySize:],
 	)
-	caHash := fmt.Sprintf("%x", h)
+	caHash := hex.EncodeToString(h[:])
 
 	// 3. Generate node key and cert.
 	nodeAC, err := keys.NewAsyncCrypt()
@@ -322,7 +322,7 @@ func TestNodeCertToIdentity(t *testing.T) { // A
 	h := sha256.Sum256(
 		adminPubBytes[auth.KEMPublicKeySize:],
 	)
-	caHash := fmt.Sprintf("%x", h)
+	caHash := hex.EncodeToString(h[:])
 
 	nodeAC, _ := keys.NewAsyncCrypt()
 	nodePub := nodeAC.GetPublicKey()
