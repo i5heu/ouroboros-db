@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/i5heu/ouroboros-crypt/pkg/keys"
@@ -28,7 +29,7 @@ type heartbeatPayload struct { // A
 }
 
 func marshalHeartbeatPayload( // A
-	payload heartbeatPayload,
+	payload *heartbeatPayload,
 ) ([]byte, error) {
 	nodes := make(
 		[]*pb.HeartbeatNodeEntry,
@@ -148,7 +149,7 @@ func (c *carrierImpl) sendHeartbeat( // A
 	nodeID keys.NodeID,
 ) error {
 	payload := c.buildHeartbeatPayload()
-	encoded, err := marshalHeartbeatPayload(payload)
+	encoded, err := marshalHeartbeatPayload(&payload)
 	if err != nil {
 		return fmt.Errorf("marshal heartbeat: %w", err)
 	}
@@ -186,7 +187,7 @@ func (c *carrierImpl) heartbeatKnownNodes() []heartbeatNodeEntry { // A
 	for _, peer := range peers {
 		entries = append(entries, heartbeatNodeEntry{
 			NodeID:    peer.NodeID,
-			Addresses: append([]string(nil), peer.Addresses...),
+			Addresses: slices.Clone(peer.Addresses),
 			Role:      peer.Role,
 		})
 	}

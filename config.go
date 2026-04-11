@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
 )
 
 // StorageConfig groups persistent storage settings.
@@ -71,13 +72,9 @@ func (c *Config) PrimaryPath() (string, error) { // A
 // EffectivePaths returns the normalized storage path list.
 func (c *Config) EffectivePaths() []string { // A
 	if len(c.Storage.Paths) > 0 {
-		out := make([]string, len(c.Storage.Paths))
-		copy(out, c.Storage.Paths)
-		return out
+		return slices.Clone(c.Storage.Paths)
 	}
-	out := make([]string, len(c.Paths))
-	copy(out, c.Paths)
-	return out
+	return slices.Clone(c.Paths)
 }
 
 // EffectiveMinimumFreeGB returns the normalized free-space threshold.
@@ -95,9 +92,7 @@ func (c *Config) EffectiveListenAddress() string { // A
 
 // EffectiveBootstrapAddresses returns a copy of the configured seeds.
 func (c *Config) EffectiveBootstrapAddresses() []string { // A
-	out := make([]string, len(c.Network.BootstrapAddresses))
-	copy(out, c.Network.BootstrapAddresses)
-	return out
+	return slices.Clone(c.Network.BootstrapAddresses)
 }
 
 func defaultLogger() *slog.Logger { // A

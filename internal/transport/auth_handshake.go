@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -119,9 +120,9 @@ func readAuthHandshake( //nolint:cyclop // A: protocol parsing with multiple val
 	for i, a := range msg.Authorities {
 		authorities[i] = auth.EmbeddedCA{
 			Type:        a.Type,
-			PubKEM:      append([]byte(nil), a.PubKem...),
-			PubSign:     append([]byte(nil), a.PubSign...),
-			AnchorSig:   append([]byte(nil), a.AnchorSig...),
+			PubKEM:      bytes.Clone(a.PubKem),
+			PubSign:     bytes.Clone(a.PubSign),
+			AnchorSig:   bytes.Clone(a.AnchorSig),
 			AnchorAdmin: a.AnchorAdmin,
 		}
 	}
@@ -275,9 +276,9 @@ func writeAuthHandshake( // A
 	for i, a := range authorities {
 		wireAuthorities[i] = &pb.WireEmbeddedCA{
 			Type:        a.Type,
-			PubKem:      append([]byte(nil), a.PubKEM...),
-			PubSign:     append([]byte(nil), a.PubSign...),
-			AnchorSig:   append([]byte(nil), a.AnchorSig...),
+			PubKem:      bytes.Clone(a.PubKEM),
+			PubSign:     bytes.Clone(a.PubSign),
+			AnchorSig:   bytes.Clone(a.AnchorSig),
 			AnchorAdmin: a.AnchorAdmin,
 		}
 	}

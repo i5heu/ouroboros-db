@@ -3,6 +3,7 @@
 package authfile
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -324,14 +325,14 @@ func BuildEmbeddedTrustChain( // A
 		return []EmbeddedCAFile{
 			{
 				Type:    "admin-ca",
-				PubKEM:  append([]byte(nil), f.AnchorAdminPubKEM...),
-				PubSign: append([]byte(nil), f.AnchorAdminPubSign...),
+				PubKEM:  bytes.Clone(f.AnchorAdminPubKEM),
+				PubSign: bytes.Clone(f.AnchorAdminPubSign),
 			},
 			{
 				Type:        "user-ca",
 				PubKEM:      pubKEM,
 				PubSign:     pubSign,
-				AnchorSig:   append([]byte(nil), f.AnchorSig...),
+				AnchorSig:   bytes.Clone(f.AnchorSig),
 				AnchorAdmin: f.AnchorAdmin,
 			},
 		}, nil
@@ -353,13 +354,9 @@ func AddEmbeddedTrust( // A
 	authorities := f.Authorities
 	if len(authorities) == 0 {
 		authorities = []EmbeddedCAFile{{
-			Type: "admin-ca",
-			PubKEM: append(
-				[]byte(nil), f.CAPubKEM...,
-			),
-			PubSign: append(
-				[]byte(nil), f.CAPubSign...,
-			),
+			Type:    "admin-ca",
+			PubKEM:  bytes.Clone(f.CAPubKEM),
+			PubSign: bytes.Clone(f.CAPubSign),
 		}}
 	}
 	for _, authority := range authorities {
@@ -421,9 +418,9 @@ func toAuthEmbeddedCAs( // A
 	for index, authority := range authorities {
 		out[index] = auth.EmbeddedCA{
 			Type:        authority.Type,
-			PubKEM:      append([]byte(nil), authority.PubKEM...),
-			PubSign:     append([]byte(nil), authority.PubSign...),
-			AnchorSig:   append([]byte(nil), authority.AnchorSig...),
+			PubKEM:      bytes.Clone(authority.PubKEM),
+			PubSign:     bytes.Clone(authority.PubSign),
+			AnchorSig:   bytes.Clone(authority.AnchorSig),
 			AnchorAdmin: authority.AnchorAdmin,
 		}
 	}

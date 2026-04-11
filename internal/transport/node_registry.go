@@ -2,6 +2,7 @@ package transport
 
 import (
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -12,8 +13,8 @@ import (
 func copyNode(n *interfaces.Node) interfaces.Node { // A
 	return interfaces.Node{
 		NodeID:           n.NodeID,
-		Addresses:        append([]string(nil), n.Addresses...),
-		NodeCerts:        append([]interfaces.NodeCert(nil), n.NodeCerts...),
+		Addresses:        slices.Clone(n.Addresses),
+		NodeCerts:        slices.Clone(n.NodeCerts),
 		Role:             n.Role,
 		LastSeen:         n.LastSeen,
 		ConnectionStatus: n.ConnectionStatus,
@@ -40,16 +41,17 @@ func (r *nodeRegistry) AddNode( // A: node validation requires multiple checks
 		return errors.New("node ID must not be zero")
 	}
 
+	nodeCerts := slices.Clone(certs)
+	if len(nodeCerts) == 0 {
+		nodeCerts = slices.Clone(node.NodeCerts)
+	}
 	n := interfaces.Node{
 		NodeID:           node.NodeID,
-		Addresses:        append([]string(nil), node.Addresses...),
-		NodeCerts:        append([]interfaces.NodeCert(nil), certs...),
+		Addresses:        slices.Clone(node.Addresses),
+		NodeCerts:        nodeCerts,
 		Role:             node.Role,
 		LastSeen:         node.LastSeen,
 		ConnectionStatus: node.ConnectionStatus,
-	}
-	if len(n.NodeCerts) == 0 && len(node.NodeCerts) > 0 {
-		n.NodeCerts = append([]interfaces.NodeCert(nil), node.NodeCerts...)
 	}
 
 	r.mu.Lock()
@@ -65,14 +67,14 @@ func mergeNode( // A
 	existing, incoming *interfaces.Node,
 ) interfaces.Node {
 	if len(incoming.Addresses) == 0 {
-		incoming.Addresses = append([]string(nil), existing.Addresses...)
+		incoming.Addresses = slices.Clone(existing.Addresses)
 	} else {
 		incoming.Addresses = compactAddresses(
 			append(existing.Addresses, incoming.Addresses...),
 		)
 	}
 	if len(incoming.NodeCerts) == 0 {
-		incoming.NodeCerts = append([]interfaces.NodeCert(nil), existing.NodeCerts...)
+		incoming.NodeCerts = slices.Clone(existing.NodeCerts)
 	}
 	if incoming.LastSeen.IsZero() {
 		incoming.LastSeen = existing.LastSeen

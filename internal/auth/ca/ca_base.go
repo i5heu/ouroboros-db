@@ -1,6 +1,7 @@
 package ca
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -51,7 +52,7 @@ type caBase struct { // A
 
 // PubKey returns the concatenated KEM+Sign bytes.
 func (b *caBase) PubKey() []byte { // A
-	return append([]byte(nil), b.pubKeyBytes...)
+	return bytes.Clone(b.pubKeyBytes)
 }
 
 // Hash returns hex(SHA-256(signPubKeyBytes)).

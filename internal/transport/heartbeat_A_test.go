@@ -84,7 +84,7 @@ func decodeHeartbeatPayloadForTest( // A
 	t *testing.T,
 ) heartbeatPayload {
 	t.Helper()
-	encoded, err := marshalHeartbeatPayload(heartbeatPayload{
+	encoded, err := marshalHeartbeatPayload(&heartbeatPayload{
 		SentAtUnix: 123,
 		SenderRole: interfaces.NodeRoleClient,
 		KnownNodes: []heartbeatNodeEntry{{
@@ -176,7 +176,7 @@ func TestHandleHeartbeatUpdatesRegistryAndMergesNodes( // A
 		Role:             interfaces.NodeRoleServer,
 		ConnectionStatus: interfaces.ConnectionStatusDisconnected,
 	}, nil, nil)
-	payloadBytes, err := marshalHeartbeatPayload(heartbeatPayload{
+	payloadBytes, err := marshalHeartbeatPayload(&heartbeatPayload{
 		SentAtUnix: time.Now().Unix(),
 		SenderRole: interfaces.NodeRoleClient,
 		KnownNodes: []heartbeatNodeEntry{{
