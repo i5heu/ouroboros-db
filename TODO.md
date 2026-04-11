@@ -11,10 +11,11 @@
 - [x] Fix all golangci-lint-v2 run problems
 - [x] Simplify and optimize code where possible
 - [x] Search for unnecessary complexity
-- [ ] Search for unnecessary allocations or copies of values
+- [x] Search for unnecessary allocations or copies of values
 - [ ] NodeStats
 - [ ] NodeCapabilities
 - [ ] Relaying messages to other nodes
+
 
 
 ## Transport Layer
